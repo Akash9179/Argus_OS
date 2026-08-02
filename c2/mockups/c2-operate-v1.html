@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C2 Operate: application mockup v1</title>
+<style>
+  :root {
+    --canvas: #08090a;
+    --surface-1: #0f1011;
+    --surface-2: #141516;
+    --surface-3: #18191a;
+    --hairline: #23252a;
+    --hairline-strong: #34343a;
+    --ink: #f7f8f8;
+    --ink-2: #d0d6e0;
+    --ink-3: #8a8f98;
+    --ink-4: #55595f;
+    --ok: #2ea24a;
+    --warn: #d9a13b;
+    --act: #d64545;
+    --off: #6a6f76;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    --sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; font-family: var(--sans); color: var(--ink-2); padding: 24px; }
+
+  /* Review chrome, not part of the product */
+  .review-note {
+    max-width: 1240px; margin: 0 auto 12px; font-family: var(--mono);
+    font-size: 11px; color: #6a6f76; letter-spacing: 0.4px; line-height: 1.6;
+  }
+  .review-note b { color: #a8adb4; font-weight: 500; }
+  .screen {
+    max-width: 1240px; margin: 0 auto; aspect-ratio: 16 / 10;
+    background: var(--canvas); border: 1px solid #1c1e21; border-radius: 12px;
+    overflow: hidden; display: grid;
+    grid-template-rows: 40px 1fr 66px;
+    grid-template-columns: 252px 1fr 306px;
+    grid-template-areas:
+      "strip strip strip"
+      "force map events"
+      "voice voice voice";
+  }
+
+  /* ---- OS status strip: owned by the OS, identical in every application ---- */
+  .status-strip {
+    grid-area: strip; display: flex; align-items: center; padding: 0 14px 0 10px; gap: 16px;
+    border-bottom: 1px solid var(--hairline); background: var(--surface-1);
+  }
+  .home {
+    display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 8px;
+    border-radius: 7px; background: var(--surface-3); border: 1px solid var(--hairline);
+  }
+  .home svg { width: 13px; height: 13px; color: var(--ink-3); }
+  .home span { font-size: 12.5px; color: var(--ink); font-weight: 500; }
+  .strip-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.4px; }
+  .pill { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.off { background: var(--off); }
+
+  /* ---- Left rail: the force ---- */
+  .force {
+    grid-area: force; background: var(--surface-1); border-right: 1px solid var(--hairline);
+    padding: 14px 11px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .rail-h {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 1.6px;
+    color: var(--ink-4); padding: 0 4px 4px;
+  }
+  .asset {
+    background: var(--surface-2); border: 1px solid var(--hairline);
+    border-radius: 9px; padding: 11px 12px;
+  }
+  .asset.selected { border-color: var(--hairline-strong); background: var(--surface-3); }
+  .asset-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .asset-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 700; letter-spacing: 0.3px; }
+  .asset-status { margin-left: auto; font-size: 11.5px; }
+  .s-ok { color: var(--ok); } .s-off { color: var(--off); }
+  .asset-line { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+  .asset-stats {
+    display: flex; align-items: center; gap: 11px; margin-top: 9px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  }
+  .batt { display: flex; align-items: center; gap: 5px; }
+  .batt-bar { width: 30px; height: 4px; border-radius: 3px; background: var(--hairline-strong); overflow: hidden; }
+  .batt-fill { height: 100%; background: var(--ok); width: 87%; }
+
+  /* ---- Map ---- */
+  .map { grid-area: map; position: relative; background: #0b0d0e; overflow: hidden; }
+  .map svg.base { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .map-hint {
+    position: absolute; left: 14px; bottom: 12px;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.6px;
+  }
+  .zoom {
+    position: absolute; right: 14px; bottom: 12px; display: flex; flex-direction: column;
+    background: var(--surface-2); border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden;
+  }
+  .zoom span { width: 28px; height: 28px; display: grid; place-items: center; color: var(--ink-3); font-size: 14px; }
+  .zoom span + span { border-top: 1px solid var(--hairline); }
+
+  .popup {
+    position: absolute; left: 51%; top: 22%;
+    background: var(--surface-2); border: 1px solid var(--hairline-strong);
+    border-radius: 10px; padding: 12px 13px; width: 236px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  }
+  .popup-title { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; font-weight: 600; }
+  .diamond { width: 9px; height: 9px; background: var(--warn); transform: rotate(45deg); border-radius: 2px; flex: none; }
+  .popup-body { font-size: 12.5px; color: var(--ink-3); line-height: 1.55; margin: 8px 0 11px; }
+  .popup-actions { display: flex; gap: 7px; }
+  .btn {
+    font-size: 12px; padding: 6px 11px; border-radius: 6px;
+    background: var(--surface-3); border: 1px solid var(--hairline-strong); color: var(--ink-2);
+  }
+  .btn.primary { background: var(--ink); color: var(--canvas); border-color: var(--ink); font-weight: 600; }
+
+  /* ---- Right rail: events ---- */
+  .events {
+    grid-area: events; background: var(--surface-1); border-left: 1px solid var(--hairline);
+    padding: 14px 11px; display: flex; flex-direction: column; gap: 6px; overflow: hidden;
+  }
+  .event {
+    padding: 10px 11px; border-radius: 8px; border-left: 2px solid var(--hairline-strong);
+    background: var(--surface-2);
+  }
+  .event.warn { border-left-color: var(--warn); }
+  .event.ok { border-left-color: var(--ok); }
+  .event.off { border-left-color: var(--off); }
+  .event-time { font-family: var(--mono); font-size: 10px; color: var(--ink-4); margin-bottom: 3px; }
+  .event-text { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+  .event-src { font-size: 11px; color: var(--ink-4); margin-top: 4px; }
+
+  /* ---- Voice bar ---- */
+  .voice {
+    grid-area: voice; background: var(--surface-1); border-top: 1px solid var(--hairline);
+    display: flex; align-items: center; gap: 15px; padding: 0 15px;
+  }
+  .ptt {
+    width: 40px; height: 40px; border-radius: 50%; flex: none;
+    background: var(--surface-3); border: 1px solid var(--hairline-strong);
+    display: grid; place-items: center; color: var(--ink);
+  }
+  .ptt svg { width: 16px; height: 16px; }
+  .voice-lines { flex: 1; min-width: 0; }
+  .heard { font-family: var(--mono); font-size: 11.5px; color: var(--ink-4); letter-spacing: 0.3px; }
+  .heard b { color: var(--ink-3); font-weight: 400; }
+  .said { font-size: 13.5px; color: var(--ink); margin-top: 4px; }
+  .confirm { display: flex; gap: 7px; flex: none; }
+  .keyhint { font-family: var(--mono); font-size: 10px; color: var(--ink-4); flex: none; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+
+<div class="review-note">
+  <b>REVIEW 2 of 2 — C2, application number one (plan section 5, founder gate 1).</b><br>
+  The 40px strip at the top belongs to the operating system and is the same in every application.
+  Everything below it is C2.
+</div>
+
+<div class="screen">
+
+  <div class="status-strip">
+    <div class="home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+      <span>Operate</span>
+    </div>
+    <div class="strip-right">
+      <div class="pill"><div class="dot ok"></div><span class="meta">LINK</span></div>
+      <span class="meta">A. SURYAVANSHI · OPERATOR</span>
+      <span class="meta">14:32:07 Z</span>
+    </div>
+  </div>
+
+  <div class="force">
+    <div class="rail-h">FORCE · 2</div>
+    <div class="asset selected">
+      <div class="asset-top">
+        <div class="dot ok"></div>
+        <div class="asset-name">UGV-1</div>
+        <div class="asset-status s-ok">Active</div>
+      </div>
+      <div class="asset-line">Patrolling the north perimeter</div>
+      <div class="asset-stats">
+        <div class="batt"><div class="batt-bar"><div class="batt-fill"></div></div>87%</div>
+        <div>2.4 m/s</div>
+        <div>NW</div>
+      </div>
+    </div>
+    <div class="asset">
+      <div class="asset-top">
+        <div class="dot off"></div>
+        <div class="asset-name">SIM-1</div>
+        <div class="asset-status s-off">Offline</div>
+      </div>
+      <div class="asset-line">Last heard 12 minutes ago</div>
+      <div class="asset-stats"><div>Last position kept on the map</div></div>
+    </div>
+  </div>
+
+  <div class="map">
+    <svg class="base" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid slice">
+      <rect width="1000" height="700" fill="#0b0d0e"/>
+      <path d="M0,520 Q220,480 420,540 T1000,500 L1000,700 L0,700 Z" fill="#0d1011"/>
+      <path d="M0,110 Q300,170 520,100 T1000,150" stroke="#141719" stroke-width="32" fill="none"/>
+      <g stroke="#131518" stroke-width="1">
+        <line x1="0" y1="140" x2="1000" y2="140"/><line x1="0" y1="280" x2="1000" y2="280"/>
+        <line x1="0" y1="420" x2="1000" y2="420"/><line x1="0" y1="560" x2="1000" y2="560"/>
+        <line x1="200" y1="0" x2="200" y2="700"/><line x1="400" y1="0" x2="400" y2="700"/>
+        <line x1="600" y1="0" x2="600" y2="700"/><line x1="800" y1="0" x2="800" y2="700"/>
+      </g>
+
+      <polygon points="630,140 830,120 860,290 650,320" fill="none" stroke="#3a3d43" stroke-width="1.4"/>
+      <text x="658" y="170" fill="#55595f" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">GATE 3</text>
+      <polygon points="110,410 320,390 350,590 130,610" fill="none" stroke="#3a3d43" stroke-width="1.4"/>
+      <text x="140" y="440" fill="#55595f" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">HOME</text>
+
+      <path d="M230,500 L290,290 L510,230 L690,330 L670,510 L410,550 Z"
+            fill="none" stroke="#2ea24a" stroke-width="1.4" stroke-dasharray="6 7" opacity="0.5"/>
+
+      <g transform="translate(550,225)">
+        <rect x="-7" y="-7" width="14" height="14" transform="rotate(45)" fill="#d9a13b"/>
+        <circle r="19" fill="none" stroke="#d9a13b" stroke-width="1" opacity="0.3"/>
+      </g>
+
+      <g transform="translate(295,286) rotate(18)">
+        <polygon points="0,-13 9,10 -9,10" fill="#2ea24a"/>
+        <line x1="0" y1="-13" x2="0" y2="-25" stroke="#2ea24a" stroke-width="1.5" opacity="0.55"/>
+      </g>
+      <text x="312" y="292" fill="#8a8f98" font-family="JetBrains Mono, monospace" font-size="11">UGV-1</text>
+
+      <g transform="translate(760,600)" opacity="0.5">
+        <polygon points="0,-11 8,9 -8,9" fill="#6a6f76"/>
+      </g>
+      <text x="775" y="606" fill="#55595f" font-family="JetBrains Mono, monospace" font-size="11">SIM-1</text>
+    </svg>
+
+    <div class="popup">
+      <div class="popup-title"><div class="diamond"></div>Possible person</div>
+      <div class="popup-body">Low confidence, 4 in 10. Near Gate 3. Seen by UGV-1 fourteen seconds ago, moving slowly west.</div>
+      <div class="popup-actions">
+        <button class="btn primary">Send UGV-1</button>
+        <button class="btn">Watch</button>
+        <button class="btn">Dismiss</button>
+      </div>
+    </div>
+
+    <div class="map-hint">CLICK THE MAP TO SEND THE SELECTED VEHICLE</div>
+    <div class="zoom"><span>+</span><span>&minus;</span></div>
+  </div>
+
+  <div class="events">
+    <div class="rail-h">WHAT HAPPENED</div>
+    <div class="event warn">
+      <div class="event-time">14:32:07</div>
+      <div class="event-text">Possible person near Gate 3, low confidence.</div>
+      <div class="event-src">Seen by UGV-1</div>
+    </div>
+    <div class="event">
+      <div class="event-time">14:28:41</div>
+      <div class="event-text">UGV-1 started patrolling the north perimeter.</div>
+      <div class="event-src">Ordered by A. Suryavanshi, by voice</div>
+    </div>
+    <div class="event ok">
+      <div class="event-time">14:15:03</div>
+      <div class="event-text">UGV-1 is online and healthy. Battery 91 percent.</div>
+      <div class="event-src">System</div>
+    </div>
+    <div class="event off">
+      <div class="event-time">14:02:56</div>
+      <div class="event-text">SIM-1 stopped answering. Its last position is still shown.</div>
+      <div class="event-src">System</div>
+    </div>
+  </div>
+
+  <div class="voice">
+    <div class="ptt">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/>
+      </svg>
+    </div>
+    <div class="voice-lines">
+      <div class="heard">HEARD <b>&ldquo;Argus, send the vehicle to gate three.&rdquo;</b></div>
+      <div class="said">Confirm: send UGV-1 to Gate 3?</div>
+    </div>
+    <div class="confirm">
+      <button class="btn primary">Confirm</button>
+      <button class="btn">Cancel</button>
+    </div>
+    <div class="keyhint">HOLD SPACE TO TALK</div>
+  </div>
+
+</div>
+
+</body>
+</html>

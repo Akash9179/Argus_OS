@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OS shell v3: dock labels, dark and day</title>
+<style>
+  /* ===================== DARK (the operational default) ===================== */
+  :root {
+    --desk: #07090b;
+    --glass: rgba(24, 27, 31, 0.66);
+    --glass-strong: rgba(20, 23, 26, 0.86);
+    --panel: rgba(38, 42, 47, 0.55);
+    --panel-sel: rgba(52, 58, 65, 0.6);
+    --raise: rgba(255, 255, 255, 0.055);
+    --hairline: rgba(255, 255, 255, 0.085);
+    --hairline-soft: rgba(255, 255, 255, 0.045);
+    --fill-soft: rgba(255, 255, 255, 0.03);
+    --fill-btn: rgba(255, 255, 255, 0.08);
+    --fill-active: rgba(255, 255, 255, 0.10);
+
+    --ink: #f2f4f6;
+    --ink-2: #b8bec6;
+    --ink-3: #868d96;
+    --ink-4: #5c636b;
+    --ink-invert: #0b0d0f;
+
+    /* Colour means state. Nothing else in the interface may use it. */
+    --ok: #30d158;
+    --warn: #ff9f0a;
+    --act: #ff453a;
+    --off: #8e8e93;
+    --glow-ok: rgba(48, 209, 88, 0.55);
+    --glow-warn: rgba(255, 159, 10, 0.5);
+
+    /* Wallpaper and map */
+    --wall-top: #0d1319;
+    --wall-bottom: #06080a;
+    --wall-line: #131a20;
+    --wall-grid: #0f151b;
+    --wall-road: #111820;
+    --wall-veil: rgba(0, 0, 0, 0.65);
+    --wall-tint: rgba(60, 90, 120, 0.10);
+    --map-bg: #090b0d;
+    --map-land: #0c0f11;
+    --map-grid: #12161a;
+    --map-zone: #39404a;
+    --map-label: #5c636b;
+
+    --shadow-dock: 0 18px 45px rgba(0, 0, 0, 0.55);
+    --shadow-window: 0 40px 90px rgba(0, 0, 0, 0.65);
+    --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.6);
+    --shadow-icon: 0 6px 14px rgba(0, 0, 0, 0.45);
+    --icon-grad: linear-gradient(180deg, #444a52 0%, #262b31 55%, #1c2126 100%);
+    --icon-glyph: #e8ecf0;
+
+    --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --r-sm: 8px; --r-md: 12px; --r-lg: 18px; --r-xl: 26px;
+  }
+
+  /* ===================== DAY (for working in sunlight) ===================== */
+  /* Not a light theme for taste: a high-brightness mode so the screen stays
+     readable outdoors. The four status colours are darkened so they keep
+     their meaning against a bright surface. */
+  [data-theme="day"] {
+    --desk: #dfe4ea;
+    --glass: rgba(252, 252, 253, 0.72);
+    --glass-strong: rgba(255, 255, 255, 0.90);
+    --panel: rgba(255, 255, 255, 0.72);
+    --panel-sel: rgba(255, 255, 255, 0.95);
+    --raise: rgba(255, 255, 255, 0.9);
+    --hairline: rgba(0, 0, 0, 0.13);
+    --hairline-soft: rgba(0, 0, 0, 0.07);
+    --fill-soft: rgba(0, 0, 0, 0.022);
+    --fill-btn: rgba(0, 0, 0, 0.05);
+    --fill-active: rgba(0, 0, 0, 0.08);
+
+    --ink: #16181b;
+    --ink-2: #3a3f45;
+    --ink-3: #62676e;
+    --ink-4: #868c94;
+    --ink-invert: #ffffff;
+
+    --ok: #248a3d;
+    --warn: #b35c00;
+    --act: #d70015;
+    --off: #6c7075;
+    --glow-ok: rgba(36, 138, 61, 0.30);
+    --glow-warn: rgba(179, 92, 0, 0.28);
+
+    --wall-top: #eef2f6;
+    --wall-bottom: #cfd8e0;
+    --wall-line: #c2ccd6;
+    --wall-grid: #d8e0e7;
+    --wall-road: #c8d2db;
+    --wall-veil: rgba(120, 140, 160, 0.16);
+    --wall-tint: rgba(255, 255, 255, 0.35);
+    --map-bg: #eceff2;
+    --map-land: #e2e7eb;
+    --map-grid: #d5dbe1;
+    --map-zone: #9aa3ad;
+    --map-label: #6b7278;
+
+    --shadow-dock: 0 16px 40px rgba(20, 30, 45, 0.18);
+    --shadow-window: 0 32px 70px rgba(20, 30, 45, 0.22);
+    --shadow-pop: 0 14px 34px rgba(20, 30, 45, 0.20);
+    --shadow-icon: 0 4px 10px rgba(20, 30, 45, 0.22);
+    --icon-grad: linear-gradient(180deg, #5a626b 0%, #3b424a 55%, #2e343b 100%);
+    --icon-glyph: #ffffff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000; font-family: var(--sans); color: var(--ink-2);
+    padding: 22px; -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+  .review-note {
+    max-width: 1280px; margin: 0 auto 12px; font-family: var(--mono);
+    font-size: 11px; color: #6b7075; letter-spacing: 0.3px; line-height: 1.7;
+  }
+  .review-note b { color: #aeb4bb; font-weight: 500; }
+  .review-note kbd {
+    background: #1a1d21; border: 1px solid #2a2e33; border-radius: 4px;
+    padding: 1px 5px; font-size: 10px; color: #aeb4bb;
+  }
+
+  .machine {
+    max-width: 1280px; margin: 0 auto; aspect-ratio: 16 / 10; position: relative;
+    background: var(--desk); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    isolation: isolate;
+    transition: background 320ms ease;
+  }
+
+  /* ========== wallpaper: the site itself ========== */
+  .wallpaper { position: absolute; inset: 0; }
+  .wallpaper svg { width: 100%; height: 100%; display: block; }
+  .wallpaper::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(120% 90% at 50% 8%, var(--wall-tint), transparent 60%),
+      radial-gradient(100% 100% at 50% 100%, var(--wall-veil), transparent 55%);
+  }
+
+  /* ========== menu bar ========== */
+  .menubar {
+    position: absolute; top: 0; left: 0; right: 0; height: 30px; z-index: 60;
+    display: flex; align-items: center; gap: 20px; padding: 0 12px;
+    background: var(--glass); backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  .mb-mark { font-family: var(--mono); font-size: 11px; letter-spacing: 2.6px; color: var(--ink); font-weight: 700; }
+  .mb-app { font-size: 12.5px; color: var(--ink); font-weight: 600; letter-spacing: -0.1px; }
+  .mb-items { display: flex; gap: 16px; }
+  .mb-item { font-size: 12.5px; color: var(--ink-2); }
+  .mb-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .mb-stat { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  .mb-stat .mono { font-family: var(--mono); font-size: 11px; letter-spacing: 0.3px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 7px var(--glow-ok); }
+  .dot.off { background: var(--off); }
+
+  .theme-btn {
+    display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--hairline); background: var(--fill-btn); color: var(--ink-2);
+    font-size: 11px; transition: transform 120ms ease;
+  }
+  .theme-btn:active { transform: scale(0.95); }
+  .theme-btn svg { width: 13px; height: 13px; }
+
+  /* ========== desktop ========== */
+  .desktop {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; transition: opacity 260ms ease, transform 320ms cubic-bezier(.2,.8,.2,1);
+    padding-bottom: 40px;
+  }
+  .machine.app-open .desktop { opacity: 0; transform: scale(1.04); pointer-events: none; }
+  .glance-time {
+    font-size: 62px; font-weight: 300; color: var(--ink); letter-spacing: -2px;
+    line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .glance-date { font-size: 14px; color: var(--ink-3); letter-spacing: 0.2px; }
+  .glance-state {
+    margin-top: 22px; display: flex; align-items: center; gap: 10px;
+    background: var(--glass); backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: 999px; padding: 9px 18px 9px 14px;
+    box-shadow: inset 0 1px 0 var(--raise);
+  }
+  .glance-state span { font-size: 13.5px; color: var(--ink); }
+
+  /* ========== dock: icon plus name, always ========== */
+  .dock {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 70;
+    display: flex; align-items: flex-start; gap: 6px; padding: 10px 12px 8px;
+    background: var(--glass); backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: var(--r-xl);
+    box-shadow: var(--shadow-dock), inset 0 1px 0 var(--raise);
+  }
+  .dock-app {
+    position: relative; display: flex; flex-direction: column; align-items: center;
+    gap: 6px; width: 82px; padding: 0 2px;
+  }
+  .icon {
+    width: 50px; height: 50px; border-radius: 24%; position: relative;
+    background: var(--icon-grad);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+      var(--shadow-icon);
+    display: grid; place-items: center;
+    transition: transform 180ms cubic-bezier(.2,.8,.2,1), filter 180ms ease;
+  }
+  .icon svg { width: 24px; height: 24px; color: var(--icon-glyph); }
+  .dock-app:not(.disabled):hover .icon { transform: translateY(-9px) scale(1.14); }
+  .dock-app:not(.disabled):active .icon { transform: translateY(-4px) scale(1.04); }
+  .dock-app.disabled .icon { filter: grayscale(1) brightness(0.62); }
+  .dock-app.disabled { cursor: not-allowed; }
+
+  /* The name is always visible. An operator should never have to know
+     what a symbol means. */
+  .dock-name {
+    font-size: 11.5px; color: var(--ink-2); letter-spacing: -0.1px; line-height: 1;
+    text-align: center; white-space: nowrap;
+  }
+  .dock-app.disabled .dock-name { color: var(--ink-4); }
+  .dock-app.running .dock-name { color: var(--ink); font-weight: 600; }
+  .running { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-3); opacity: 0; }
+  .dock-app.running .running { opacity: 1; }
+
+  .tip {
+    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%) translateY(6px);
+    background: var(--glass-strong); backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--hairline); border-radius: var(--r-sm);
+    padding: 5px 11px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 140ms ease, transform 140ms ease;
+    box-shadow: var(--shadow-pop);
+  }
+  .dock-app:hover .tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .dock-sep { width: 1px; align-self: stretch; background: var(--hairline); margin: 6px 6px 20px; }
+
+  /* ========== application layer ========== */
+  .app {
+    position: absolute; inset: 30px 0 0; z-index: 30; display: none;
+    opacity: 0; transform: scale(0.97);
+    transition: opacity 240ms ease, transform 300ms cubic-bezier(.2,.8,.2,1);
+  }
+  .app.shown { display: block; }
+  .app.visible { opacity: 1; transform: scale(1); }
+
+  #app-operate {
+    display: none; grid-template-columns: 238px 1fr 292px; grid-template-rows: 1fr 62px;
+    grid-template-areas: "force map events" "voice voice voice";
+    background: var(--map-bg);
+  }
+  #app-operate.shown { display: grid; }
+  .pane { background: var(--glass); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+  .force { grid-area: force; border-right: 1px solid var(--hairline-soft); padding: 13px 11px; display: flex; flex-direction: column; gap: 8px; }
+  .events { grid-area: events; border-left: 1px solid var(--hairline-soft); padding: 13px 11px; display: flex; flex-direction: column; gap: 6px; }
+  .maparea { grid-area: map; position: relative; overflow: hidden; }
+  .maparea svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .voicebar { grid-area: voice; border-top: 1px solid var(--hairline-soft); display: flex; align-items: center; gap: 14px; padding: 0 15px; }
+  .rail-h { font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.5px; color: var(--ink-4); padding: 0 4px 3px; }
+  .card { background: var(--panel); border: 1px solid var(--hairline-soft); border-radius: var(--r-md); padding: 11px 12px; box-shadow: inset 0 1px 0 var(--raise); }
+  .card.sel { border-color: var(--hairline); background: var(--panel-sel); }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .aname { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 700; letter-spacing: 0.3px; }
+  .astat { margin-left: auto; font-size: 11.5px; }
+  .s-ok { color: var(--ok); } .s-off { color: var(--off); }
+  .aline { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; margin-top: 6px; }
+  .astats { display: flex; gap: 11px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .bbar { width: 30px; height: 4px; border-radius: 3px; background: var(--fill-active); overflow: hidden; display: inline-block; vertical-align: middle; }
+  .bfill { height: 100%; background: var(--ok); display: block; }
+  .ev { border-radius: var(--r-md); padding: 9px 11px; background: var(--panel); border-left: 2px solid var(--hairline); }
+  .ev.warn { border-left-color: var(--warn); }
+  .ev.ok { border-left-color: var(--ok); }
+  .ev.off { border-left-color: var(--off); }
+  .evt { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); }
+  .evx { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin-top: 2px; }
+  .evs { font-size: 11px; color: var(--ink-4); margin-top: 3px; }
+  .ptt { width: 38px; height: 38px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--icon-grad); box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), var(--shadow-icon); color: var(--icon-glyph); }
+  .ptt svg { width: 15px; height: 15px; }
+  .heard { font-family: var(--mono); font-size: 11px; color: var(--ink-4); letter-spacing: 0.3px; }
+  .heard b { color: var(--ink-3); font-weight: 400; }
+  .said { font-size: 13.5px; color: var(--ink); margin-top: 3px; }
+  .btn { font-size: 12px; padding: 6px 12px; border-radius: 999px; background: var(--fill-btn); border: 1px solid var(--hairline); color: var(--ink-2); transition: transform 120ms ease; }
+  .btn:active { transform: scale(0.95); }
+  .btn.primary { background: var(--ink); color: var(--ink-invert); border-color: var(--ink); font-weight: 600; }
+  .popup {
+    position: absolute; left: 50%; top: 20%; width: 232px;
+    background: var(--glass-strong); backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: var(--r-lg); padding: 12px 13px;
+    box-shadow: var(--shadow-pop), inset 0 1px 0 var(--raise);
+  }
+  .ptitle { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; font-weight: 600; }
+  .diamond { width: 9px; height: 9px; background: var(--warn); transform: rotate(45deg); border-radius: 2px; flex: none; }
+  .pbody { font-size: 12.5px; color: var(--ink-3); line-height: 1.55; margin: 8px 0 11px; }
+
+  #app-admin { display: none; place-items: center; }
+  #app-admin.shown { display: grid; }
+  .window {
+    width: 78%; height: 80%; display: grid; grid-template-columns: 200px 1fr;
+    background: var(--glass-strong); backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: var(--r-lg); overflow: hidden;
+    box-shadow: var(--shadow-window), inset 0 1px 0 var(--raise);
+  }
+  .wsidebar { background: var(--fill-soft); border-right: 1px solid var(--hairline-soft); padding: 14px 10px; }
+  .wtitle { font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 1.4px; padding: 0 8px 10px; }
+  .snav { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-2); padding: 7px 9px; border-radius: var(--r-sm); }
+  .snav.active { background: var(--fill-active); color: var(--ink); }
+  .snav svg { width: 14px; height: 14px; opacity: 0.75; }
+  .wmain { padding: 22px 26px; overflow: auto; }
+  .wh { display: flex; align-items: center; gap: 12px; }
+  .wh h2 { font-size: 21px; color: var(--ink); font-weight: 600; letter-spacing: -0.4px; }
+  .wsub { font-size: 13px; color: var(--ink-4); margin: 5px 0 20px; }
+  .list { border: 1px solid var(--hairline-soft); border-radius: var(--r-md); overflow: hidden; background: var(--fill-soft); }
+  .li { display: flex; align-items: center; gap: 14px; padding: 13px 15px; }
+  .li + .li { border-top: 1px solid var(--hairline-soft); }
+  .li-name { font-size: 13.5px; color: var(--ink); }
+  .li-sub { font-size: 12px; color: var(--ink-4); margin-top: 2px; }
+  .chip { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: var(--fill-btn); border: 1px solid var(--hairline); color: var(--ink-2); }
+  .li-right { margin-left: auto; text-align: right; }
+  .policy { margin-top: 20px; border: 1px solid var(--hairline-soft); border-radius: var(--r-md); padding: 15px 17px; display: flex; align-items: center; gap: 16px; background: var(--fill-soft); }
+  .plabel { font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.4px; color: var(--ink-4); }
+  .pvalue { font-size: 14.5px; color: var(--ink); font-weight: 600; margin-top: 4px; }
+  .pnote { font-size: 12.5px; color: var(--ink-4); margin-left: auto; text-align: right; line-height: 1.5; }
+
+  /* Appearance chooser inside Settings */
+  .appearance { display: flex; gap: 12px; margin-top: 4px; }
+  .swatch { flex: 1; border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; background: var(--fill-soft); text-align: left; transition: transform 120ms ease; }
+  .swatch:active { transform: scale(0.98); }
+  .swatch.on { border-color: var(--ink-3); box-shadow: 0 0 0 2px var(--fill-active); }
+  .swatch-art { height: 62px; display: block; }
+  .swatch-label { padding: 9px 11px; font-size: 12.5px; color: var(--ink); }
+  .swatch-label small { display: block; color: var(--ink-4); font-size: 11.5px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="review-note">
+  <b>OS shell v3.</b> Every dock item now carries its name; hover still gives the one-line purpose.
+  Dark is the default; <b>Day</b> is a high-brightness mode for working in sunlight, switchable from
+  the menu bar or Settings &rsaquo; Appearance. Click the dock to open apps, <kbd>Esc</kbd> to go back.<br>
+  Status colours are re-cut for Day so green, amber, red, and grey stay distinguishable on a bright
+  surface. Switching theme never changes what a colour means.
+</div>
+
+<div class="machine" id="machine" data-theme="dark">
+
+  <div class="wallpaper">
+    <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--wall-top)"/><stop offset="100%" stop-color="var(--wall-bottom)"/>
+        </linearGradient>
+      </defs>
+      <rect width="1600" height="1000" fill="url(#sky)"/>
+      <g stroke="var(--wall-line)" stroke-width="1.2" fill="none">
+        <path d="M-50,700 Q300,640 640,700 T1650,660"/>
+        <path d="M-50,760 Q300,700 640,760 T1650,720"/>
+        <path d="M-50,820 Q300,762 640,822 T1650,782"/>
+        <path d="M-50,880 Q300,824 640,884 T1650,844"/>
+        <path d="M-50,300 Q380,230 760,300 T1650,250"/>
+        <path d="M-50,240 Q380,170 760,240 T1650,190"/>
+      </g>
+      <path d="M-50,470 Q400,540 820,455 T1650,500" stroke="var(--wall-road)" stroke-width="46" fill="none" opacity="0.85"/>
+      <g stroke="var(--wall-grid)" stroke-width="1">
+        <line x1="0" y1="200" x2="1600" y2="200"/><line x1="0" y1="400" x2="1600" y2="400"/>
+        <line x1="0" y1="600" x2="1600" y2="600"/><line x1="0" y1="800" x2="1600" y2="800"/>
+        <line x1="266" y1="0" x2="266" y2="1000"/><line x1="533" y1="0" x2="533" y2="1000"/>
+        <line x1="800" y1="0" x2="800" y2="1000"/><line x1="1066" y1="0" x2="1066" y2="1000"/>
+        <line x1="1333" y1="0" x2="1333" y2="1000"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="menubar">
+    <div class="mb-mark">ARGUS</div>
+    <div class="mb-app" id="mb-app">Desktop</div>
+    <div class="mb-items" id="mb-items"></div>
+    <div class="mb-right">
+      <div class="mb-stat"><div class="dot ok"></div><span class="mono">LINK</span></div>
+      <div class="mb-stat"><div class="dot ok"></div><span class="mono">2 MACHINES</span></div>
+      <div class="mb-stat"><span class="mono">ON-SITE AI</span></div>
+      <button class="theme-btn" id="theme-btn" title="Switch between dark and day">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
+        <span id="theme-label">Dark</span>
+      </button>
+      <div class="mb-stat"><span>A. Suryavanshi</span></div>
+      <div class="mb-stat"><span class="mono">14:32 Z</span></div>
+    </div>
+  </div>
+
+  <div class="desktop" id="desktop">
+    <div class="glance-time">14:32</div>
+    <div class="glance-date">Sunday 2 August</div>
+    <div class="glance-state">
+      <div class="dot ok"></div>
+      <span>Everything is running. Two machines connected, nothing needs you.</span>
+    </div>
+  </div>
+
+  <!-- Operate -->
+  <div class="app" id="app-operate">
+    <div class="pane force">
+      <div class="rail-h">FORCE</div>
+      <div class="card sel">
+        <div class="row"><div class="dot ok"></div><div class="aname">UGV-1</div><div class="astat s-ok">Active</div></div>
+        <div class="aline">Patrolling the north perimeter</div>
+        <div class="astats"><div><span class="bbar"><span class="bfill" style="width:87%"></span></span> 87%</div><div>2.4 m/s</div><div>NW</div></div>
+      </div>
+      <div class="card">
+        <div class="row"><div class="dot off"></div><div class="aname">SIM-1</div><div class="astat s-off">Offline</div></div>
+        <div class="aline">Last heard 12 minutes ago</div>
+      </div>
+    </div>
+
+    <div class="maparea">
+      <svg viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid slice">
+        <rect width="1000" height="700" fill="var(--map-bg)"/>
+        <path d="M0,520 Q220,480 420,540 T1000,500 L1000,700 L0,700 Z" fill="var(--map-land)"/>
+        <g stroke="var(--map-grid)" stroke-width="1">
+          <line x1="0" y1="175" x2="1000" y2="175"/><line x1="0" y1="350" x2="1000" y2="350"/>
+          <line x1="0" y1="525" x2="1000" y2="525"/>
+          <line x1="250" y1="0" x2="250" y2="700"/><line x1="500" y1="0" x2="500" y2="700"/>
+          <line x1="750" y1="0" x2="750" y2="700"/>
+        </g>
+        <polygon points="630,140 830,120 860,290 650,320" fill="none" stroke="var(--map-zone)" stroke-width="1.3"/>
+        <text x="658" y="170" fill="var(--map-label)" font-family="ui-monospace, monospace" font-size="11" letter-spacing="2">GATE 3</text>
+        <polygon points="110,410 320,390 350,590 130,610" fill="none" stroke="var(--map-zone)" stroke-width="1.3"/>
+        <text x="140" y="440" fill="var(--map-label)" font-family="ui-monospace, monospace" font-size="11" letter-spacing="2">HOME</text>
+        <path d="M230,500 L290,290 L510,230 L690,330 L670,510 L410,550 Z" fill="none" stroke="var(--ok)" stroke-width="1.4" stroke-dasharray="6 7" opacity="0.5"/>
+        <g transform="translate(550,225)">
+          <rect x="-7" y="-7" width="14" height="14" transform="rotate(45)" fill="var(--warn)"/>
+          <circle r="19" fill="none" stroke="var(--warn)" stroke-width="1" opacity="0.35"/>
+        </g>
+        <g transform="translate(295,286) rotate(18)">
+          <polygon points="0,-13 9,10 -9,10" fill="var(--ok)"/>
+          <line x1="0" y1="-13" x2="0" y2="-25" stroke="var(--ok)" stroke-width="1.5" opacity="0.55"/>
+        </g>
+        <text x="312" y="292" fill="var(--ink-3)" font-family="ui-monospace, monospace" font-size="11">UGV-1</text>
+      </svg>
+      <div class="popup">
+        <div class="ptitle"><div class="diamond"></div>Possible person</div>
+        <div class="pbody">Low confidence, 4 in 10. Near Gate 3. Seen by UGV-1 fourteen seconds ago, moving slowly west.</div>
+        <div class="row" style="gap:7px"><button class="btn primary">Send UGV-1</button><button class="btn">Watch</button><button class="btn">Dismiss</button></div>
+      </div>
+    </div>
+
+    <div class="pane events">
+      <div class="rail-h">WHAT HAPPENED</div>
+      <div class="ev warn"><div class="evt">14:32:07</div><div class="evx">Possible person near Gate 3, low confidence.</div><div class="evs">Seen by UGV-1</div></div>
+      <div class="ev"><div class="evt">14:28:41</div><div class="evx">UGV-1 started patrolling the north perimeter.</div><div class="evs">Ordered by A. Suryavanshi, by voice</div></div>
+      <div class="ev ok"><div class="evt">14:15:03</div><div class="evx">UGV-1 is online and healthy. Battery 91 percent.</div><div class="evs">System</div></div>
+      <div class="ev off"><div class="evt">14:02:56</div><div class="evx">SIM-1 stopped answering. Its last position is still shown.</div><div class="evs">System</div></div>
+    </div>
+
+    <div class="pane voicebar">
+      <div class="ptt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg></div>
+      <div style="flex:1; min-width:0">
+        <div class="heard">HEARD <b>&ldquo;Argus, send the vehicle to gate three.&rdquo;</b></div>
+        <div class="said">Confirm: send UGV-1 to Gate 3?</div>
+      </div>
+      <div class="row" style="gap:7px"><button class="btn primary">Confirm</button><button class="btn">Cancel</button></div>
+      <div class="heard" style="flex:none">HOLD SPACE</div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="app" id="app-admin">
+    <div class="window">
+      <div class="wsidebar">
+        <div class="wtitle">SETTINGS</div>
+        <div class="snav" data-pane="zones"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Zones</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 7V5h10v2"/></svg>Machines</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>People</div>
+        <div class="snav active" data-pane="appearance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" opacity="0.35" stroke="none"/></svg>Appearance</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>AI policy</div>
+      </div>
+
+      <div class="wmain" id="pane-appearance">
+        <div class="wh"><h2>Appearance</h2></div>
+        <div class="wsub">Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.</div>
+        <div class="appearance">
+          <button class="swatch on" data-set="dark">
+            <svg class="swatch-art" viewBox="0 0 200 62" preserveAspectRatio="none">
+              <rect width="200" height="62" fill="#0a0d10"/><rect x="0" y="0" width="200" height="9" fill="#171b1f"/>
+              <rect x="12" y="20" width="58" height="30" rx="4" fill="#20252a"/><rect x="78" y="20" width="110" height="30" rx="4" fill="#161a1e"/>
+              <circle cx="150" cy="35" r="4" fill="#30d158"/>
+            </svg>
+            <div class="swatch-label">Dark<small>Default. Best at night.</small></div>
+          </button>
+          <button class="swatch" data-set="day">
+            <svg class="swatch-art" viewBox="0 0 200 62" preserveAspectRatio="none">
+              <rect width="200" height="62" fill="#e6eaef"/><rect x="0" y="0" width="200" height="9" fill="#fafbfc"/>
+              <rect x="12" y="20" width="58" height="30" rx="4" fill="#ffffff"/><rect x="78" y="20" width="110" height="30" rx="4" fill="#f2f4f7"/>
+              <circle cx="150" cy="35" r="4" fill="#248a3d"/>
+            </svg>
+            <div class="swatch-label">Day<small>Bright, for sunlight.</small></div>
+          </button>
+          <button class="swatch" data-set="auto">
+            <svg class="swatch-art" viewBox="0 0 200 62" preserveAspectRatio="none">
+              <rect width="100" height="62" fill="#0a0d10"/><rect x="100" width="100" height="62" fill="#e6eaef"/>
+              <rect x="0" y="0" width="100" height="9" fill="#171b1f"/><rect x="100" y="0" width="100" height="9" fill="#fafbfc"/>
+              <rect x="12" y="20" width="58" height="30" rx="4" fill="#20252a"/><rect x="118" y="20" width="70" height="30" rx="4" fill="#ffffff"/>
+            </svg>
+            <div class="swatch-label">Auto<small>Follows sunrise and sunset.</small></div>
+          </button>
+        </div>
+
+        <div class="policy">
+          <div><div class="plabel">RIGHT NOW</div><div class="pvalue" id="auto-note">Dark</div></div>
+          <div class="pnote">Sunset here is at 20:41.<br>Auto would switch to dark then.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dock" id="dock">
+    <button class="dock-app" data-app="operate">
+      <div class="tip">Watch the map. Send the machines.</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/></svg></div>
+      <div class="dock-name">Operate</div>
+      <div class="running"></div>
+    </button>
+
+    <button class="dock-app disabled">
+      <div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="18.5" cy="12" r="2.2"/></svg></div>
+      <div class="dock-name">Plan</div>
+      <div class="running"></div>
+    </button>
+
+    <button class="dock-app disabled">
+      <div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 12a8.5 8.5 0 1 0 2.9-6.4"/><path d="M3.5 4.5v5h5"/><path d="M12 8v4.3l2.8 1.8"/></svg></div>
+      <div class="dock-name">Review</div>
+      <div class="running"></div>
+    </button>
+
+    <button class="dock-app disabled">
+      <div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="4.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="6" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="6" rx="1.6"/></svg></div>
+      <div class="dock-name">Fleet</div>
+      <div class="running"></div>
+    </button>
+
+    <div class="dock-sep"></div>
+
+    <button class="dock-app" data-app="admin">
+      <div class="tip">Zones, machines, people, appearance</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg></div>
+      <div class="dock-name">Settings</div>
+      <div class="running"></div>
+    </button>
+  </div>
+</div>
+
+<script>
+  const machine = document.getElementById('machine');
+  const mbApp = document.getElementById('mb-app');
+  const mbItems = document.getElementById('mb-items');
+
+  const MENUS = { operate: ['View', 'Machines', 'Zones', 'Voice'], admin: ['Edit', 'Import', 'Help'] };
+  const TITLES = { operate: 'Operate', admin: 'Settings' };
+
+  function closeApp() {
+    document.querySelectorAll('.app').forEach(a => {
+      a.classList.remove('visible');
+      setTimeout(() => a.classList.remove('shown'), 240);
+    });
+    document.querySelectorAll('.dock-app').forEach(d => d.classList.remove('running'));
+    machine.classList.remove('app-open');
+    mbApp.textContent = 'Desktop';
+    mbItems.innerHTML = '';
+  }
+
+  function openApp(name, button) {
+    document.querySelectorAll('.app').forEach(a => a.classList.remove('visible', 'shown'));
+    const el = document.getElementById('app-' + name);
+    el.classList.add('shown');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
+    machine.classList.add('app-open');
+    document.querySelectorAll('.dock-app').forEach(d => d.classList.remove('running'));
+    button.classList.add('running');
+    mbApp.textContent = TITLES[name];
+    mbItems.innerHTML = (MENUS[name] || []).map(m => `<div class="mb-item">${m}</div>`).join('');
+  }
+
+  document.querySelectorAll('.dock-app').forEach(button => {
+    button.addEventListener('click', () => {
+      if (button.classList.contains('disabled')) return;
+      if (button.classList.contains('running')) { closeApp(); return; }
+      openApp(button.dataset.app, button);
+    });
+  });
+
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeApp(); });
+
+  // ----- appearance -----
+  const MOON = '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>';
+  const SUN = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/>';
+
+  // Auto uses local daylight. Hard-coded here to the mockup's 14:32, which
+  // is daytime, so Auto resolves to Day.
+  function resolveAuto() { return 'day'; }
+
+  function applyTheme(choice) {
+    const effective = choice === 'auto' ? resolveAuto() : choice;
+    machine.dataset.theme = effective;
+    document.getElementById('theme-icon').innerHTML = effective === 'day' ? SUN : MOON;
+    document.getElementById('theme-label').textContent = effective === 'day' ? 'Day' : 'Dark';
+    const note = document.getElementById('auto-note');
+    if (note) note.textContent = choice === 'auto' ? (effective === 'day' ? 'Day, by daylight' : 'Dark, by daylight')
+                                                   : (effective === 'day' ? 'Day' : 'Dark');
+    document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('on', s.dataset.set === choice));
+  }
+
+  let themeChoice = 'dark';
+  document.getElementById('theme-btn').addEventListener('click', () => {
+    themeChoice = machine.dataset.theme === 'day' ? 'dark' : 'day';
+    applyTheme(themeChoice);
+  });
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.addEventListener('click', () => { themeChoice = s.dataset.set; applyTheme(themeChoice); });
+  });
+
+  applyTheme('dark');
+</script>
+
+</body>
+</html>

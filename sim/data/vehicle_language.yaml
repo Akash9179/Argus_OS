@@ -1,0 +1,19 @@
+# What a machine says about its own orders.
+#
+# The contract defines the task status message as operator-visible plain
+# language, so these words reach a person. They live here rather than in
+# vehicle code, which means a deployment can change how its machines speak
+# without reflashing them. A real runtime carries the same kind of file.
+#
+# Plain words only. Never blame the operator, and never claim to have done
+# something that was not done.
+
+messages:
+  accepted: "Order received."
+  running: "On the way."
+  finished: "Finished."
+  cancelled: "Order cancelled."
+  # Refusals. A machine that cannot carry out an order says so; it never
+  # accepts an order it will not perform, and never drops one silently.
+  cannot_do_that: "This vehicle cannot do that."
+  no_destination: "The order did not say where to go."

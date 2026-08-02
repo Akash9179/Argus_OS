@@ -1,0 +1,130 @@
+# Operator-facing language.
+#
+# Every sentence an operator reads is built from this file, never from a
+# string literal in code. Two reasons: language and terminology change per
+# deployment without a rebuild, and keeping the words here makes it obvious
+# when system vocabulary is leaking into the operator's view.
+#
+# Rules for editing:
+#   * Plain words only. No identifiers, no schema names, no jargon. If a
+#     sentence would confuse someone in their first week, rewrite it.
+#   * Anything uncertain must say so. Detection sentences always carry a
+#     confidence phrase; never write a sentence that sounds certain when the
+#     system is not.
+#   * Placeholders in braces are filled by the server.
+
+# How confidence becomes words. A detection below the qualifier threshold is
+# described as "possible", so the sentence itself is hedged, not just the
+# number beside it.
+confidence:
+  qualifier_below: 0.5
+  qualifier: "possible "
+  bands:
+    - below: 0.5
+      phrase: "low confidence"
+    - below: 0.8
+      phrase: "moderate confidence"
+    - below: 1.01
+      phrase: "high confidence"
+
+# What we call the things we see. A class this build has never heard of is
+# not dropped: it is shown as sent, with underscores turned into spaces, so
+# a new sensor's vocabulary reaches the operator instead of vanishing.
+class_labels:
+  person: "person"
+  vehicle: "vehicle"
+  animal: "animal"
+  structure: "structure"
+  vessel: "boat"
+  aircraft: "aircraft"
+  unknown: "something"
+unknown_class_label: "something"
+
+# What we call our own machines. A machine's own name comes from its
+# capability manifest; this is the fallback when it has not been given one.
+asset_class_labels:
+  ugv: "Ground vehicle"
+  uav: "Drone"
+  usv: "Boat"
+  fixed_sensor: "Camera"
+  base_station: "Base station"
+unknown_asset_class_label: "Machine"
+asset_fallback_name: "{class_label} {short_id}"
+
+# What each kind of order is called out loud.
+task_phrases:
+  navigate: "drive to a point on the map"
+  patrol: "patrol the route"
+  hold: "hold position"
+  follow_track: "follow what it is watching"
+  return_home: "return home"
+unknown_task_phrase: "carry out the {task_type} order"
+
+# Which colour each kind of event carries, in the fixed four-colour language:
+# info is neutral or healthy, attention is amber, act is red, offline is grey.
+severity:
+  track_created: attention
+  track_lost: info
+  zone_entry: attention
+  zone_exit: info
+  asset_online: info
+  asset_offline: offline
+  asset_fault: act
+  task_issued: info
+  task_accepted: info
+  task_done: info
+  task_failed: act
+  task_cancelled: info
+
+# Where things came from, as an operator would say it.
+sources:
+  system: "System"
+  seen_by: "Seen by {asset}"
+  ordered_by: "Ordered by {who}"
+  ordered_by_channel: "Ordered by {who}, {channel}"
+
+channels:
+  map: "on the map"
+  voice: "by voice"
+  api: "by another system"
+  system: "automatically"
+
+templates:
+  track_created: "{qualifier}{label} detected{place}, {confidence}."
+  track_lost: "Lost sight of the {label}{place}."
+  zone_entry: "{qualifier_cap}{label} entered {zone}."
+  zone_exit: "The {label} left {zone}."
+  asset_online: "{asset} is online and healthy.{battery_clause}"
+  asset_offline: "{asset} stopped answering. Its last position is still shown."
+  asset_fault: "{asset} reports a fault and needs attention."
+  task_issued: "{asset} was told to {task_phrase}."
+  task_accepted: "{asset} accepted the order to {task_phrase}."
+  task_done: "{asset} finished: {task_phrase}."
+  task_failed: "{asset} could not {task_phrase}. {reason}"
+  task_cancelled: "The order for {asset} to {task_phrase} was cancelled."
+
+# Small connecting phrases.
+fragments:
+  place_near: " near {zone}"
+  place_none: ""
+  battery_clause: " Battery {battery} percent."
+  no_reason: "No reason was given."
+  # Reasons the server itself ends an order. Written as the operator should
+  # hear them, not as the system understands them.
+  reason_asset_silent: "It stopped answering."
+  reason_no_acknowledgement: "It never acknowledged the order."
+  # Used when a sentence needs an article and no hedge applies.
+  definite_article: "The "
+
+# Refusals. These reach the operator through the interfaces, so they are
+# written the same way as everything else here: plainly, and never blaming
+# the person reading them.
+errors:
+  not_signed_in: "You are not signed in."
+  not_allowed: "You do not have access to that."
+  no_such_asset: "That machine is not known to the system."
+  no_such_track: "That track no longer exists."
+  no_such_entity: "There is nothing on record for that."
+  no_such_task: "That order does not exist."
+  asset_not_answering: "{asset} is not answering right now."
+  task_already_finished: "That order has already finished."

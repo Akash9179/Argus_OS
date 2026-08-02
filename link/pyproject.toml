@@ -1,0 +1,21 @@
+# Packaging for the generated Python bindings of the LINK contract.
+# This is packaging only: it does not touch the frozen schema. It exists so
+# every consumer (the world model server, the simulated vehicle, and any
+# future partner) installs the contract as a normal dependency instead of
+# reaching into this directory by path.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "link-contract"
+version = "1.0.0"
+description = "LINK contract: ontology and wire message schemas, generated Python bindings."
+requires-python = ">=3.11"
+dependencies = ["protobuf>=5.28"]
+
+[tool.setuptools]
+package-dir = {"" = "gen/python"}
+
+[tool.setuptools.packages.find]
+where = ["gen/python"]

@@ -1,0 +1,40 @@
+# The default simulated vehicle.
+#
+# Coordinates are a placeholder site. Override them for a real location
+# with --latitude and --longitude, or by editing a copy of this file.
+
+asset:
+  asset_id: "01SIMULATED0000000000000A1"
+  asset_class: "ugv"
+  name: "SIM-1"
+  capabilities:
+    name: "SIM-1"
+    max_speed_mps: 4.0
+    sensors: "camera"
+
+start:
+  latitude_deg: 51.50450
+  longitude_deg: -0.12000
+
+motion:
+  speed_mps: 2.5
+  heartbeat_hz: 1.0
+  telemetry_hz: 5.0
+
+battery:
+  start: 0.92
+  drain_per_minute: 0.004
+
+# What the simulated sensor reports and when. Offsets are meters from
+# wherever the vehicle is at the moment it reports.
+observations:
+  - after_seconds: 12
+    entity_class: "person"
+    confidence: 0.42
+    offset_north_m: 25
+    offset_east_m: 8
+    narration: "possible person near the fence line, low confidence"
+    repeat_every_seconds: 4
+    count: 8
+    attributes:
+      clothing: "dark"

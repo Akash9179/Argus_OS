@@ -41,4 +41,13 @@ Prerequisites: buf, protoc, node/npm, python3 (all on PATH). One-time setup: `cd
 - Verify Python bindings (import, round-trip, open-enum passthrough): `.venv/bin/python scripts/verify_link.py` (run from repo root)
 - Breaking-change check against the frozen contract (after the link-v1 tag exists): `cd link && buf breaking --against '../.git#tag=link-v1,subdir=link'`
 
-(Test, sim-loop, and server commands are added in Stage 2.)
+Python setup (once): `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e link/`
+
+- Run all tests, including the sim's full task loop (no broker needed, ~5s): `.venv/bin/python -m pytest -q`
+- Run only the CI gate: `.venv/bin/python -m pytest tests/test_sim_loop.py -v`
+- Start the brokers: `redis-server --daemonize yes && mosquitto -d`
+- Run the world model server: `DB_PATH=var/track.db TOKENS_PATH=var/tokens.yaml PORT=8100 .venv/bin/python -m track.main` (tokens are generated into TOKENS_PATH on first run)
+- Run a simulated vehicle against it: `.venv/bin/python -m sim.main` (add `--duration 60`, `--asset-id`, `--latitude/--longitude` as needed)
+- Health check: `curl -s localhost:8100/health`
+
+Port note: 8100, because something else on this machine occupies 8000.

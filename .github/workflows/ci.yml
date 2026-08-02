@@ -1,0 +1,51 @@
+# The simulated vehicle runs against every change to the contract or the
+# world model. A commit that breaks its full task loop is a broken commit.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    name: Contract compiles and stays frozen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install code generation plugins
+        working-directory: link
+        run: npm ci
+      - name: Lint the contract
+        working-directory: link
+        run: buf lint
+      - name: Refuse changes that break the frozen contract
+        working-directory: link
+        run: buf breaking --against '../.git#tag=link-v1,subdir=link'
+      - name: Typecheck the TypeScript bindings
+        working-directory: link
+        run: npm run typecheck
+
+  loop:
+    name: The simulated vehicle's full task loop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e link/
+      - name: Run the loop
+        run: python -m pytest -q

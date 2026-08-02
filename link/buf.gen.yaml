@@ -1,0 +1,13 @@
+# Code generation for the LINK contract package.
+# Python: protoc's built-in python and pyi generators (requires protoc on PATH).
+# TypeScript: protoc-gen-es from @bufbuild (installed via npm, see package.json).
+version: v2
+clean: true
+plugins:
+  - protoc_builtin: python
+    out: gen/python
+  - protoc_builtin: pyi
+    out: gen/python
+  - local: node_modules/.bin/protoc-gen-es
+    out: gen/ts
+    opt: target=ts

@@ -1,0 +1,190 @@
+// LINK wire messages, version 1.
+//
+// This file defines the five messages every asset speaks. They are the
+// entire wire contract between assets and the platform:
+//
+//   asset to platform:  HEARTBEAT (Heartbeat), TELEMETRY (Telemetry),
+//                       OBSERVATION (ObservationReport),
+//                       TASK_STATUS (TaskStatusUpdate)
+//   platform to asset:  TASK (TaskAssignment)
+//
+// The plan's canonical message names are HEARTBEAT, TELEMETRY, OBSERVATION,
+// TASK, and TASK_STATUS. The proto message names differ only where a name
+// would collide with the ontology object it carries (Observation, Task).
+//
+// Contract rules that bind this file:
+//   * The contract is transport-agnostic. Nothing here may assume anything
+//     about the transport beyond eventual delivery and possible
+//     disconnection. The version 1 reference transport is MQTT with
+//     protobuf-encoded payloads, but the same bytes must run unmodified
+//     over mesh radio or satellite.
+//   * Every message carries link_version and ontology_version, so any
+//     receiver can tell exactly which contract and which skeleton the
+//     sender speaks. Current values: link_version 1, ontology_version 1.
+//   * The contract is frozen at link_version 1 before any dependent code
+//     is written. Changes after the freeze require an explicit version
+//     bump and a migration note in the master plan.
+//   * Unknown enum values and unknown open-vocabulary strings must be
+//     preserved and passed through, never dropped (see ontology.proto).
+
+syntax = "proto3";
+
+package link.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "link/v1/ontology.proto";
+
+// HEARTBEAT. Asset to platform, periodic, default 1 Hz in version 1.
+// Purpose: liveness and fleet status. The world model server marks an
+// asset offline after N consecutive missed heartbeats and triggers
+// replanning hooks. All fields are set by the sending asset.
+message Heartbeat {
+  // Version of the LINK contract the sender speaks. Currently 1.
+  uint32 link_version = 1;
+
+  // Version of the ontology skeleton the sender speaks. Currently 1.
+  uint32 ontology_version = 2;
+
+  // The sending asset's own ID. ULID.
+  string asset_id = 3;
+
+  // The sending asset's class, from its capability manifest. OPEN
+  // vocabulary (see Asset.asset_class): "ugv", "uav", "usv",
+  // "fixed_sensor", "base_station" are well known. Receivers must
+  // preserve unknown values.
+  string asset_class = 4;
+
+  // The asset's self-reported operational status. An asset never reports
+  // ASSET_STATUS_OFFLINE about itself; that state is inferred by the
+  // server from heartbeat loss.
+  AssetStatus status = 5;
+
+  // Remaining battery as a fraction, 0.0 (empty) to 1.0 (full).
+  // Optional: absent means the asset has no battery to report (for
+  // example a mains-powered fixed sensor or base station), which is
+  // distinct from 0.0 (a battery that is empty).
+  optional double battery_fraction = 6;
+
+  // Coarse position of the asset, WGS84. Coarse means: good enough to
+  // place the asset on a map, not required to be the latest fused fix.
+  // High-rate precise position travels in TELEMETRY.
+  Position position = 7;
+
+  // The task the asset is currently executing. ULID. Empty when idle.
+  string current_task_id = 8;
+
+  // When this heartbeat was produced by the asset. UTC.
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+// TELEMETRY. Asset to platform, periodic, default 5 to 10 Hz while
+// moving, lower while stationary. Purpose: live motion state for the map
+// and for fusion. All fields are set by the sending asset.
+message Telemetry {
+  // Version of the LINK contract the sender speaks. Currently 1.
+  uint32 link_version = 1;
+
+  // Version of the ontology skeleton the sender speaks. Currently 1.
+  uint32 ontology_version = 2;
+
+  // The sending asset's own ID. ULID.
+  string asset_id = 3;
+
+  // Current position, WGS84, best available fix.
+  Position position = 4;
+
+  // Heading in degrees clockwise from true north, 0.0 inclusive to 360.0
+  // exclusive (north is 0.0, never 360.0). The direction the asset
+  // faces, which may differ from its course over ground.
+  double heading_deg = 5;
+
+  // Speed over ground in meters per second. Non-negative.
+  double speed_mps = 6;
+
+  // Open, per-manifest extras, for example camera gimbal state. Keys are
+  // declared in the asset's capability manifest. Receivers must preserve
+  // and pass through keys they do not recognize.
+  google.protobuf.Struct payload = 7;
+
+  // When this telemetry sample was produced by the asset. UTC.
+  google.protobuf.Timestamp timestamp = 8;
+}
+
+// OBSERVATION. Asset to platform, event-driven: sent whenever the asset
+// has something to report about the world. This is the wire form of the
+// Observation ontology object. Smart assets running the full runtime send
+// fully formed observations with class, confidence, and optional
+// narration. All fields are set by the sending asset.
+// (This message was called ENTITY_EVENT in older material; the canonical
+// name is now OBSERVATION to match the ontology.)
+message ObservationReport {
+  // Version of the LINK contract the sender speaks. Currently 1.
+  uint32 link_version = 1;
+
+  // Version of the ontology skeleton the sender speaks. Currently 1.
+  uint32 ontology_version = 2;
+
+  // The observation itself, exactly as defined in the ontology.
+  // Immutable once sent. See Observation in ontology.proto for every
+  // field's meaning, units, and setter.
+  Observation observation = 3;
+}
+
+// TASK. Platform to asset. This is the wire form of the Task ontology
+// object. The receiving asset MUST acknowledge within the platform's
+// acknowledgement timeout by sending TASK_STATUS with state
+// TASK_STATE_ACCEPTED, or TASK_STATE_FAILED with a plain-language reason.
+// Silence past the timeout lets the platform mark the task failed and
+// replan. All fields are set by the platform.
+message TaskAssignment {
+  // Version of the LINK contract the sender speaks. Currently 1.
+  uint32 link_version = 1;
+
+  // Version of the ontology skeleton the sender speaks. Currently 1.
+  uint32 ontology_version = 2;
+
+  // The task to execute, exactly as defined in the ontology. Its
+  // asset_id names the addressee; an asset must ignore tasks addressed
+  // to another asset. See Task in ontology.proto for every field's
+  // meaning, units, and setter.
+  Task task = 3;
+
+  // When the platform sent this assignment. UTC. Used by the asset to
+  // reason about staleness after a disconnection.
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// TASK_STATUS. Asset to platform, event-driven: sent on acceptance, on
+// every meaningful progress change, and on terminal states (done, failed,
+// cancelled acknowledgement). All fields are set by the sending asset.
+message TaskStatusUpdate {
+  // Version of the LINK contract the sender speaks. Currently 1.
+  uint32 link_version = 1;
+
+  // Version of the ontology skeleton the sender speaks. Currently 1.
+  uint32 ontology_version = 2;
+
+  // The task this update is about. ULID.
+  string task_id = 3;
+
+  // The task's new lifecycle state as seen by the executing asset.
+  TaskState status = 4;
+
+  // How complete the task is, 0.0 (not started) to 1.0 (complete).
+  // Meaningful while RUNNING; 1.0 when DONE.
+  double progress = 5;
+
+  // Estimated seconds until completion. Optional: absent when the asset
+  // cannot estimate.
+  optional uint32 eta_sec = 6;
+
+  // Plain-language, operator-visible status line, for example
+  // "holding at gate 3" or "cannot reach waypoint 2, path blocked".
+  // Plain words only; no internal jargon (waterline law). Required for
+  // TASK_STATE_FAILED (the reason).
+  string message = 7;
+
+  // When this status was produced by the asset. UTC.
+  google.protobuf.Timestamp timestamp = 8;
+}

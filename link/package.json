@@ -1,0 +1,17 @@
+{
+  "name": "link-contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LINK contract: ontology and wire message schemas with generated TypeScript bindings.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.0"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.2.0",
+    "typescript": "^5.6.0"
+  }
+}

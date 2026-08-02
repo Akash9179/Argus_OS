@@ -1,0 +1,532 @@
+// LINK ontology, version 1.
+//
+// This file defines the eight skeleton objects of the world model ontology:
+// Entity, Observation, Track, Asset, Task, Zone, Mission, Relationship,
+// plus the shared value types they use (Position, Velocity, Polygon).
+//
+// Design rules that bind this file:
+//   * The skeleton is multi-domain (ground, air, maritime, fixed) from the
+//     first line. Nothing here may assume a ground vehicle. Version 1
+//     implements ground only, but implements it as a subtype, never as an
+//     assumption baked into these objects.
+//   * The skeleton is frozen once implemented. Any change to these objects
+//     or their required fields is a version bump of ontology_version plus a
+//     migration note in the master plan.
+//   * Subtype vocabularies (entity_class, asset_class, task_type, zone_type,
+//     predicate, and other fields typed as open strings below) are OPEN.
+//     They are plain strings with documented well-known values. Consumers
+//     must preserve and pass through values they do not recognize, and must
+//     never drop, reject, or blank them. This is how new domains and new
+//     sensors grow the system without skeleton changes.
+//   * All IDs are ULIDs (26-character Crockford base32 strings).
+//   * All timestamps use google.protobuf.Timestamp. Its canonical JSON form
+//     is an ISO 8601 / RFC 3339 UTC string, which is the required
+//     representation on every REST and JSON surface.
+//   * The current ontology version is 1. It is carried in every wire message
+//     (see messages.proto), not inside these objects.
+//
+// The proto package is deliberately name-neutral ("link", not a product
+// name), because the product name is a placeholder and renaming a proto
+// package after release is expensive.
+
+syntax = "proto3";
+
+package link.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// Shared value types
+// ---------------------------------------------------------------------------
+
+// A point on or above the Earth, in WGS84 coordinates.
+// Used for every position in the system, in every domain.
+message Position {
+  // Latitude in decimal degrees, WGS84. Range -90.0 to 90.0.
+  // Set by whoever produces the containing object or message.
+  double latitude_deg = 1;
+
+  // Longitude in decimal degrees, WGS84. Range -180.0 to 180.0.
+  // Set by whoever produces the containing object or message.
+  double longitude_deg = 2;
+
+  // Altitude in meters above the WGS84 ellipsoid. Optional: ground and
+  // surface assets may omit it entirely (absent means "not measured", not
+  // "zero"). Air and future subsurface domains set it. Set by the producer
+  // of the containing object or message.
+  optional double altitude_m = 3;
+}
+
+// Motion state of a tracked object or asset. Domain-neutral: ground assets
+// leave vertical_mps unset, aircraft use it for climb and descent.
+message Velocity {
+  // Speed over ground in meters per second. Always non-negative.
+  // Set by the producer of the containing object.
+  double speed_mps = 1;
+
+  // Course over ground in degrees clockwise from true north, 0.0 inclusive
+  // to 360.0 exclusive (north is 0.0, never 360.0).
+  // Meaningful only when speed_mps is greater than zero.
+  // Set by the producer of the containing object.
+  double course_deg = 2;
+
+  // Vertical rate in meters per second, positive up. Optional: absent for
+  // objects with no measured vertical motion (typical for ground and
+  // surface domains). Set by the producer of the containing object.
+  optional double vertical_mps = 3;
+}
+
+// A closed geographic region boundary.
+message Polygon {
+  // The exterior ring of the polygon: three or more vertices in order,
+  // WGS84. The ring is implicitly closed; do not repeat the first vertex
+  // at the end. Version 1 supports exterior rings only; interior rings
+  // (holes) will be an additive field in a later version if needed.
+  // Set by whoever creates the containing Zone.
+  repeated Position exterior = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Closed skeleton enums
+// ---------------------------------------------------------------------------
+// These enums are part of the frozen skeleton: their value sets change only
+// with an ontology version bump. At the wire level proto3 still preserves
+// unrecognized numeric values, and consumers must pass such values through
+// rather than dropping the containing object.
+
+// Lifecycle state of a Track. Written only by the world model server.
+enum TrackState {
+  // Default value when the field was never set. Not a valid live state.
+  TRACK_STATE_UNSPECIFIED = 0;
+  // The track is live and being updated by observations.
+  TRACK_STATE_ACTIVE = 1;
+  // No recent observations; position is a prediction, confidence decaying.
+  TRACK_STATE_LOST = 2;
+  // The track has ended and will receive no further updates.
+  TRACK_STATE_CLOSED = 3;
+}
+
+// Assessed threat of a Track. Written by the world model server (or a human
+// override through it). THREAT_LEVEL_NONE is an actual assessment of "no
+// threat" and is distinct from the never-set default.
+enum ThreatLevel {
+  // Default value when the field was never set. Means "not yet assessed".
+  THREAT_LEVEL_UNSPECIFIED = 0;
+  // Assessed and considered no threat.
+  THREAT_LEVEL_NONE = 1;
+  // Low threat.
+  THREAT_LEVEL_LOW = 2;
+  // Medium threat.
+  THREAT_LEVEL_MEDIUM = 3;
+  // High threat.
+  THREAT_LEVEL_HIGH = 4;
+}
+
+// Operational status of an Asset. Reported by the asset itself in
+// HEARTBEAT, except OFFLINE, which is inferred by the world model server
+// when heartbeats stop arriving.
+enum AssetStatus {
+  // Default value when the field was never set.
+  ASSET_STATUS_UNSPECIFIED = 0;
+  // Powered, healthy, and performing or ready to perform tasks.
+  ASSET_STATUS_ACTIVE = 1;
+  // Powered and healthy but intentionally idle.
+  ASSET_STATUS_STANDBY = 2;
+  // Powered but degraded; a subsystem reports a fault.
+  ASSET_STATUS_FAULT = 3;
+  // Not heard from. Set by the world model server, never self-reported.
+  ASSET_STATUS_OFFLINE = 4;
+}
+
+// Lifecycle state of a Task. The platform sets PENDING and CANCELLED; the
+// executing asset sets ACCEPTED, RUNNING, DONE, and FAILED through
+// TASK_STATUS messages.
+enum TaskState {
+  // Default value when the field was never set.
+  TASK_STATE_UNSPECIFIED = 0;
+  // Created and sent to the asset; no acknowledgement yet.
+  TASK_STATE_PENDING = 1;
+  // The asset has acknowledged the task and will execute it.
+  TASK_STATE_ACCEPTED = 2;
+  // The asset is actively executing the task.
+  TASK_STATE_RUNNING = 3;
+  // The task completed successfully.
+  TASK_STATE_DONE = 4;
+  // The task ended without completing. The accompanying status message
+  // says why in plain language.
+  TASK_STATE_FAILED = 5;
+  // The task was cancelled by the platform or the operator before or
+  // during execution.
+  TASK_STATE_CANCELLED = 6;
+}
+
+// ---------------------------------------------------------------------------
+// The eight skeleton objects
+// ---------------------------------------------------------------------------
+
+// Entity: anything that exists in the world and is not one of our assets.
+// The Entity is the durable identity; it may be observed many times by many
+// sensors. Created and maintained by the world model server as observations
+// are resolved to identities.
+message Entity {
+  // Unique identifier of this entity. ULID. Assigned by the world model
+  // server when the entity is first created.
+  string entity_id = 1;
+
+  // What kind of thing this is. OPEN vocabulary; well-known values:
+  // "person", "vehicle", "animal", "structure", "vessel", "aircraft",
+  // "unknown". Unknown values must be preserved and passed through.
+  // Set by the world model server from the best available observations.
+  string entity_class = 2;
+
+  // Open key-value descriptors, for example color: "red", size: "large".
+  // Keys and values are free-form strings; unknown keys must be preserved.
+  // Accumulated by the world model server from observations.
+  map<string, string> attributes = 3;
+
+  // When this entity was first observed. UTC. Set by the world model
+  // server from the earliest contributing observation.
+  google.protobuf.Timestamp first_seen = 4;
+
+  // When this entity was most recently observed. UTC. Updated by the
+  // world model server on every new contributing observation.
+  google.protobuf.Timestamp last_seen = 5;
+}
+
+// Observation: a single report about one Entity by one sensor at one time.
+// Observations are IMMUTABLE: once created they are never edited, only
+// superseded by newer observations. Produced by assets; consumed by the
+// world model server, which fuses them into Tracks.
+message Observation {
+  // Unique identifier of this observation. ULID. Assigned by the asset
+  // that produced the observation.
+  string observation_id = 1;
+
+  // The entity this observation refers to. ULID. May be PROVISIONAL: an
+  // asset that cannot know the durable identity assigns a locally
+  // generated ID, and the world model server's entity resolution may later
+  // map it to an existing entity. Set by the producing asset.
+  string entity_id = 2;
+
+  // The asset that made this observation. ULID. Set by the producing
+  // asset; it is always the asset's own ID.
+  string asset_id = 3;
+
+  // Where the observed entity was, WGS84. Set by the producing asset from
+  // its sensor geometry and own localization.
+  Position position = 4;
+
+  // How confident the producer is in this observation as a whole,
+  // 0.0 (none) to 1.0 (certain). Set by the producing asset, typically
+  // from detector confidence. Consumers must surface this honestly and
+  // never overstate it.
+  double confidence = 5;
+
+  // The producer's best classification of the entity. Same OPEN vocabulary
+  // as Entity.entity_class. Unknown values must be preserved and passed
+  // through. Set by the producing asset.
+  string entity_class = 6;
+
+  // Open key-value descriptors observed this time, for example
+  // color: "red", heading: "toward gate". Set by the producing asset.
+  map<string, string> attributes = 7;
+
+  // Optional plain-language description of what was seen, suitable for an
+  // operator to read, for example "possible person near the fence line,
+  // low confidence". Set by the producing asset when it can generate one.
+  // Must respect the honesty law: language must carry the confidence.
+  string narration = 8;
+
+  // When the observation was made (sensor time, not send time). UTC.
+  // Set by the producing asset.
+  google.protobuf.Timestamp timestamp = 9;
+}
+
+// A single historical point of a Track, used in Track.history.
+message TrackPoint {
+  // When the track was at this state. UTC. Set by the world model server.
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Fused position at that time, WGS84. Set by the world model server.
+  Position position = 2;
+
+  // Fused velocity at that time. Set by the world model server.
+  Velocity velocity = 3;
+}
+
+// Track: the fused, live state of one Entity. Tracks are what operators
+// see on the map. Created, updated, and closed exclusively by the world
+// model server; assets and applications never write tracks directly.
+message Track {
+  // Unique identifier of this track. ULID. Assigned by the world model
+  // server when the track is created.
+  string track_id = 1;
+
+  // The entity this track represents. ULID. Set by the world model
+  // server's entity resolution.
+  string entity_id = 2;
+
+  // Lifecycle state of the track. Set by the world model server.
+  TrackState state = 3;
+
+  // Current fused position, WGS84. Set by the world model server.
+  Position position = 4;
+
+  // Current fused velocity. Set by the world model server.
+  Velocity velocity = 5;
+
+  // Assessed threat level. Set by the world model server (or a human
+  // override recorded through it).
+  ThreatLevel threat_level = 6;
+
+  // Confidence in the track as a whole, 0.0 to 1.0, from fusion quality,
+  // observation confidence, and recency. Set by the world model server.
+  // Operator-facing language must reflect this value (honesty law).
+  double confidence = 7;
+
+  // IDs of the assets whose observations currently contribute to this
+  // track. ULIDs. Maintained by the world model server.
+  repeated string contributing_asset_ids = 8;
+
+  // IDs of the observations fused into this track, newest last. ULIDs.
+  // Maintained by the world model server.
+  repeated string observation_ids = 9;
+
+  // Recent historical states of the track, oldest first. The server
+  // bounds the length; full history lives in the world model store.
+  // Maintained by the world model server.
+  repeated TrackPoint history = 10;
+}
+
+// Asset: a machine or sensor that is part of our force. The asset record
+// is maintained by the world model server from HEARTBEAT and TELEMETRY
+// messages plus the asset's registered capability manifest.
+message Asset {
+  // Unique identifier of this asset. ULID. Assigned at enrollment and
+  // fixed for the asset's lifetime.
+  string asset_id = 1;
+
+  // What kind of asset this is. OPEN vocabulary; well-known values:
+  // "ugv", "uav", "usv", "fixed_sensor", "base_station". Unknown values
+  // must be preserved and passed through. Declared by the asset's
+  // capability manifest. Code above the hardware abstraction layer may
+  // read this for display and fusion but must never branch behavior on it.
+  string asset_class = 2;
+
+  // The asset's capabilities as declared by its capability manifest
+  // (dimensions, top speed, sensors carried, and so on). Structured,
+  // open-schema data mirrored from the asset's registry. Written at
+  // enrollment and on manifest change; read by planners and applications.
+  google.protobuf.Struct capabilities = 3;
+
+  // Current operational status. Reported by the asset in HEARTBEAT;
+  // OFFLINE is set by the world model server on heartbeat loss.
+  AssetStatus status = 4;
+
+  // Last known position, WGS84. Updated by the world model server from
+  // TELEMETRY (fine) and HEARTBEAT (coarse).
+  Position position = 5;
+
+  // Remaining battery as a fraction, 0.0 (empty) to 1.0 (full).
+  // Optional: absent means the asset has no battery to report (for
+  // example a mains-powered fixed sensor or base station), which is
+  // distinct from 0.0 (a battery that is empty).
+  // Reported by the asset in HEARTBEAT.
+  optional double battery_fraction = 6;
+
+  // The task the asset is currently executing. ULID. Empty when idle.
+  // Reported by the asset in HEARTBEAT.
+  string current_task_id = 7;
+
+  // When the world model server last received a heartbeat from this
+  // asset. UTC. Set by the world model server.
+  google.protobuf.Timestamp last_heartbeat = 8;
+}
+
+// Parameters of a Task. Typed fields cover the common cases; the extras
+// field keeps the parameter space open so new task types never require a
+// skeleton change.
+message TaskParameters {
+  // Ordered waypoints for movement tasks (well-known task types
+  // "navigate" and "patrol"). WGS84. Set by the task issuer.
+  repeated Position waypoints = 1;
+
+  // The track to act on, for tasks that reference a track (well-known
+  // task type "follow_track"). ULID. Empty when not applicable.
+  // Set by the task issuer.
+  string target_track_id = 2;
+
+  // Requested speed in meters per second. Optional: absent means the
+  // asset chooses its own speed within its manifest limits.
+  // Set by the task issuer.
+  optional double speed_mps = 3;
+
+  // Open, structured parameters for task types whose needs are not
+  // covered by the typed fields above. Consumers must preserve and pass
+  // through keys they do not recognize. Set by the task issuer.
+  google.protobuf.Struct extras = 4;
+}
+
+// Who created a task and through which path. Recorded for every task so
+// the audit trail always shows the responsible human or system.
+message Issuer {
+  // Identity of the issuing principal: an operator identity from the
+  // identity service, or "system" for platform-initiated tasks.
+  // Set by the platform when the task is created.
+  string principal_id = 1;
+
+  // The path the order came through. OPEN vocabulary; well-known values:
+  // "map", "voice", "system", "api". Unknown values must be preserved.
+  // Set by the platform when the task is created.
+  string channel = 2;
+}
+
+// One entry in a task's state history: when the task entered a state.
+message TaskStateChange {
+  // The state the task entered. Set by whoever caused the transition
+  // (platform or executing asset), recorded by the world model server.
+  TaskState state = 1;
+
+  // When the task entered this state. UTC. Set by the party that caused
+  // the transition.
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Optional plain-language note about the transition, for example a
+  // failure reason. Operator-visible; plain words, no internal jargon.
+  string message = 3;
+}
+
+// Task: a unit of work assigned to one Asset. Created by the platform on
+// behalf of an operator or system; executed and progressed by the asset.
+message Task {
+  // Unique identifier of this task. ULID. Assigned by the platform when
+  // the task is created.
+  string task_id = 1;
+
+  // The asset assigned to execute this task. ULID. Set by the platform
+  // at creation.
+  string asset_id = 2;
+
+  // What kind of work this is. OPEN vocabulary; well-known values:
+  // "navigate", "patrol", "hold", "follow_track", "return_home".
+  // Unknown values must be preserved and passed through; an asset that
+  // cannot execute a task type reports failure, it does not drop the
+  // task silently. Set by the task issuer.
+  string task_type = 3;
+
+  // Parameters of the task. Set by the task issuer.
+  TaskParameters parameters = 4;
+
+  // Priority of the task relative to others. Higher numbers are more
+  // urgent; 0 is routine. Set by the task issuer.
+  uint32 priority = 5;
+
+  // Current lifecycle state. Maintained by the world model server from
+  // TASK_STATUS messages and platform actions.
+  TaskState status = 6;
+
+  // Who issued the task and through which path. Set by the platform at
+  // creation.
+  Issuer issued_by = 7;
+
+  // Timestamps of every state change, oldest first. The first entry is
+  // the creation (PENDING). Maintained by the world model server.
+  repeated TaskStateChange status_history = 8;
+}
+
+// One rule attached to a Zone, for example "alert when something enters".
+message ZoneRule {
+  // What the rule does. OPEN vocabulary; well-known values:
+  // "alert_on_entry", "alert_on_exit". Unknown values must be preserved
+  // and passed through. Set by the admin who configures the zone.
+  string rule_type = 1;
+
+  // Open key-value settings for the rule, for example
+  // min_threat_level: "low". Set by the admin who configures the zone.
+  map<string, string> parameters = 2;
+}
+
+// Zone: a named geographic region with operational meaning. Created and
+// edited by admins through the platform; evaluated by the world model
+// server (entry and exit events); referenced by name in operator speech.
+message Zone {
+  // Unique identifier of this zone. ULID. Assigned by the platform when
+  // the zone is created.
+  string zone_id = 1;
+
+  // Operator-facing name, for example "Gate 3". Plain language; this is
+  // the name spoken and displayed, so it lives in data, not code.
+  // Set by the admin who creates the zone.
+  string name = 2;
+
+  // The zone's boundary polygon, WGS84. Set by the admin who creates
+  // the zone.
+  Polygon geometry = 3;
+
+  // What kind of zone this is. OPEN vocabulary; well-known values:
+  // "protected", "restricted", "patrol_route", "home". Unknown values
+  // must be preserved and passed through. Set by the admin.
+  string zone_type = 4;
+
+  // Optional rules evaluated by the world model server, for example
+  // alert on entry. Set by the admin.
+  repeated ZoneRule rules = 5;
+}
+
+// Mission: a grouping of Tasks toward one objective. Version 1 uses
+// missions minimally (a patrol is a one-task mission); the concept exists
+// so multi-asset plans have a home. Created by the platform.
+message Mission {
+  // Unique identifier of this mission. ULID. Assigned by the platform
+  // when the mission is created.
+  string mission_id = 1;
+
+  // Operator-facing name of the mission. Plain language. Set by the
+  // issuer at creation.
+  string name = 2;
+
+  // The objective in plain language, for example "keep the north
+  // perimeter under watch overnight". Set by the issuer at creation.
+  string objective = 3;
+
+  // The tasks that make up this mission, in intended order. ULIDs.
+  // Maintained by the platform.
+  repeated string task_ids = 4;
+
+  // Lifecycle state of the mission as a whole. Reuses TaskState;
+  // TASK_STATE_ACCEPTED is not used for missions in version 1.
+  // Maintained by the world model server from the member tasks.
+  TaskState status = 5;
+}
+
+// Relationship: a typed link between any two ontology objects. This is
+// the graph that accumulates operational intelligence over time. Written
+// by the world model server (fusion, zone evaluation) and by applications
+// through the platform interfaces.
+message Relationship {
+  // Unique identifier of this relationship. ULID. Assigned by whoever
+  // creates the relationship.
+  string relationship_id = 1;
+
+  // The ID of the subject object (any ontology object). ULID.
+  // Set by the creator.
+  string subject_id = 2;
+
+  // How the subject relates to the object. OPEN vocabulary; well-known
+  // values: "seen_with", "same_as", "responding_to", "inside",
+  // "escalated_from". Unknown values must be preserved and passed
+  // through. Set by the creator.
+  string predicate = 3;
+
+  // The ID of the object of the relationship (any ontology object).
+  // ULID. Set by the creator.
+  string object_id = 4;
+
+  // Confidence that this relationship holds, 0.0 to 1.0. Set by the
+  // creator; 1.0 for administrative facts, lower for inferred links.
+  double confidence = 5;
+
+  // When the relationship was asserted. UTC. Set by the creator.
+  google.protobuf.Timestamp timestamp = 6;
+}

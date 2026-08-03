@@ -55,6 +55,31 @@ jobs:
       - name: Run the loop
         run: python -m pytest -q
 
+  operator-application:
+    name: "The operator application: typecheck, behaviour, build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: c2
+        run: npm ci
+      - name: Typecheck
+        working-directory: c2
+        run: npm run typecheck
+      # Two real bugs sat in the mode switch until a live browser session
+      # found them, because typecheck was the only gate C2 had. The
+      # behaviour tests exist so a browser is never again the only thing
+      # standing between a bug like that and an operator.
+      - name: Behaviour
+        working-directory: c2
+        run: npm test
+      - name: Build
+        working-directory: c2
+        run: npm run build
+
   edge-runtime:
     name: The edge runtime against a real ROS2 graph
     runs-on: ubuntu-latest

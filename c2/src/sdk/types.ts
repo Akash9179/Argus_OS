@@ -91,6 +91,8 @@ export interface Task {
   parameters?: { waypoints?: Position[]; target_track_id?: string; speed_mps?: number }
   status?: string
   issued_by?: { principal_id?: string; channel?: string }
+  /** What was ordered, in words. From the server's language file. */
+  phrase?: string
   /** Who gave the order, as a name. Resolved by the server. */
   ordered_by?: string
   /** Why the machine is doing this, already a phrase. Composed by the server. */

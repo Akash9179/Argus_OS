@@ -136,6 +136,21 @@ Operator = Annotated[Principal, Depends(requires(ROLE_OPERATOR))]
 Admin = Annotated[Principal, Depends(requires(ROLE_ADMIN))]
 
 
+# -- who is signed in -----------------------------------------------------
+
+
+@router.get("/me")
+async def whoami(principal: Operator) -> dict:
+    """Who this token belongs to, in the name an operator should see.
+
+    The identifier stays on this side of the waterline. An application that
+    wanted to put the caller on screen would otherwise have nothing to show
+    but `principal_id`, which is exactly the kind of thing operators never
+    read.
+    """
+    return {"display_name": principal.display_name, "role": principal.role}
+
+
 # -- assets and their motion ----------------------------------------------
 
 
@@ -242,15 +257,17 @@ async def list_tracks(
     state: Annotated[list[int] | None, Query()] = None,
     limit: int = 500,
 ) -> list[dict]:
-    return to_dicts(_world(request).store.list_tracks(states=state, limit=limit))
+    world = _world(request)
+    return world.track_views(world.store.list_tracks(states=state, limit=limit))
 
 
 @router.get("/tracks/{track_id}")
 async def get_track(track_id: str, request: Request, _: Operator) -> dict:
-    track = _world(request).store.get_track(track_id)
+    world = _world(request)
+    track = world.store.get_track(track_id)
     if track is None:
         raise HTTPException(status_code=404, detail=_say(request, "no_such_track"))
-    return to_dict(track)
+    return world.track_view(track)
 
 
 @router.get("/entities")
@@ -289,7 +306,7 @@ async def list_tasks(
     request: Request, _: Operator, asset_id: str | None = None, limit: int = 200
 ) -> list[dict]:
     world = _world(request)
-    return tasks_to_dicts(world.store.list_tasks(asset_id=asset_id, limit=limit), world.language)
+    return world.task_views(world.store.list_tasks(asset_id=asset_id, limit=limit))
 
 
 @router.get("/tasks/{task_id}")
@@ -298,7 +315,7 @@ async def get_task(task_id: str, request: Request, _: Operator) -> dict:
     task = world.store.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=_say(request, "no_such_task"))
-    return task_to_dict(task, world.language.task_phrase(task.task_type))
+    return world.task_view(task)
 
 
 @router.post("/tasks", status_code=201)
@@ -316,7 +333,7 @@ async def create_task(body: TaskIn, request: Request, principal: Operator) -> di
         )
     except TaskRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return task_to_dict(task, world.language.task_phrase(task.task_type))
+    return world.task_view(task)
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -324,7 +341,7 @@ async def cancel_task(task_id: str, request: Request, _: Operator) -> dict:
     world = _world(request)
     try:
         cancelled = await world.cancel_task(task_id)
-        return task_to_dict(cancelled, world.language.task_phrase(cancelled.task_type))
+        return world.task_view(cancelled)
     except TaskRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -393,9 +410,9 @@ async def stream(websocket: WebSocket, token: str = Query(default="")) -> None:
             "data": {
                 "assets": assets_to_dicts(world.store.list_assets(), world.language),
                 "telemetry": [t.to_dict() for t in world.telemetry.values()],
-                "tracks": to_dicts(world.store.list_tracks()),
+                "tracks": world.track_views(world.store.list_tracks()),
                 "zones": to_dicts(world.store.list_zones()),
-                "tasks": tasks_to_dicts(world.store.list_tasks(limit=50), world.language),
+                "tasks": world.task_views(world.store.list_tasks(limit=50)),
                 "events": [e.to_dict() for e in world.store.list_events(limit=50)],
             },
         }

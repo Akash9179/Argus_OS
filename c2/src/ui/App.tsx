@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
-import { say } from './wording'
+import { clockAt, say } from './wording'
 
 type Theme = 'dark' | 'day'
 
@@ -51,11 +51,37 @@ function Station({
     isAnswering(world, id, now, link === 'lost'),
   ).length
 
+  // Who is signed in, in the name the server resolves. C2 holds a token and
+  // nothing else, so this is the only way to put a person on screen without
+  // showing the identifier underneath them.
+  const [who, setWho] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    void api
+      .me()
+      .then((principal) => {
+        if (!cancelled) setWho(principal.display_name)
+      })
+      // Not knowing who is signed in is not worth an error on an operator's
+      // screen. The name is simply left out.
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <div className="station">
       <header className="menubar">
         <span className="mark">ARGUS</span>
         <span className="app-name">{say.app}</span>
+        <nav className="menubar-items">
+          {say.menus.map((item) => (
+            <span key={item} className="menu-item is-inert" title={say.notBuiltYet}>
+              {item}
+            </span>
+          ))}
+        </nav>
         <div className="menubar-right">
           <span className={`stat is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>
             <span className="dot" />
@@ -65,6 +91,8 @@ function Station({
           <button className="chip" onClick={() => onTheme(theme === 'dark' ? 'day' : 'dark')}>
             {theme === 'dark' ? say.theme.dark : say.theme.day}
           </button>
+          {who && <span className="stat">{who}</span>}
+          <span className="stat mono">{clockAt(now)}</span>
           <button className="chip" onClick={onSignOut}>
             {say.signOut}
           </button>

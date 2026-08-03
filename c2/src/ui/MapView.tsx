@@ -9,8 +9,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import L from 'leaflet'
 import { TERRAIN_DARK, TERRAIN_DAY, TerrainLayer } from '../map/terrain'
-import { positionOf, type World } from '../state/world'
-import { agoInWords, assetStatus, outOfTen, say } from './wording'
+import { lastHeardAt, positionOf, type World } from '../state/world'
+import { assetStatus, clockAt, outOfTen, say } from './wording'
 
 function confidenceLabel(confidence: number | undefined): string {
   const tenths = outOfTen(confidence)
@@ -181,9 +181,14 @@ export function MapView(props: Props) {
         handlers.current.onSelectAsset(asset.asset_id)
       })
       // A machine that has gone quiet must never read as live on the map.
+      // The label is permanent rather than on hover: an operator scanning
+      // the map has to be able to see which markers are stale without
+      // pointing at each one.
       if (!isAnswering) {
-        const heard = live?.timestamp ? agoInWords(Date.now() / 1000 - live.timestamp) : ''
-        marker.bindTooltip(`${say.map.lastHeard} ${heard}. ${say.machine.stale}`, {
+        const heard = lastHeardAt(world, asset)
+        const when = heard ? `${say.map.lastHeard} ${clockAt(heard)}` : say.map.notHeard
+        marker.bindTooltip(escape(when), {
+          permanent: true,
           direction: 'bottom',
           className: 'map-chip is-stale',
         })

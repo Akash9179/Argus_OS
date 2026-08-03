@@ -16,7 +16,22 @@ export const say = {
   /** Says only that the picture is moving. The site link is stated once, in the menu bar. */
   live: 'Live',
 
-  find: { placeholder: 'Find a place or a machine' },
+  find: { placeholder: 'Find a place or a machine', filter: 'Filter', all: 'All' },
+
+  /**
+   * The menus this application contributes to the operating system's menu
+   * bar. Only Operate is built, so the rest are shown and plainly disabled:
+   * hiding them would misrepresent what the system is, and a menu that
+   * looks live but does nothing is worse than one that says it is not ready.
+   */
+  menus: ['View', 'Machines', 'Zones', 'Voice'],
+  notBuiltYet: 'Not in this build yet.',
+
+  tools: {
+    select: 'Select',
+    measure: 'Measure',
+    mark: 'Mark a place',
+  },
 
   signIn: {
     title: 'Sign in',
@@ -47,14 +62,39 @@ export const say = {
   mode: {
     manual: 'Manual',
     automatic: 'Automatic',
+    /**
+     * Manual and Automatic are settings in this browser. The world model
+     * neither holds nor enforces them, so another station, a voice order or
+     * another system can still task the same machine, and Automatic only
+     * ever tasks the machine selected here. Every sentence below is worded
+     * as what this station does to the selected machine, because anything
+     * broader is a promise C2 has no way to keep. Revisit if autonomy level
+     * moves to the machine, which is open decision 10 in the plan.
+     */
     manualMeans:
-      'The machines only do what you tell them. Nothing else without your say-so.',
+      'This station only orders what you tell it to. It will not act on its own.',
     automaticMeans:
-      'The machines work to their standing orders and tell you what they did. You can take control at any time.',
+      'This station sends the selected machine to look at anything new, and tells you what it did. You can take control at any time.',
     takeControl: 'Take control',
-    switchedToManual: 'Switched to Manual. The machines will ask before anything else.',
+    /**
+     * What the mode promises, short enough to sit at the end of the plan
+     * strip's sentence.
+     *
+     * Worded as what this station will do, not as what the machines will
+     * do. Manual and Automatic are settings in this browser and the world
+     * model does not hold or enforce them, so a second station, a voice
+     * order, or another system can still task the same machine. Promising
+     * that nothing else will happen would be a promise C2 has no way to
+     * keep. Revisit this wording if autonomy level moves to the machine,
+     * which is open decision 10 in the plan.
+     */
+    manualAssurance: 'This station will order nothing else without your say-so.',
+    automaticAssurance: 'You can take control at any time.',
+    switchedToManual: 'Switched to Manual. This station will ask before anything else.',
+    switchedToManualAndStopped:
+      'Switched to Manual. The order this station had started has been stopped.',
     switchedToAutomatic:
-      'Switched to Automatic. The machines will go and look at anything new by themselves.',
+      'Switched to Automatic. This station will send the selected machine to look at anything new.',
   },
 
   plan: {
@@ -63,6 +103,9 @@ export const say = {
     nothingFor: 'Nothing ordered.',
     stop: 'Stop',
     sending: 'Sending the order',
+    // Why a machine is doing what it is doing comes from the server, on the
+    // task itself. It is a sentence about the world, so the server's
+    // language file owns it, the same as the order's own wording.
   },
 
   map: {
@@ -71,6 +114,11 @@ export const say = {
     scale: '200 m',
     lastHeard: 'Last heard',
     someTimeAgo: 'a while ago',
+    /**
+     * A machine we have never heard from. Saying "last heard a while ago"
+     * would claim a hearing that never happened.
+     */
+    notHeard: 'Never heard from',
     patrolRoute: 'Patrol route',
   },
 
@@ -89,6 +137,12 @@ export const say = {
     sendNamed: (machine: string) => `Send ${machine} to look`,
     contact: 'Possible contact',
     noFigure: 'The machine has not said how sure it is.',
+    /**
+     * The contact rail's line. The server supplies the place and we supply
+     * the observer and the age, so each part is dropped rather than faked
+     * when it is not known.
+     */
+    seenByAgo: (who: string, ago: string) => `Seen by ${who}, ${ago}.`,
   },
 
   counts: {
@@ -103,6 +157,23 @@ export const say = {
     battery: 'Battery',
     /** Shown when a machine has gone quiet, so the map is never read as live. */
     stale: 'The map shows where it was, not where it is.',
+    /**
+     * A machine that has never reported. Registration carries no position,
+     * and a position is only ever written from a heartbeat or a motion
+     * sample, so such a machine has none and draws no marker. There is
+     * therefore nothing on the map to caveat, and saying where it is shown
+     * would describe a pin that is not there.
+     */
+    neverReported: 'It has not said where it is.',
+    /**
+     * A battery reading from a machine we cannot hear is a reading from the
+     * past. Said in the past tense so it is never mistaken for the charge
+     * the machine has now.
+     */
+    batteryWas: (percent: number) => `Battery was ${percent}%`,
+    /** Where a machine was pointing, in the eight points of the compass. */
+    heading: (deg: number) =>
+      ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(((deg % 360) + 360) % 360 / 45) % 8],
   },
 
   voice: {
@@ -152,6 +223,42 @@ export function agoInWords(seconds: number): string {
   const hours = Math.round(minutes / 60)
   return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
 }
+
+/**
+ * A time of day, in UTC, because a site and the people watching it are not
+ * always in the same place. Always marked Z: two times in one window, one
+ * marked and one not, is an invitation to read the unmarked one as local.
+ *
+ * One function, used by the menu bar clock and by every marker chip and
+ * sentence, so the marking cannot drift between them.
+ */
+export function clockAt(epochSeconds: number, withSeconds = false): string {
+  const iso = new Date(epochSeconds * 1000).toISOString()
+  const clock = `${iso.slice(11, withSeconds ? 19 : 16)} Z`
+  // Anything not from today carries its date. A bare clock time reads as
+  // today, and the machines this matters for are the ones that went quiet
+  // last night and are still on the screen this afternoon.
+  const today = new Date().toISOString().slice(0, 10)
+  if (iso.slice(0, 10) === today) return clock
+  const day = new Date(epochSeconds * 1000)
+  const month = MONTHS[day.getUTCMonth()]
+  return `${clock} on ${day.getUTCDate()} ${month}`
+}
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
 
 /**
  * The four status colours, and nothing else. Meaning never changes between

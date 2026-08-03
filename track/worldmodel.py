@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from google.protobuf.json_format import MessageToDict
 from link.v1.messages_pb2 import (
@@ -41,7 +42,14 @@ from link.v1.ontology_pb2 import (
 )
 
 from track import live
-from track.codec import asset_to_dict, task_to_dict, to_dict
+from track.codec import (
+    asset_to_dict,
+    task_to_dict,
+    tasks_to_dicts,
+    to_dict,
+    track_to_dict,
+    tracks_to_dicts,
+)
 from track.config import Settings
 from track.events import EventWriter, Language
 from track.fusion import TrackManager
@@ -117,6 +125,69 @@ class WorldModel:
         self._inbox: asyncio.Queue[tuple[str, bytes]] = asyncio.Queue(maxsize=4096)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._tasks: list[asyncio.Task] = []
+
+    # -- how applications see a contact -------------------------------------
+
+    def track_class(self, track: Track) -> str:
+        """The class of the thing a track is following, or nothing.
+
+        A track whose entity has gone is not an error. The naming falls back
+        to the unknown label, which is a word rather than a blank.
+        """
+        entity = self.store.get_entity(track.entity_id) if track.entity_id else None
+        return entity.entity_class if entity is not None else ""
+
+    def track_view(self, track: Track) -> dict:
+        """One contact, named and placed, exactly as the stream serves it."""
+        return track_to_dict(
+            track,
+            self.language.track_name(self.track_class(track), track.confidence),
+            self.language.place_phrase(self.zone_eval.place_name(track.position)),
+        )
+
+    def track_views(self, tracks) -> list[dict]:
+        return tracks_to_dicts(
+            tracks, self.language, self.track_class, self.zone_eval.place_name
+        )
+
+    def task_view(self, task: Task) -> dict:
+        """One order, in words: what was asked, who asked, and why.
+
+        An order with no issuer on record names nobody. Saying "someone
+        signed in" here would assert a person the record does not have, and
+        would disagree with the event feed, which calls the same order the
+        system's.
+        """
+        who = ""
+        channel = ""
+        if task.HasField("issued_by"):
+            channel = task.issued_by.channel
+            if task.issued_by.principal_id:
+                who = self.events.name_person(task.issued_by.principal_id)
+        return task_to_dict(
+            task,
+            self.language.task_phrase(task.task_type),
+            who,
+            self.language.task_reason(channel, who, self._issued_at(task)),
+        )
+
+    def _issued_at(self, task: Task) -> str:
+        """The clock time an order was given, or nothing.
+
+        The wording, including the Z, comes from the language file: this is
+        a string an operator reads, and none of those are written in code.
+        """
+        if not task.status_history:
+            return ""
+        stamp = task.status_history[0].timestamp
+        if not stamp.seconds:
+            return ""
+        return self.language.time_of_day(
+            stamp.ToDatetime(), today=datetime.now(timezone.utc).date()
+        )
+
+    def task_views(self, tasks) -> list[dict]:
+        return tasks_to_dicts(tasks, self.task_view)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -292,7 +363,7 @@ class WorldModel:
         for zone in transition.alert_on_exited:
             await self._emit(self.events.zone_exit(track, result.entity, zone))
 
-        await self.bus.publish(live.TRACK_UPDATED, to_dict(track))
+        await self.bus.publish(live.TRACK_UPDATED, self.track_view(track))
 
     async def on_task_status(self, update: TaskStatusUpdate) -> None:
         task = self.store.get_task(update.task_id)
@@ -325,7 +396,7 @@ class WorldModel:
         await self.bus.publish(
             live.TASK_UPDATED,
             {
-                "task": task_to_dict(task, self.language.task_phrase(task.task_type)),
+                "task": self.task_view(task),
                 "progress": update.progress,
                 "eta_sec": update.eta_sec if update.HasField("eta_sec") else None,
                 "message": update.message,
@@ -371,7 +442,7 @@ class WorldModel:
 
         self._send_task(task)
         await self._emit(self.events.task_event("task_issued", task, asset))
-        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": self.task_view(task), "progress": 0.0})
         return task
 
     async def cancel_task(self, task_id: str) -> Task:
@@ -397,7 +468,7 @@ class WorldModel:
         await self._emit(
             self.events.task_event("task_cancelled", task, self.store.get_asset(task.asset_id))
         )
-        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": self.task_view(task), "progress": 0.0})
         return task
 
     def _send_task(self, task: Task) -> None:
@@ -447,7 +518,7 @@ class WorldModel:
                 if entity is not None:
                     place = self.zone_eval.place_name(track.position)
                     await self._emit(self.events.track_lost(track, entity, place))
-            await self.bus.publish(live.TRACK_UPDATED, to_dict(track))
+            await self.bus.publish(live.TRACK_UPDATED, self.track_view(track))
 
     async def _fail_open_tasks(self, asset: Asset, reason: str) -> None:
         for task in self.store.list_tasks(asset_id=asset.asset_id):
@@ -463,7 +534,7 @@ class WorldModel:
         await self._emit(
             self.events.task_event("task_failed", task, self.store.get_asset(task.asset_id), reason)
         )
-        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": self.task_view(task), "progress": 0.0})
 
     # -- helpers -----------------------------------------------------------
 

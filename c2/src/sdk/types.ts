@@ -23,6 +23,12 @@ export interface Velocity {
   down_mps?: number
 }
 
+/** Who is signed in. Never carries the identifier the server knows them by. */
+export interface Principal {
+  display_name: string
+  role: string
+}
+
 export interface Asset {
   asset_id: string
   /** Resolved by the server. C2 never composes a name. */
@@ -52,6 +58,10 @@ export interface TrackHistoryPoint {
 
 export interface Track {
   track_id: string
+  /** Resolved by the server, hedge included. C2 never composes a name. */
+  display_name?: string
+  /** Where it is, in words. Empty when it is in no zone we know. */
+  place?: string
   entity_id?: string
   state?: string
   position?: Position
@@ -81,6 +91,10 @@ export interface Task {
   parameters?: { waypoints?: Position[]; target_track_id?: string; speed_mps?: number }
   status?: string
   issued_by?: { principal_id?: string; channel?: string }
+  /** Who gave the order, as a name. Resolved by the server. */
+  ordered_by?: string
+  /** Why the machine is doing this, already a phrase. Composed by the server. */
+  reason?: string
   status_history?: TaskStatusPoint[]
 }
 

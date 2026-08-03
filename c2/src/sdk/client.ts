@@ -8,7 +8,7 @@
  * That is the SDK honesty law, and this file is where it is kept.
  */
 
-import type { Asset, Task, TaskRequest, Track, WorldEvent, Zone } from './types'
+import type { Asset, Principal, Task, TaskRequest, Track, WorldEvent, Zone } from './types'
 
 export class NotSignedIn extends Error {}
 export class Refused extends Error {}
@@ -59,6 +59,8 @@ async function refusalText(response: Response): Promise<string> {
 }
 
 export const track = {
+  /** Who is signed in, as a name. The identifier stays on the server. */
+  me: () => call<Principal>('/v1/me'),
   assets: () => call<Asset[]>('/v1/assets'),
   tracks: () => call<Track[]>('/v1/tracks'),
   zones: () => call<Zone[]>('/v1/zones'),

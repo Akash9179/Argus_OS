@@ -510,7 +510,7 @@ async def test_an_unreachable_world_model_is_not_reported_as_an_empty_one(voice,
 
     Reads used to be flattened to an empty list on any failure, so a dead
     link made every order come back "I do not have a machine by that
-    name" — a confident claim about a world the system could not see.
+    name", a confident claim about a world the system could not see.
     """
     from voice.world import WorldUnavailable
 

@@ -82,14 +82,55 @@ sources:
   seen_by: "Seen by {asset}"
   ordered_by: "Ordered by {who}"
   ordered_by_channel: "Ordered by {who}, {channel}"
+  # An order nobody was asked for. Names no person, so this line cannot
+  # disagree with the reason carried on the order itself.
+  self_issued: "Ordered {channel}"
 
 channels:
   map: "on the map"
   voice: "by voice"
   api: "by another system"
   system: "automatically"
+  # An order a station issued on its own, under a standing instruction,
+  # rather than one a person clicked. Without this the feed reads as though
+  # the operator gave an order they never gave.
+  automatic: "automatically, without being asked"
+
+# Which channels mean nobody was asked. Listed here rather than decided in
+# code so that a channel added later is a data change, and so that an
+# application never has to know the channel vocabulary at all.
+self_issued_channels:
+  - automatic
+  - system
+
+# Why a machine is doing what it is doing, for the plan strip. Composed
+# here because it is a sentence about the world, and because an application
+# guessing at it from a channel name is how an order gets attributed to the
+# wrong person.
+task_reasons:
+  by_person_at: "because {who} ordered it at {at}"
+  by_person: "because {who} ordered it"
+  # Any order nobody was asked for. Carries no motive, because this covers
+  # every self-issued channel and every kind of order: "it went to look by
+  # itself" is true of the one standing order in this build and false of a
+  # return-home or a hold the platform issues on its own.
+  self_issued: "because it was ordered automatically, without anyone being asked"
+
+# How a time of day is written. Always marked Z: a site and the people
+# watching it are not always in the same place, and an unmarked time reads
+# as local. Python strftime syntax.
+#
+# The dated form is used for anything that did not happen today, because a
+# bare clock time reads as today. An order still running across midnight, or
+# one given before a long outage, is exactly when that matters.
+time_of_day: "%H:%M Z"
+time_of_day_dated: "%H:%M Z on %d %B"
 
 templates:
+  # What a contact is called on screen, as opposed to the sentence announcing
+  # it. The hedge is part of the name: a thing we are 4 in 10 sure about is a
+  # "Possible person", never a "person".
+  track_name: "{qualifier_cap}{label}"
   track_created: "{qualifier}{label} detected{place}, {confidence}."
   track_lost: "Lost sight of the {label}{place}."
   zone_entry: "{qualifier_cap}{label} entered {zone}."
@@ -107,6 +148,10 @@ templates:
 fragments:
   place_near: " near {zone}"
   place_none: ""
+  # Where a contact is, stated on its own rather than inside a longer
+  # sentence. "Inside" and not "near", because the zone this comes from is
+  # one the position is actually within.
+  place_inside: "Inside {zone}"
   battery_clause: " Battery {battery} percent."
   no_reason: "No reason was given."
   # Used when an order carries a person we cannot name. Better a plain

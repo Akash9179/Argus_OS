@@ -10,12 +10,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { track as api, Refused } from '../sdk/client'
 import type { Link } from '../sdk/stream'
 import type { Asset, Track } from '../sdk/types'
-import { isAnswering, openTaskFor, useContacts, useMachines, type World } from '../state/world'
+import {
+  isAnswering,
+  lastHeardAt,
+  openTaskFor,
+  positionOf,
+  useContacts,
+  useMachines,
+  type World,
+} from '../state/world'
 import { MapView } from './MapView'
 import { VoiceBar } from './VoiceBar'
 import {
   agoInWords,
   assetStatus,
+  clockAt,
   outOfTen,
   plain,
   say,
@@ -39,6 +48,11 @@ export function Operate({ world, link, theme }: Props) {
   const [mode, setMode] = useState<Mode>('manual')
   const [notice, setNotice] = useState<string>('')
   const [now, setNow] = useState(() => Date.now() / 1000)
+  // Both rails start open. A section an operator collapsed stays collapsed,
+  // but nothing about the force is ever hidden by default.
+  const [showMachines, setShowMachines] = useState(true)
+  const [showContacts, setShowContacts] = useState(true)
+  const [showEvents, setShowEvents] = useState(true)
 
   // One clock for the whole screen, so every "how long ago" agrees.
   useEffect(() => {
@@ -62,17 +76,33 @@ export function Operate({ world, link, theme }: Props) {
   const openTask = selected ? openTaskFor(world, selected.asset_id) : undefined
   const canSend = Boolean(selected && answering(selected.asset_id) && mode === 'manual')
 
+  /**
+   * The orders this station issued on its own, by task identifier.
+   *
+   * Remembering what we did is not the same as working out who ordered
+   * something: that question belongs to the server, and asking it here by
+   * reading a channel code is how orders get attributed to the wrong
+   * person. This is only ever consulted to decide what this station may
+   * take back.
+   */
+  const stationIssued = useRef<Set<string>>(new Set())
+  const isStationOrder = (task: { task_id: string } | undefined) =>
+    Boolean(task && stationIssued.current.has(task.task_id))
+
   const send = useCallback(
     async (lat: number, lon: number, channel: string, targetTrackId?: string) => {
       if (!selected) return
       try {
-        await api.issueTask({
+        const issued = await api.issueTask({
           asset_id: selected.asset_id,
           task_type: 'navigate',
           waypoints: [{ latitude_deg: lat, longitude_deg: lon }],
           target_track_id: targetTrackId ?? '',
           channel,
         })
+        if (channel === 'automatic' && issued?.task_id) {
+          stationIssued.current.add(issued.task_id)
+        }
         setNotice('')
       } catch (error) {
         // The server words its own refusals. We show what it said.
@@ -114,9 +144,25 @@ export function Operate({ world, link, theme }: Props) {
   }, [mode, contacts, selected, openTask, answering, send])
 
   const switchMode = (next: Mode) => {
+    // Clicking the mode already in force is a no-op an operator reads as a
+    // no-op. Without this it ran the stop path below and cancelled a running
+    // order on a click that looked like nothing.
+    if (next === mode) return
     setMode(next)
-    setNotice(next === 'automatic' ? say.mode.switchedToAutomatic : say.mode.switchedToManual)
-    if (next === 'manual' && openTask) void stop()
+
+    // Dropping into Manual stops what this station started on its own, and
+    // only that. An order the operator gave is theirs, and cancelling it
+    // here would both take an action they did not ask for and describe it
+    // as the station's own.
+    const stopping = next === 'manual' && Boolean(openTask) && isStationOrder(openTask)
+    setNotice(
+      next === 'automatic'
+        ? say.mode.switchedToAutomatic
+        : stopping
+          ? say.mode.switchedToManualAndStopped
+          : say.mode.switchedToManual,
+    )
+    if (stopping) void stop()
   }
 
   return (
@@ -124,31 +170,52 @@ export function Operate({ world, link, theme }: Props) {
       <Toolbar mode={mode} onMode={switchMode} link={link} />
 
       <aside className="rail rail-left">
-        <SectionHeading label={say.rails.machines} count={machines.length} />
-        {machines.length === 0 && <p className="empty">{say.rails.noMachines}</p>}
-        {machines.map((machine) => (
-          <MachineRow
-            key={machine.asset_id}
-            machine={machine}
-            world={world}
-            now={now}
-            answering={answering(machine.asset_id)}
-            selected={machine.asset_id === selectedAssetId}
-            onSelect={() => setSelectedAssetId(machine.asset_id)}
-          />
-        ))}
+        <div className="filter-row">
+          <div className="find">
+            <SearchGlyph />
+            {say.find.filter}
+          </div>
+          <span className="chip on">{say.find.all}</span>
+        </div>
 
-        <SectionHeading label={say.rails.contacts} count={contacts.length} />
-        {contacts.length === 0 && <p className="empty">{say.rails.noContacts}</p>}
-        {contacts.map((contact) => (
-          <ContactRow
-            key={contact.track_id}
-            contact={contact}
-            now={now}
-            selected={contact.track_id === selectedTrackId}
-            onSelect={() => setSelectedTrackId(contact.track_id)}
-          />
-        ))}
+        <SectionHeading
+          label={say.rails.machines}
+          count={machines.length}
+          open={showMachines}
+          onToggle={() => setShowMachines(!showMachines)}
+        />
+        {showMachines && machines.length === 0 && <p className="empty">{say.rails.noMachines}</p>}
+        {showMachines &&
+          machines.map((machine) => (
+            <MachineRow
+              key={machine.asset_id}
+              machine={machine}
+              world={world}
+              now={now}
+              answering={answering(machine.asset_id)}
+              selected={machine.asset_id === selectedAssetId}
+              onSelect={() => setSelectedAssetId(machine.asset_id)}
+            />
+          ))}
+
+        <SectionHeading
+          label={say.rails.contacts}
+          count={contacts.length}
+          open={showContacts}
+          onToggle={() => setShowContacts(!showContacts)}
+        />
+        {showContacts && contacts.length === 0 && <p className="empty">{say.rails.noContacts}</p>}
+        {showContacts &&
+          contacts.map((contact) => (
+            <ContactRow
+              key={contact.track_id}
+              contact={contact}
+              world={world}
+              now={now}
+              selected={contact.track_id === selectedTrackId}
+              onSelect={() => setSelectedTrackId(contact.track_id)}
+            />
+          ))}
       </aside>
 
       <div className="map-holder">
@@ -186,16 +253,21 @@ export function Operate({ world, link, theme }: Props) {
       </div>
 
       <aside className="rail rail-right">
-        <SectionHeading label={say.rails.happened} />
-        {world.events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
-        {world.events.map((event) => (
-          <article key={event.event_id} className={`event is-${severityStatus(event.severity)}`}>
-            <time>{new Date(event.ts * 1000).toISOString().slice(11, 19)}</time>
-            {/* Already a plain sentence when it arrives. C2 never rewrites it. */}
-            <p>{event.text}</p>
-            <small>{event.source}</small>
-          </article>
-        ))}
+        <SectionHeading
+          label={say.rails.happened}
+          open={showEvents}
+          onToggle={() => setShowEvents(!showEvents)}
+        />
+        {showEvents && world.events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
+        {showEvents &&
+          world.events.map((event) => (
+            <article key={event.event_id} className={`event is-${severityStatus(event.severity)}`}>
+              <time>{clockAt(event.ts, true)}</time>
+              {/* Already a plain sentence when it arrives. C2 never rewrites it. */}
+              <p>{event.text}</p>
+              <small>{event.source}</small>
+            </article>
+          ))}
       </aside>
 
       <PlanStrip
@@ -211,19 +283,81 @@ export function Operate({ world, link, theme }: Props) {
   )
 }
 
-function SectionHeading({ label, count }: { label: string; count?: number }) {
+function SectionHeading({
+  label,
+  count,
+  open,
+  onToggle,
+}: {
+  label: string
+  count?: number
+  open: boolean
+  onToggle: () => void
+}) {
   return (
-    <h2 className="section">
+    <button className={`section ${open ? 'is-open' : ''}`} onClick={onToggle} aria-expanded={open}>
+      <Chevron />
       {label}
       {count !== undefined && <span className="count">{count}</span>}
-    </h2>
+    </button>
   )
 }
+
+function Chevron() {
+  return (
+    <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  )
+}
+
+/**
+ * The map tools. Only selection is built, so the other two are shown and
+ * plainly disabled rather than hidden: an operator who cannot see that
+ * measuring exists cannot ask for it, and a tool that looks live but does
+ * nothing is worse than one that says it is not ready.
+ */
+const TOOLS = [
+  { key: 'select', label: say.tools.select, built: true, path: 'M5 3l14 8-6 1.6L10 19z' },
+  {
+    key: 'measure',
+    label: say.tools.measure,
+    built: false,
+    path: 'M3 15L15 3l6 6L9 21z M7.5 10.5l2 2 M11 7l2 2 M14.5 3.5l2 2',
+  },
+  {
+    key: 'mark',
+    label: say.tools.mark,
+    built: false,
+    path: 'M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z',
+  },
+] as const
 
 function Toolbar({ mode, onMode, link }: { mode: Mode; onMode: (m: Mode) => void; link: Link }) {
   return (
     <div className="toolbar">
-      <div className="find">{say.find.placeholder}</div>
+      <div className="tools" role="group">
+        {TOOLS.map((tool) => (
+          <button
+            key={tool.key}
+            className={`tool ${tool.built ? 'on' : 'is-inert'}`}
+            title={tool.built ? tool.label : `${tool.label}. ${say.notBuiltYet}`}
+            aria-label={tool.label}
+            disabled={!tool.built}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+              {tool.path.split(' M').map((segment, i) => (
+                <path key={i} d={i === 0 ? segment : `M${segment}`} />
+              ))}
+            </svg>
+          </button>
+        ))}
+      </div>
+      <div className="bar-sep" />
+      <div className="find">
+        <SearchGlyph />
+        {say.find.placeholder}
+      </div>
       <div className="segmented" role="group">
         {(['manual', 'automatic'] as const).map((option) => (
           <button
@@ -247,6 +381,15 @@ function Toolbar({ mode, onMode, link }: { mode: Mode; onMode: (m: Mode) => void
   )
 }
 
+function SearchGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-4-4" />
+    </svg>
+  )
+}
+
 function MachineRow({
   machine,
   world,
@@ -266,7 +409,10 @@ function MachineRow({
   const status = assetStatus(machine.status, answering)
   const battery = machine.battery_fraction
   const task = openTaskFor(world, machine.asset_id)
-  const heard = live?.timestamp
+  // Heartbeats count as being heard, not just motion samples. Reading this
+  // from telemetry alone claimed a machine had gone unheard when the server
+  // had in fact heard from it moments ago.
+  const heard = lastHeardAt(world, machine)
 
   return (
     <button className={`row ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
@@ -280,21 +426,41 @@ function MachineRow({
           ? task
             ? `${say.plan.heading}: ${orderInWords(task)}`
             : say.plan.nothingFor
-          : `${say.map.lastHeard} ${heard ? agoInWords(now - heard) : say.map.someTimeAgo}. ${say.machine.stale}`}
+          : // Two separate facts: when we last heard, and whether there is
+            // anything on the map to caveat. They come apart, because a
+            // machine can heartbeat without ever sending a position, and
+            // then it draws no marker. Warning about a pin that is not
+            // there invents the same "was" as claiming one for a machine
+            // that never reported at all.
+            `${heard ? `${say.map.lastHeard} ${agoInWords(now - heard)}` : say.map.notHeard}. ${
+              positionOf(world, machine) ? say.machine.stale : say.machine.neverReported
+            }`}
       </p>
       <div className="row-nums">
-        {battery !== undefined && (
-          <span>
-            <span className="bar">
-              <span
-                className={`fill is-${battery < 0.15 ? 'act' : battery < 0.3 ? 'warn' : 'ok'}`}
-                style={{ width: `${Math.round(battery * 100)}%` }}
-              />
+        {/*
+          A machine we cannot hear cannot tell us its charge, so its last
+          reading is stated in the past tense and without the live meter.
+          A green bar beside a silent machine reads as a machine that is
+          fine, which is the one thing it is not known to be.
+        */}
+        {battery !== undefined &&
+          (answering ? (
+            <span>
+              <span className="bar">
+                <span
+                  className={`fill is-${battery < 0.15 ? 'act' : battery < 0.3 ? 'warn' : 'ok'}`}
+                  style={{ width: `${Math.round(battery * 100)}%` }}
+                />
+              </span>
+              {Math.round(battery * 100)}%
             </span>
-            {Math.round(battery * 100)}%
-          </span>
-        )}
+          ) : (
+            <span className="was">{say.machine.batteryWas(Math.round(battery * 100))}</span>
+          ))}
         {answering && live?.speed_mps !== undefined && <span>{live.speed_mps.toFixed(1)} m/s</span>}
+        {answering && live?.heading_deg !== undefined && (
+          <span>{say.machine.heading(live.heading_deg)}</span>
+        )}
       </div>
     </button>
   )
@@ -302,28 +468,51 @@ function MachineRow({
 
 function ContactRow({
   contact,
+  world,
   now,
   selected,
   onSelect,
 }: {
   contact: Track
+  world: World
   now: number
   selected: boolean
   onSelect: () => void
 }) {
   const lastSeen = lastSeenSeconds(contact, now)
+  const seenBy = observersOf(contact, world)
+
+  // Where it is, then who saw it and when. Each part is left out rather than
+  // guessed at: the server sends no place when the contact is in no zone we
+  // know, and an observation can arrive without a machine we can name.
+  const line = [
+    contact.place ? `${contact.place}.` : '',
+    seenBy
+      ? say.detail.seenByAgo(seenBy, agoInWords(lastSeen))
+      : `${say.detail.lastSeen} ${agoInWords(lastSeen)}.`,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <button className={`row ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
       <div className="row-top">
         <span className="diamond" />
-        <span className="row-name">{say.detail.contact}</span>
+        {/* Named by the server, hedge included. C2 never composes this. */}
+        <span className="row-name">{contact.display_name || say.detail.contact}</span>
         <span className="row-state is-warn">{confidenceInWords(contact.confidence)}</span>
       </div>
-      <p className="row-line">
-        {say.detail.lastSeen} {agoInWords(lastSeen)}.
-      </p>
+      <p className="row-line">{line}</p>
     </button>
   )
+}
+
+/** The machines that saw a contact, in the names an operator reads. */
+function observersOf(contact: Track, world: World): string {
+  return (contact.contributing_asset_ids ?? [])
+    .map((id) => world.assets.get(id)?.display_name)
+    .filter(Boolean)
+    .join(', ')
 }
 
 /**
@@ -365,16 +554,13 @@ function ContactDetail({
   onClose: () => void
 }) {
   const tenths = outOfTen(contact.confidence)
-  const seenBy = (contact.contributing_asset_ids ?? [])
-    .map((id) => world.assets.get(id)?.display_name)
-    .filter(Boolean)
-    .join(', ')
+  const seenBy = observersOf(contact, world)
 
   return (
     <section className="detail">
       <header>
         <span className="diamond" />
-        <h3>{say.detail.contact}</h3>
+        <h3>{contact.display_name || say.detail.contact}</h3>
         <button className="x" onClick={onClose} aria-label={say.detail.close}>
           &times;
         </button>
@@ -435,6 +621,14 @@ function PlanStrip({
     return undefined
   }, [task])
 
+  /**
+   * Why the machine is doing this. The server composes it, because working
+   * it out here would mean enumerating the channel vocabulary and deciding
+   * whose order it was, and getting either wrong attributes an order to
+   * somebody who never gave it. Empty when nothing honest can be said.
+   */
+  const reason = task?.reason ?? ''
+
   return (
     <div className="plan">
       <span className="plan-mode">{mode === 'automatic' ? say.mode.automatic : say.mode.manual}</span>
@@ -443,7 +637,9 @@ function PlanStrip({
           <>
             <span className="step on">
               {orderInWords(task)}
-              {latest ? `. ${latest}` : ''}
+              {reason ? `, ${reason}` : ''}
+              {latest ? `. ${latest}` : '.'}{' '}
+              {mode === 'automatic' ? say.mode.automaticAssurance : say.mode.manualAssurance}
             </span>
             <span className="step">{machine.display_name}</span>
           </>

@@ -104,6 +104,69 @@ class Language:
             return self._d["fragments"]["place_none"]
         return self._d["fragments"]["place_near"].format(zone=zone_name)
 
+    def place_phrase(self, zone_name: str) -> str:
+        """Where something is, as a phrase that can stand on its own.
+
+        Empty when we do not know, so the caller can say nothing rather than
+        say somewhere vague.
+        """
+        if not zone_name:
+            return ""
+        return self._d["fragments"]["place_inside"].format(zone=zone_name)
+
+    def is_self_issued(self, channel: str) -> bool:
+        """Did a station give this order on its own, with nobody asked?"""
+        return channel in self._d["self_issued_channels"]
+
+    def time_of_day(self, when, today=None) -> str:
+        """A clock time as an operator reads it, from the language file.
+
+        Anything that did not happen today carries its date. A bare clock
+        time reads as today, which is wrong for an order still running
+        across midnight or given before a long outage.
+        """
+        key = "time_of_day"
+        if today is not None and when.date() != today:
+            key = "time_of_day_dated"
+        return when.strftime(self._d[key])
+
+    def task_reason(self, channel: str, who: str, at: str) -> str:
+        """Why a machine is doing what it is doing, in one phrase.
+
+        Composed here rather than in an application. An application deciding
+        this for itself has to enumerate the channel vocabulary, and every
+        channel it has not heard of falls through to whichever branch was
+        written last. That is how an order ends up attributed to someone who
+        never gave it.
+
+        An order with nobody on record gets no reason at all. Saying "an
+        order was given at 14:32" reads as an unnamed person having given
+        it, and calling it self-issued would invent a motive the record does
+        not support. The feed calls the same order the system's; neither
+        surface names a person, so neither can contradict the other.
+        """
+        reasons = self._d["task_reasons"]
+        if self.is_self_issued(channel):
+            return reasons["self_issued"]
+        if not who:
+            return ""
+        if at:
+            return reasons["by_person_at"].format(who=who, at=at)
+        return reasons["by_person"].format(who=who)
+
+    def track_name(self, entity_class: str, confidence: float) -> str:
+        """What to call a contact on screen.
+
+        Resolved here for the same reason asset names are: an application
+        that built this out of an entity class would be a second naming
+        authority, and the hedge would be the first thing to fall off.
+        """
+        name = self.template("track_name").format(
+            qualifier_cap=self.qualifier(confidence),
+            label=self.class_label(entity_class),
+        ).strip()
+        return name[:1].upper() + name[1:]
+
     def source_system(self) -> str:
         return self._d["sources"]["system"]
 
@@ -111,10 +174,40 @@ class Language:
         return self._d["sources"]["seen_by"].format(asset=asset_name)
 
     def source_ordered_by(self, who: str, channel: str) -> str:
-        channel_phrase = self._d["channels"].get(channel, "")
+        """Who ordered something and how, for the feed's source line.
+
+        An order nobody was asked for names nobody, so this line agrees with
+        the reason on the order itself. Both consult the same list.
+
+        A channel this build has never heard of is shown as sent rather than
+        dropped, the same as an unfamiliar entity class or order type: a
+        newer station's vocabulary is information, and silently losing the
+        "how" leaves the operator reading a bare name.
+        """
+        if self.is_self_issued(channel):
+            return self._d["sources"]["self_issued"].format(
+                channel=self.channel_phrase(channel)
+            )
+        channel_phrase = self.channel_phrase(channel)
         if channel_phrase:
             return self._d["sources"]["ordered_by_channel"].format(who=who, channel=channel_phrase)
         return self._d["sources"]["ordered_by"].format(who=who)
+
+    def channel_phrase(self, channel: str) -> str:
+        """How an order arrived, in words.
+
+        A channel this build has never heard of still has to reach the
+        operator, because losing the "how" leaves them reading a bare name.
+        It reaches them as the fact that it came from somewhere else, not as
+        the token itself: unlike an entity class, a channel is a free-form
+        string a caller chose, and "task_api_v2" on an operator's screen is
+        system vocabulary crossing the waterline. The value itself is
+        preserved in the record either way; this is only how it is read out.
+        """
+        known = self._d["channels"].get(channel, "")
+        if known:
+            return known
+        return self._d["channels"]["api"] if channel else ""
 
 
 class EventWriter:
@@ -243,7 +336,11 @@ class EventWriter:
             task_phrase=self.lang.task_phrase(task.task_type),
             reason=reason or self.lang.fragment("no_reason"),
         )
-        if kind == "task_issued" and task.HasField("issued_by"):
+        # The same test the order's own view applies, so the feed and the
+        # plan strip cannot disagree about whether a person was involved.
+        # An Issuer with no principal names nobody rather than becoming
+        # "someone signed in", which asserts a person we do not have.
+        if kind == "task_issued" and task.HasField("issued_by") and task.issued_by.principal_id:
             who = self.name_person(task.issued_by.principal_id)
             source = self.lang.source_ordered_by(who, task.issued_by.channel)
         else:

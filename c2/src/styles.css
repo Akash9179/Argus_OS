@@ -93,8 +93,14 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 }
 .mark { font-family: var(--mono); font-size: 11px; letter-spacing: 2.6px; color: var(--ink); font-weight: 700; }
 .app-name { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.menubar-items { display: flex; align-items: center; gap: 16px; }
+/* Menus this build has not implemented. Shown, so an operator can see the
+   system's shape, and plainly dimmed, so none of them looks live. */
+.menu-item { font-size: 12.5px; color: var(--ink-2); }
+.menu-item.is-inert { color: var(--ink-4); cursor: default; }
 .menubar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 .stat { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+.stat.mono { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .chip {
   font-size: 11px; padding: 3px 10px; border-radius: 999px;
   border: 1px solid var(--hairline); color: var(--ink-2);
@@ -118,9 +124,24 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   background: var(--pane); border-bottom: 1px solid var(--line);
 }
 .find {
-  display: flex; align-items: center; height: 24px; padding: 0 10px; min-width: 260px;
+  display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; min-width: 260px;
   background: var(--app-bg); border: 1px solid var(--line); color: var(--ink-4); font-size: 12px;
 }
+.find svg { width: 13px; height: 13px; flex: none; opacity: 0.8; }
+
+.tools { display: flex; align-items: center; gap: 2px; }
+.tool {
+  display: grid; place-items: center; width: 26px; height: 24px;
+  border: 1px solid transparent; color: var(--ink-3);
+}
+.tool svg { width: 15px; height: 15px; }
+.tool:hover { color: var(--ink); }
+.tool.on { background: var(--sel-dim); border-color: var(--sel); color: var(--ink); }
+/* A tool that is not built yet. Visible, so it can be asked for; dimmed and
+   unclickable, so it is never mistaken for one that works. */
+.tool.is-inert { color: var(--ink-4); cursor: default; }
+.tool.is-inert:hover { color: var(--ink-4); }
+.bar-sep { width: 1px; height: 16px; background: var(--line-2); flex: none; }
 .segmented { margin-left: auto; display: flex; border: 1px solid var(--line-2); height: 24px; }
 .segmented button {
   display: flex; align-items: center; gap: 6px; padding: 0 12px;
@@ -139,13 +160,21 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .rail { background: var(--pane); overflow-y: auto; overflow-x: hidden; }
 .rail-left { grid-area: left; border-right: 1px solid var(--line); }
 .rail-right { grid-area: right; border-left: 1px solid var(--line); }
+.filter-row { display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.filter-row .find { min-width: 0; flex: 1; }
+.filter-row .chip { flex: none; }
+.chip.on { background: var(--sel-dim); border-color: var(--sel); color: var(--ink); }
+
 .section {
-  position: sticky; top: 0; z-index: 2;
-  display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+  position: sticky; top: 0; z-index: 2; width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
   background: var(--pane-2); border-bottom: 1px solid var(--line);
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.9px; color: var(--ink-3); text-transform: uppercase;
 }
+.section:hover { color: var(--ink-2); }
 .section .count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0; }
+.section .chev { width: 12px; height: 12px; flex: none; transform: rotate(-90deg); transition: transform 120ms ease; }
+.section.is-open .chev { transform: rotate(0deg); }
 .empty { padding: 12px 10px; font-size: 12px; color: var(--ink-4); }
 
 .row {
@@ -163,6 +192,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .row-state.is-off { color: var(--off); }
 .row-line { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
 .row-nums { display: flex; gap: 10px; margin-top: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); align-items: center; }
+/* A reading from a machine we can no longer hear. Dimmed to the offline
+   colour so it never reads as a current figure. */
+.row-nums .was { color: var(--off); }
 .bar { width: 26px; height: 3px; background: var(--line-2); display: inline-block; vertical-align: middle; }
 .fill { height: 100%; display: block; background: var(--ok); }
 .fill.is-warn { background: var(--warn); }

@@ -185,14 +185,30 @@ export const SILENCE_SECONDS = 30
  * disconnection law cuts both ways: losing the link must never look like
  * losing the force.
  */
+/**
+ * When we last heard from a machine, by any means, or undefined if we never
+ * have. Motion samples and heartbeats both count, and the later of the two
+ * wins: a machine that is still beating has been heard from, whether or not
+ * this application has seen it move.
+ *
+ * Everything that talks about silence reads from here, so the map and the
+ * force rail can never disagree about when a machine was last heard.
+ */
+export function lastHeardAt(world: World, asset: Asset | undefined): number | undefined {
+  if (!asset) return undefined
+  const live = world.telemetry.get(asset.asset_id)?.timestamp
+  const parsed = asset.last_heartbeat ? Date.parse(asset.last_heartbeat) / 1000 : NaN
+  const beat = Number.isNaN(parsed) ? undefined : parsed
+  const heard = Math.max(live ?? 0, beat ?? 0)
+  return heard === 0 ? undefined : heard
+}
+
 export function isAnswering(world: World, assetId: string, now: number, linkLost: boolean): boolean {
   const asset = world.assets.get(assetId)
   if (asset?.status === 'ASSET_STATUS_OFFLINE') return false
   if (linkLost) return true
-  const live = world.telemetry.get(assetId)?.timestamp
-  const beat = asset?.last_heartbeat ? Date.parse(asset.last_heartbeat) / 1000 : undefined
-  const heard = Math.max(live ?? 0, Number.isNaN(beat ?? NaN) ? 0 : beat ?? 0)
-  if (heard === 0) return false
+  const heard = lastHeardAt(world, asset)
+  if (heard === undefined) return false
   return now - heard < SILENCE_SECONDS
 }
 

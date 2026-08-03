@@ -1,0 +1,9 @@
+# Bench only. Never install this on a deployed system.
+#
+# The cloud language client, used by the `dev` and `demo` policy profiles
+# so the language work can be built against a strong model before the
+# local one is tuned. The `deployed` profile refuses cloud adapters, and a
+# deployed image should not carry this file's contents at all.
+-r requirements.txt
+
+anthropic>=0.40

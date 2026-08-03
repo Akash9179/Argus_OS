@@ -35,7 +35,7 @@ jobs:
         run: npm run typecheck
 
   loop:
-    name: The simulated vehicle's full task loop and the edge runtime's
+    name: "The full loop: sim, edge runtime, voice, and the sovereignty laws"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +47,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e link/
+      # Deliberately NOT installing requirements-bench.txt. CI runs the
+      # shape a deployed system ships in: no cloud language client, so the
+      # cloud adapter never registers. If a test ever needs it to pass,
+      # that test has become a test of the bench rather than of the
+      # product.
       - name: Run the loop
         run: python -m pytest -q
 

@@ -39,6 +39,24 @@ whether direct or not.
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
 
+## Speech (Stage 4)
+
+| Component | Licence | Where | Verdict |
+|---|---|---|---|
+| whisper.cpp | MIT | gateway, local STT adapter | Clear. |
+| Whisper `ggml-base.en` weights | MIT (OpenAI) | gateway | Clear. US origin, so the sovereignty law is satisfied too. |
+| Piper (`piper-tts`) | MIT (Rhasspy / OHF) | gateway, local TTS adapter | Clear. **The engine's licence is not the voice's licence.** Each voice must be checked separately. |
+| Piper voice `en_US-libritts_r-medium` | **CC BY 4.0** (LibriTTS-R, OpenSLR 141) | gateway | Clear, attribution required. Derived from LibriVox public-domain audiobooks. This is the voice in use. |
+
+### Speech models rejected
+
+| Component | Licence | Why not |
+|---|---|---|
+| Piper voice `en_US-lessac-medium` | Blizzard 2013 **Research Licence Agreement** | Research use only, granted individually to a named person or organisation, non-transferable. Downloaded, checked, and deleted. It is Piper's most commonly used English voice, which is exactly why it is worth recording as a trap. |
+| Piper voice `en_US-ryan-medium` | CC BY-NC-SA 4.0 | Non-commercial. |
+| Fish Audio (`fish-speech`, OpenAudio S1) | Fish Audio Research License | "Any Commercial use of the Materials requires a separate license from Fish Audio." Research licence, so law 9 blocks it without a negotiated commercial deal. Separately, the model's authorship is Chinese, so law 8 blocks it even if the licence were bought. Best-sounding of the open voices, and not available to us. |
+| Coqui XTTS v2 | CPML (non-commercial) | Non-commercial. |
+
 ## Chosen but not yet integrated
 
 | Component | Licence | Verdict |

@@ -1,0 +1,17 @@
+# What the voice service says when it will not do something.
+#
+# These reach an operator: C2 shows the `detail` of a refusal directly in
+# the voice bar. So they live here, like every other operator sentence in
+# this system, and not as literals in Python.
+#
+# They are deliberately word-for-word identical to the world model's, in
+# track/data/event_templates.yaml. An operator meets one system, and being
+# refused in two different phrasings depending on which service answered
+# would tell them there are two.
+
+refusals:
+  not_signed_in: "You are not signed in."
+  not_allowed: "You do not have access to that."
+  no_audio: "No audio arrived."
+  nothing_said: "Nothing was said."
+  no_order_to_confirm: "There is no order to confirm."

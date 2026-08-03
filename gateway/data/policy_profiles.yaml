@@ -1,0 +1,54 @@
+# AI policy profiles.
+#
+# Set at install time by an admin. Not reachable from any operator surface,
+# because an operator who can move a system from deployed to dev can move
+# it onto the internet.
+#
+# Adapters are listed per capability in preference order. The first one
+# that is installed and healthy answers. A capability with no adapters
+# listed is refused, and the refusal is distinguishable from a failure:
+# a deployed profile with no cloud adapters is working correctly.
+#
+# The sovereignty law in one line: `deployed` never contains a cloud
+# adapter, and there is a test that fails if one appears here.
+
+profiles:
+  deployed:
+    description: >
+      The real thing. Air-gapped, on the machine or on a ground station
+      with no route out. Everything runs locally and nothing leaves.
+    allows_cloud: false
+    adapters:
+      transcribe: [whisper_local]
+      speak: [piper_local]
+      understand_order: [llama_local]
+      answer_question: [llama_local]
+
+  dev:
+    description: >
+      The bench. Cloud adapters are permitted here and only here, so that
+      the language work can be built against a strong model before the
+      local one is tuned. Never ship a machine on this profile.
+    allows_cloud: true
+    adapters:
+      # Speech stays local even on the bench. It runs well enough on a
+      # laptop that reaching for an API would only mean the deployed path
+      # got less use, and the deployed path is the one that has to work.
+      transcribe: [whisper_local]
+      speak: [piper_local]
+      # Language falls back: cloud first for quality, local if the key is
+      # absent, so the bench still works on a plane.
+      understand_order: [anthropic, llama_local]
+      answer_question: [anthropic, llama_local]
+
+  demo:
+    description: >
+      A demonstration, on a connected network, where the machine should
+      sound its best. Same permissions as dev; separate name so that what
+      a demonstration ran on is recorded rather than assumed.
+    allows_cloud: true
+    adapters:
+      transcribe: [whisper_local]
+      speak: [piper_local]
+      understand_order: [anthropic, llama_local]
+      answer_question: [anthropic, llama_local]

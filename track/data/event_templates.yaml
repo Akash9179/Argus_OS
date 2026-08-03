@@ -127,7 +127,7 @@ errors:
   not_allowed: "You do not have access to that."
   no_such_asset: "That machine is not known to the system."
   no_registry_yet: "That machine has not said what it is made of yet."
-  no_such_track: "That track no longer exists."
+  no_such_track: "That contact is no longer on record."
   no_such_entity: "There is nothing on record for that."
   no_such_task: "That order does not exist."
   asset_not_answering: "{asset} is not answering right now."

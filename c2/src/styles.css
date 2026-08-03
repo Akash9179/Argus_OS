@@ -277,7 +277,26 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .voicebar { grid-area: voice; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--pane); border-top: 1px solid var(--line); }
 .ptt { width: 32px; height: 32px; flex: none; display: grid; place-items: center; background: var(--pane-3); border: 1px solid var(--line-2); color: var(--ink); }
 .ptt svg { width: 15px; height: 15px; }
+.ptt:disabled { opacity: 0.45; }
+/* A live microphone has to be obvious from across a room. It uses the
+   selection colour rather than one of the four status colours: green,
+   amber, red and grey mean healthy, attention, act now and offline, and
+   a hot microphone is none of those. Borrowing one would cost more than
+   it bought. */
+.ptt.live { background: var(--sel); border-color: var(--sel); color: var(--pane); }
+
+.voicelines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+/* What the machine heard, kept on screen under what it said, so a strange
+   answer can be traced to a mishearing rather than guessed at. */
+.heard { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
 .said { font-size: 13px; color: var(--ink); }
+
+/* The readback. Never dismissed by a timeout and never defaulted: an
+   order happens because someone pressed yes. */
+.readback { flex: none; display: flex; gap: 8px; }
+.readback button { height: 28px; padding: 0 14px; font-size: 12px; border: 1px solid var(--line-2); background: var(--pane-3); color: var(--ink); }
+.readback .confirm { background: var(--sel); border-color: var(--sel); color: var(--pane); font-weight: 600; }
+.readback .cancel { color: var(--ink-2); }
 
 /* ---------------- sign in ---------------- */
 .signin { height: 100%; display: grid; place-items: center; background: var(--app-bg); }

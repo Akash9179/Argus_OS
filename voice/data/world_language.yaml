@@ -1,0 +1,63 @@
+# How the world is described to the voice layer.
+#
+# These words reach a person: they go to the language service, which
+# repeats them back, and they are what an operator hears. So they live
+# here rather than in Python, the same way the world model keeps its
+# sentences in track/data/event_templates.yaml and a machine keeps its own
+# in pilot/data/runtime_language.yaml.
+#
+# The confidence bands are deliberately identical to the world model's, in
+# track/data/event_templates.yaml. An operator who reads "moderate
+# confidence" in the feed and hears "reasonably confident" from the voice
+# is being told two things about one contact, and would be right to
+# distrust both. If you change a band here, change it there.
+
+confidence:
+  unknown: "not known"
+  bands:
+    - below: 0.5
+      phrase: "low confidence"
+    - below: 0.8
+      phrase: "moderate confidence"
+    - below: 1.01
+      phrase: "high confidence"
+
+# A machine's operational state. A value this build does not recognise is
+# passed through rather than collapsed, per the open-vocabulary rule.
+status:
+  ASSET_STATUS_ACTIVE: "working"
+  ASSET_STATUS_STANDBY: "standing by"
+  ASSET_STATUS_FAULT: "faulty"
+  ASSET_STATUS_OFFLINE: "not answering"
+  not_reported: "not reported"
+
+task:
+  busy: "an order"
+  idle: "nothing"
+
+# How long ago something was seen. Vague on purpose above the hour: an
+# operator does not need "seventy three minutes ago", and a precise figure
+# implies a precision the track does not have.
+age:
+  unknown: "time not known"
+  just_now: "just now"
+  minute: "a minute ago"
+  minutes: "{count} minutes ago"
+  hour: "an hour ago"
+  hours: "{count} hours ago"
+  older: "more than a day ago"
+
+# What we call the things we see. Word for word the world model's, in
+# track/data/event_templates.yaml, for the same reason the confidence
+# bands are: a contact the feed calls a boat must not be a vessel when the
+# voice says it. A class this build has never heard of is not dropped, it
+# is spoken as sent with underscores turned into spaces.
+class_labels:
+  person: "person"
+  vehicle: "vehicle"
+  animal: "animal"
+  structure: "structure"
+  vessel: "boat"
+  aircraft: "aircraft"
+  unknown: "something"
+unknown_class_label: "something"

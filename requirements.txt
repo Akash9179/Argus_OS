@@ -12,3 +12,18 @@ pyyaml>=6.0
 pytest>=8.3
 pytest-asyncio>=0.24
 httpx>=0.28
+
+# AI gateway and voice (Stage 4). Speech is local on every profile.
+python-multipart>=0.0.9
+piper-tts>=1.2
+
+# The cloud language client is DELIBERATELY NOT HERE.
+#
+# Plan section 7 says a deployed profile has cloud adapters "not
+# installed", not merely refused, so a deployed image must not carry the
+# dependency at all. The adapter registers only when the library is
+# present (see gateway/adapters/__init__.py), so a deployed build has no
+# cloud adapter to refuse in the first place.
+#
+# On a bench, install it explicitly:
+#     pip install -r requirements-bench.txt

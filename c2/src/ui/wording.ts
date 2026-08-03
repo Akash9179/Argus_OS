@@ -107,7 +107,19 @@ export const say = {
 
   voice: {
     hold: 'Hold space to talk',
-    notYet: 'Voice arrives in a later stage. Orders go through the map for now.',
+    listening: 'Listening.',
+    thinking: 'One moment.',
+    youSaid: 'You said: ',
+    // Shown when the voice service answers but this deployment cannot
+    // hear or cannot think. The map still works, and saying so is more
+    // use than an error code.
+    unavailable: 'Voice is not available here. Orders go through the map.',
+    unreachable: 'Cannot reach the voice service. Orders go through the map.',
+    noMicrophone: 'No microphone. Orders go through the map.',
+    // The readback. An order never happens on speech alone.
+    confirmLabel: 'Confirm this order',
+    yes: 'Yes, send it',
+    no: 'No',
   },
 
   errors: {

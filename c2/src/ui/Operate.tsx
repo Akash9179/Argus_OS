@@ -12,6 +12,7 @@ import type { Link } from '../sdk/stream'
 import type { Asset, Track } from '../sdk/types'
 import { isAnswering, openTaskFor, useContacts, useMachines, type World } from '../state/world'
 import { MapView } from './MapView'
+import { VoiceBar } from './VoiceBar'
 import {
   agoInWords,
   assetStatus,
@@ -205,16 +206,7 @@ export function Operate({ world, link, theme }: Props) {
         onTakeControl={() => switchMode('manual')}
       />
 
-      <div className="voicebar">
-        <button className="ptt" disabled title={say.voice.notYet} aria-label={say.voice.hold}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="9" y="3" width="6" height="11" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0" />
-            <line x1="12" y1="18" x2="12" y2="21" />
-          </svg>
-        </button>
-        <p className="said">{notice || say.voice.notYet}</p>
-      </div>
+      <VoiceBar notice={notice} onOrdered={() => setNotice('')} />
     </div>
   )
 }

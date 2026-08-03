@@ -1,0 +1,30 @@
+# What the drivers say about their own health.
+#
+# These sentences reach a person through the registry, on the machine and
+# mirrored into the world model, so they live here rather than in driver
+# code. A deployment can change how its machines describe themselves
+# without reflashing them, and a translation is a copy of this file.
+#
+# Two rules they follow. Being disconnected is not a fault: under the
+# disconnection law a machine alone is working normally, so the words say
+# what is true without calling it broken. And nothing here claims a state
+# the driver does not actually know.
+#
+# {placeholders} are filled by the driver.
+
+health:
+  locomotion_stopped: "The motor controller is not running."
+  locomotion_running: "The motor controller is running."
+  locomotion_clamped: "Running, and holding speed at the declared limit of {limit} m/s."
+
+  camera_stopped: "The camera is not running."
+  camera_running: "The camera is running."
+
+  link_up: "The link is up."
+  link_up_to: "Connected to {host}."
+  link_down: "The link is down and the machine is working alone."
+  link_never: "Has not reached {host} yet and is working alone."
+
+  # A driver that cannot answer when asked is not healthy, and says so
+  # rather than staying silent.
+  no_answer: "The driver did not answer when asked: {reason}"

@@ -1,0 +1,57 @@
+# The reference machine: the Jeep-chassis 4x4 electric UGV.
+#
+# Stage 3A boots this with the simulated driver set standing in for the real
+# hardware. Stage 3B changes the three driver names below and nothing else,
+# which is the test of whether the HAL is real.
+
+asset_id: "01PILOT00000000000000UGV1"
+asset_class: "ugv"
+name: "Scout 1"
+
+max_speed_mps: 4.0
+max_turn_rate_dps: 110.0
+max_accel_mps2: 2.5
+max_decel_mps2: 2.5
+min_turn_radius_m: 0.0   # skid steer: it turns in place
+can_hover: false
+
+dimensions:
+  length_m: 3.2
+  width_m: 1.7
+  height_m: 1.9
+
+battery:
+  capacity_wh: 5200
+  start_fraction: 0.92
+  drain_per_minute: 0.004
+
+supported_task_types:
+  - navigate
+  - patrol
+  - hold
+  - return_home
+
+drivers:
+  - kind: locomotion
+    driver: simulated_locomotion   # Stage 3B: the motor controller driver
+    start_latitude_deg: 51.50450
+    start_longitude_deg: -0.12000
+
+  - kind: sensor
+    driver: simulated_camera       # Stage 3B: zed_x
+    sightings:
+      - after_seconds: 12
+        entity_class: "person"
+        confidence: 0.42
+        offset_north_m: 25
+        offset_east_m: 8
+        narration: "possible person near the fence line, low confidence"
+        repeat_every_seconds: 4
+        count: 8
+        attributes:
+          clothing: "dark"
+
+  - kind: comms
+    driver: mqtt_comms
+    host: "127.0.0.1"
+    port: 1883

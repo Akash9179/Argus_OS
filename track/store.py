@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS zone_membership (
 -- rewritten: observations are immutable, so resolution lives beside them.
 CREATE TABLE IF NOT EXISTS entity_aliases (
     alias_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL);
+
+-- What each machine's hardware abstraction layer says it is made of:
+-- installed drivers and versions, manifest contents, detected devices,
+-- configuration state, driver health. The registry law requires this be
+-- queryable structured data rather than something only the machine knows.
+-- Stored as the JSON the machine sent, so a field a newer runtime reports
+-- survives an older server, exactly as unknown protobuf fields do.
+CREATE TABLE IF NOT EXISTS asset_registries (
+    asset_id TEXT PRIMARY KEY, received REAL NOT NULL, snapshot TEXT NOT NULL);
 """
 
 
@@ -168,6 +177,59 @@ class Store:
 
     def list_assets(self) -> list[Asset]:
         return self._decode(self._rows("SELECT pb FROM assets ORDER BY asset_id"), Asset)
+
+    # -- the mirrored HAL registry -----------------------------------------
+
+    def put_payload(self, asset_id: str, payload: dict) -> None:
+        """Keep everything a machine sent in Telemetry.payload, as sent.
+
+        Merged with what it sent before rather than replacing it. Machines
+        send different extras at different rates, and the registry in
+        particular is sent only when it changes, so a later sample carrying
+        some other key must not erase it.
+        """
+        known = self.get_payload(asset_id) or {}
+        known.pop("received_at", None)  # the server's bookkeeping, not the machine's
+        known.update(payload)
+        self._write(
+            "INSERT INTO asset_registries (asset_id, received, snapshot) VALUES (?,?,?) "
+            "ON CONFLICT(asset_id) DO UPDATE SET "
+            "received=excluded.received, snapshot=excluded.snapshot",
+            (asset_id, epoch_now(), json.dumps(known)),
+        )
+
+    def get_payload(self, asset_id: str) -> dict | None:
+        rows = self._rows(
+            "SELECT received, snapshot FROM asset_registries WHERE asset_id=?", (asset_id,)
+        )
+        return None if not rows else self._payload_row(rows[0])
+
+    def get_registry(self, asset_id: str) -> dict | None:
+        """The registry part of what a machine last sent."""
+        payload = self.get_payload(asset_id)
+        if payload is None:
+            return None
+        registry = payload.get("registry")
+        if not isinstance(registry, dict):
+            return None
+        return {**registry, "received_at": payload["received_at"]}
+
+    def list_payloads(self) -> dict[str, dict]:
+        rows = self._rows("SELECT asset_id, received, snapshot FROM asset_registries")
+        return {row["asset_id"]: self._payload_row(row) for row in rows}
+
+    @staticmethod
+    def _payload_row(row: sqlite3.Row) -> dict:
+        """What a machine sent, plus when it arrived.
+
+        Server receive time goes in under `received_at`, never `received`.
+        A machine is free to use any key it likes in its own payload, and a
+        server that overwrote one of them to record its own bookkeeping
+        would be destroying the machine's data to make room for its notes.
+        """
+        payload = json.loads(row["snapshot"])
+        payload["received_at"] = row["received"]
+        return payload
 
     # -- entities ----------------------------------------------------------
 

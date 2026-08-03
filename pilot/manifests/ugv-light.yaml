@@ -1,0 +1,72 @@
+# A second, different machine.
+#
+# This file exists to be proof rather than an example. It is a smaller and
+# faster ground vehicle with two cameras instead of one, a shorter task
+# list, and no battery it can report. Booting the same runtime on it must
+# change how the machine behaves without changing a line of code. If that
+# ever stops being true, the HAL law has been broken somewhere above the
+# drivers and the fix belongs there, not here.
+
+asset_id: "01PILOT00000000000000UGV2"
+asset_class: "ugv"
+name: "Runner 2"
+
+max_speed_mps: 9.0
+# Faster and twitchier than the reference machine, and it stops harder
+# because it is a fraction of the weight. Different numbers, same runtime.
+max_turn_rate_dps: 200.0
+max_accel_mps2: 4.0
+max_decel_mps2: 5.0
+min_turn_radius_m: 1.4   # ackermann steering: it cannot turn in place
+can_hover: false
+
+dimensions:
+  length_m: 1.1
+  width_m: 0.7
+  height_m: 0.5
+
+battery:
+  start_fraction: 0.80
+  drain_per_minute: 0.02
+
+# Deliberately shorter than the reference machine's. Asked to patrol, this
+# one refuses in words rather than trying.
+supported_task_types:
+  - navigate
+  - hold
+  - return_home
+
+drivers:
+  - kind: locomotion
+    driver: simulated_locomotion
+    start_latitude_deg: 51.50610
+    start_longitude_deg: -0.11730
+
+  - kind: sensor
+    driver: simulated_camera
+    sightings:
+      - after_seconds: 3
+        entity_class: "vehicle"
+        confidence: 0.71
+        offset_north_m: 40
+        offset_east_m: -15
+        # Even at 0.71 the wording carries the doubt. The honesty law does
+        # not have a confidence above which a machine may simply assert.
+        narration: "probable vehicle on the access road"
+        count: 1
+
+  - kind: sensor
+    driver: simulated_camera
+    sightings:
+      - after_seconds: 6
+        entity_class: "person"
+        confidence: 0.35
+        offset_north_m: -10
+        offset_east_m: 12
+        narration: "possible person behind the vehicle, low confidence"
+        count: 1
+
+  - kind: comms
+    driver: mqtt_comms
+    host: "127.0.0.1"
+    port: 1883

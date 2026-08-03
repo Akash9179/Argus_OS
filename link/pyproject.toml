@@ -11,7 +11,12 @@ build-backend = "setuptools.build_meta"
 name = "link-contract"
 version = "1.0.0"
 description = "LINK contract: ontology and wire message schemas, generated Python bindings."
-requires-python = ">=3.11"
+# 3.10, not 3.11, because the edge runtime installs this package and ROS2
+# Humble is pinned to Ubuntu 22.04 and Python 3.10. The generated bindings
+# use no syntax newer than 3.8; the old floor was inherited from the
+# server's interpreter rather than being a requirement of the contract.
+# This is packaging metadata, not schema: the frozen protos are untouched.
+requires-python = ">=3.10"
 dependencies = ["protobuf>=5.28"]
 
 [tool.setuptools]

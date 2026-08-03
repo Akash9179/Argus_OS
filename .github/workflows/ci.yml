@@ -35,7 +35,7 @@ jobs:
         run: npm run typecheck
 
   loop:
-    name: The simulated vehicle's full task loop
+    name: The simulated vehicle's full task loop and the edge runtime's
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,3 +49,19 @@ jobs:
           pip install -e link/
       - name: Run the loop
         run: python -m pytest -q
+
+  edge-runtime:
+    name: The edge runtime against a real ROS2 graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the runtime image
+        run: docker build -f pilot/docker/Dockerfile -t argus-pilot:ci .
+      # The bridge and the Nav2 route are the parts that cannot be proven
+      # without ROS2 running, so they run here rather than in the fast loop
+      # above. A machine that navigates only in a unit test is not a
+      # machine that navigates.
+      - name: Bridge and Nav2 route
+        run: |
+          docker run --rm -e ROS_DOMAIN_ID=42 argus-pilot:ci \
+            bash /opt/argus/pilot/docker/run_nav2_tests.sh pilot/ros/tests -q

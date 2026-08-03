@@ -13,6 +13,7 @@ import time
 
 import httpx
 import pytest
+import yaml
 from link.v1.ontology_pb2 import Polygon, Position, Zone, ZoneRule
 
 from sim.link_client import LinkClient
@@ -180,6 +181,120 @@ def make_vehicle(transport, settings):
 
     for handle in running:
         handle.stop()
+
+
+class RunningMachine:
+    """A booted edge runtime running in its own thread, as a real one does."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+        self._thread = threading.Thread(target=runtime.run, daemon=True)
+
+    def start(self) -> None:
+        self.runtime.start()
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Stop the machine the way losing one looks from the server."""
+        self.runtime.stop()
+        self._thread.join(timeout=3.0)
+
+    @property
+    def asset_id(self) -> str:
+        return self.runtime.manifest.asset_id
+
+    @property
+    def comms(self):
+        return self.runtime.drivers.comms
+
+    @property
+    def registry(self):
+        return self.runtime.registry
+
+
+@pytest.fixture
+def make_machine(transport, settings, tmp_path):
+    """Boot the edge runtime from a manifest, wired straight to the server.
+
+    The manifest is written to a file first, because loading one from disk
+    is what a machine actually does at boot and a test that skipped it
+    would not be testing the thing that has to work.
+    """
+    from pilot.autonomy.core import RuntimeConfig
+    from pilot.hal.drivers.simulated import DirectComms
+    from pilot.hal.manifest import parse_manifest
+    from pilot.runtime import boot, load_language
+
+    running: list[RunningMachine] = []
+    written = [0]
+
+    def _make(manifest: dict, **overrides) -> RunningMachine:
+        written[0] += 1
+        path = tmp_path / f"manifest-{written[0]}.yaml"
+        path.write_text(yaml.safe_dump(manifest))
+
+        parsed = parse_manifest(manifest)
+        comms = DirectComms(parsed, bus=transport)
+        runtime = boot(
+            path,
+            topic_prefix=settings.topic_prefix,
+            comms=comms,
+            config=RuntimeConfig(
+                messages=load_language(), heartbeat_hz=5.0, telemetry_hz=10.0, tick_s=0.01
+            ),
+            **overrides,
+        )
+        handle = RunningMachine(runtime)
+        running.append(handle)
+        return handle
+
+    yield _make
+
+    for handle in running:
+        handle.stop()
+
+
+def a_manifest(**changes) -> dict:
+    """The reference machine, with anything a test wants to change.
+
+    Speeds are unrealistically high so the loop runs in seconds; nothing
+    else about the machine is altered.
+    """
+    manifest = {
+        "asset_id": new_id(),
+        "asset_class": "ugv",
+        "name": "Test machine",
+        "max_speed_mps": 25.0,
+        "min_turn_radius_m": 0.0,
+        "battery": {"start_fraction": 0.92, "drain_per_minute": 0.004},
+        "drivers": [
+            {
+                "kind": "locomotion",
+                "driver": "simulated_locomotion",
+                "start_latitude_deg": SITE_LAT,
+                "start_longitude_deg": SITE_LON,
+            },
+            {"kind": "comms", "driver": "direct_comms"},
+        ],
+    }
+    manifest.update(changes)
+    return manifest
+
+
+def a_camera_seeing_a_person(**changes) -> dict:
+    """A sensor driver entry whose scripted sighting is a weak detection."""
+    sighting = {
+        "after_seconds": 0.3,
+        "entity_class": "person",
+        "confidence": 0.45,
+        "offset_north_m": 20,
+        "offset_east_m": 6,
+        "narration": "possible person near the fence line, low confidence",
+        "repeat_every_seconds": 0.3,
+        "count": 8,
+    }
+    sighting.update(changes)
+    return {"kind": "sensor", "driver": "simulated_camera", "sightings": [sighting]}
 
 
 @pytest.fixture

@@ -198,7 +198,21 @@ TRACK server (ingest, fusion, registry, REST, WebSocket, task endpoint) plus the
 Done when: the simulated vehicle appears on the map, moves, produces observations that become visible tracks, accepts a map-issued task, and reports progress to completion. Kill the sim mid-task: the asset goes gray on lost heartbeats and the task is marked failed.
 
 **Stage 3: Steel.**
-PILOT on the real UGV: HAL drivers (ZED X, GNSS/IMU, motors, MQTT), perception producing real Observations, localization decision made and implemented, Nav2 executing navigate and patrol tasks, disconnection behavior working.
+
+*Split into 3A and 3B on 3 August 2026 by founder instruction. Reason: the reference hardware (Jetson AGX Orin, ZED X, the Jeep-chassis UGV) is not yet in hand, and every criterion below the split is a hardware criterion. The split is along the HAL seam, which is also the test of whether the HAL is real: if 3A is built correctly, 3B is writing drivers and a manifest and nothing else.*
+
+**Stage 3A: PILOT above the drivers.**
+The ROS2 edge runtime with every layer above the hardware built and verified against a simulated driver set: the three HAL driver interfaces (locomotion, sensor, comms) each with a simulated implementation, the capability manifest, the HAL registry, the autonomy core (task state machine, local world-model slice, disconnection behavior), the edge LINK client, and Nav2 executing navigate and patrol tasks. PILOT runs containerized (`ros:humble`), because ROS2 Humble has no supported native macOS path and containers are closer to how it ships anyway.
+
+Done when, all of it in CI:
+1. A PILOT running only simulated drivers registers with TRACK and is indistinguishable from `sim/` by message inspection at the server.
+2. It accepts a map-issued task from C2, executes it through Nav2, and reports progress to completion, appearing in C2 exactly as the simulated vehicle does.
+3. The comms driver is cut mid-task: the task continues to completion, observations queue locally, and on reconnect they merge into TRACK with their original timestamps.
+4. Swapping in a capability manifest for a different machine (different speed, different sensors) changes the runtime's behavior with no code change. This is the HAL law made testable.
+5. The HAL registry answers a query for installed drivers and versions, manifest contents, detected devices, configuration state, and driver health, and TRACK mirrors it into the asset record. This retires the admin `PUT /v1/assets/{id}` stopgap.
+
+**Stage 3B: Steel (needs hardware).**
+HAL drivers for the real machine (ZED X, GNSS/IMU, motor controller), perception producing real Observations via TensorRT, the localization decision made on the bench and implemented. No new architecture: drivers slot into the interfaces 3A froze.
 Done when: the server cannot distinguish the real UGV from the simulated one by message inspection; the UGV completes a patrol task outdoors with at least one correct person-detection becoming a track in C2; pulling the network cable mid-patrol does not stop the patrol, and reconnection merges queued observations.
 
 **Stage 4: The voice.**
@@ -215,13 +229,20 @@ Throughout: the simulated vehicle runs in CI against every TRACK and LINK change
 
 ## 10. Open decisions (flag, do not silently resolve)
 
-1. **Localization source of truth:** cuVSLAM vs ZED-native. Decide at Stage 3 start with a short bench comparison on the actual vehicle. Exactly one wins; do not run both.
+1. **Localization source of truth:** cuVSLAM vs ZED-native. Decide with a short bench comparison on the actual vehicle. Exactly one wins; do not run both. **Deferred to Stage 3B (3 August 2026)**, because the comparison needs hardware that is not in hand. Stage 3A ships the localization module behind its interface with a simulated provider, so the decision stays a driver swap.
 2. **ZED SDK / Terra licensing for production:** offline/air-gapped activation terms and per-unit field licensing are unverified with Stereolabs. Perception stays behind its interface partly because of this. Verify before any production commitment.
-3. **Detector model and version:** choose at Stage 3 based on current best available with acceptable license; do not inherit choices from older documents.
+3. **Detector model. DECIDED 3 August 2026, founder instruction: RF-DETR, Apache-licensed tiers only.** Roboflow, US origin, Apache 2.0 on the Nano, Small, Medium and Large tiers, with a documented TensorRT and DeepStream path onto Jetson. The XL and 2XL tiers ship under Roboflow's PML 1.0 and are **not** usable; neither is the `rfdetr_plus` package. Implemented in Stage 3B behind the perception interface, so this stays swappable.
+
+   Why the rest were eliminated, recorded so the analysis is not repeated: Ultralytics YOLOv8/v11/v26 are AGPL-3.0, which would force open-sourcing PILOT and so fails law 9 and the closed-core strategy. RT-DETR (Baidu), YOLOX (Megvii), D-FINE (USTC) and LW-DETR (Baidu) are all permissively licensed but Chinese in origin, and fail law 8. Law 8 did most of the eliminating here, not law 9, because the permissive licenses in this field are largely attached to Chinese-origin models.
+
+   Left open deliberately: NVIDIA ships retrained RT-DETR weights through TAO, trained by NVIDIA on NVIDIA data. Whether law 8 bites the architecture or only the weights is unresolved. RF-DETR avoids the question, which is why it was chosen; if the question ever becomes load-bearing, it is a founder decision.
 4. **The name:** ARGUS OS is a placeholder throughout.
-5. **Vertical extent of zones (raised at Stage 2, decide before the contract freeze hardens).** `Zone` has a polygon but no altitude bounds, so an aircraft overflying at any height would trigger a ground zone's entry rule. Fixing it means adding `min_altitude_m` and `max_altitude_m` to `Zone`, which is additive but is still a contract change and therefore a version bump. Ground-only v1 is unaffected. Decide when the air domain is scheduled, or accept the version bump now while nothing depends on the contract.
+5. **Vertical extent of zones. DECIDED 3 August 2026, founder instruction: zones get no vertical extent for now.** `Zone` keeps its polygon and gains no altitude bounds. `link_version` stays at 1 and the frozen contract is not reopened. The consequence is accepted and recorded here so it is not rediscovered as a bug: an aircraft overflying at any height triggers a ground zone's entry rule, because the zone is a 2D footprint of infinite vertical extent. Ground-only v1 is unaffected. Revisit when the air domain is scheduled, at which point adding `min_altitude_m` and `max_altitude_m` to `Zone` is additive but still a version bump. Related: decision 6.
 6. **Altitude in fusion association (raised at Stage 2, no contract impact).** Distance gating ignores altitude, so two things at the same latitude and longitude but separated vertically would fuse into one track. Code-only fix inside the associator when an air domain lands; recorded here so it is not rediscovered as a bug.
 7. **Drive/Flight product structure** (shared core vs independent lines): does not block v1; the schema law keeps both open. Decide when the second body type is scheduled.
+8. **How the HAL registry reaches the world model (raised at Stage 3A, convention taken, needs review).** The registry law requires that what the HAL knows reaches the platform as structured data, and the frozen contract has no message for it. The convention taken in Stage 3A is that the registry snapshot travels in `Telemetry.payload` under the key `registry`, sent when it changes and when the link returns, never on every sample. `Telemetry.payload` is the contract's own documented extension point for open per-manifest extras, so this does not reopen `link_version 1`. The alternative considered and rejected was the platform polling a local interface on the machine, which inverts the connection direction and assumes the platform can reach into the field. This is the author's convention, not the plan's, and it is recorded here so it is reviewed rather than inherited. It supersedes the admin `PUT /v1/assets/{id}` stopgap, which now covers only machines never switched on and third-party assets carrying no ARGUS runtime.
+9. **Task cancellation encoding (raised at Stage 2, convention taken, needs review).** The frozen contract has no cancel message, so cancellation is a TASK carrying `status = TASK_STATE_CANCELLED`. Author's convention, not the plan's.
+10. **Where autonomy level lives (raised at Stage 2, now pressing).** Manual and Automatic are a C2-side policy today. Autonomy properly belongs to the machine and travels over the contract, which has no field for it. Stage 3A built the autonomy core, which is where it belongs, so this should be settled before Stage 3B or Stage 4 builds on the current arrangement.
 
 ## 11. Build tooling: model selection
 

@@ -19,6 +19,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from google.protobuf.json_format import MessageToDict
 from link.v1.messages_pb2 import (
     Heartbeat,
     ObservationReport,
@@ -203,6 +204,8 @@ class WorldModel:
 
         asset = self.store.get_asset(msg.asset_id) or Asset(asset_id=msg.asset_id)
         asset.position.CopyFrom(msg.position)
+        if msg.HasField("payload"):
+            self._absorb_payload(asset, msg)
         self.store.put_asset(asset)
 
         sample = LatestTelemetry(
@@ -215,6 +218,45 @@ class WorldModel:
         )
         self.telemetry[msg.asset_id] = sample
         await self.bus.publish(live.ASSET_TELEMETRY, sample.to_dict())
+
+    def _absorb_payload(self, asset: Asset, msg: Telemetry) -> None:
+        """Take in what a machine's hardware layer says it is made of.
+
+        The contract is frozen at version 1 and has no message for a
+        capability manifest or a driver registry. `Telemetry.payload` is the
+        contract's own extension point for per-manifest extras, so machines
+        send their registry there and it is absorbed here. Reopening the
+        contract for this would have been the more expensive trade.
+
+        Everything the machine sent is kept as it arrived, including keys
+        this build does not recognise, for the same reason unknown protobuf
+        fields are kept: an older server must not silently destroy a newer
+        machine's data.
+        """
+        payload = MessageToDict(msg.payload)
+        if not payload:
+            return
+
+        # The whole payload is kept, not just the part this build knows how
+        # to read. The contract says receivers must preserve and pass
+        # through keys they do not recognise, and a machine reporting
+        # something a newer runtime added would otherwise have it silently
+        # destroyed by an older server.
+        self.store.put_payload(msg.asset_id, payload)
+
+        registry = payload.get("registry")
+        if not isinstance(registry, dict):
+            return
+
+        # The manifest is the machine's own declaration of what it is, and
+        # it is the only naming authority. Merging it here is what lets an
+        # application show a machine's name without composing one from its
+        # class, which would be a second authority and a reach below the HAL.
+        manifest = registry.get("manifest")
+        if isinstance(manifest, dict) and manifest:
+            merged = MessageToDict(asset.capabilities) if asset.HasField("capabilities") else {}
+            merged.update(manifest)
+            asset.capabilities.update(merged)
 
     async def on_observation(self, report: ObservationReport) -> None:
         obs = report.observation

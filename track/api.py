@@ -154,13 +154,45 @@ async def get_asset(asset_id: str, request: Request, _: Operator) -> dict:
     return asset_to_dict(asset, world.language.asset_name(asset))
 
 
+@router.get("/assets/{asset_id}/registry")
+async def get_asset_registry(asset_id: str, request: Request, _: Admin) -> dict:
+    """What a machine's hardware layer says it is made of.
+
+    Installed drivers and versions, the manifest it booted on, what its
+    buses report, the configuration in force, and each driver's health.
+    The machine serves the same structure locally; this is the mirror, so
+    the question can be answered without reaching the machine.
+
+    Admin, not operator. Driver versions and bus scans are exactly the
+    system internals the waterline law keeps away from operators, and the
+    plan separates admin functions from operator surfaces for precisely
+    this kind of data.
+
+    A machine that has never reported one is not an error worth a 500: it
+    is a machine running an older runtime, or one that has not been heard
+    from yet.
+    """
+    world = _world(request)
+    if world.store.get_asset(asset_id) is None:
+        raise HTTPException(status_code=404, detail=_say(request, "no_such_asset"))
+    registry = world.store.get_registry(asset_id)
+    if registry is None:
+        raise HTTPException(status_code=404, detail=_say(request, "no_registry_yet"))
+    return registry
+
+
 class AssetIn(BaseModel):
     """Administrative facts about a machine.
 
-    A machine's own name and its declared capabilities are configuration,
-    not something it reports over the contract, so they are set here. Full
-    mirroring of a machine's capability manifest arrives with the hardware
-    abstraction layer's registry.
+    Machines that run the edge runtime report their own name, capabilities,
+    drivers and health through the hardware layer's registry, and that is
+    the path to prefer: it is the machine's own declaration rather than
+    someone's note about it.
+
+    This endpoint remains for two cases the registry cannot cover: a machine
+    registered before it has ever been switched on, and a third-party asset
+    that speaks the contract but carries no ARGUS runtime and therefore has
+    no registry to send.
     """
 
     name: str | None = None

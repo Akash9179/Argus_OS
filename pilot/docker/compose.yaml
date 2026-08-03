@@ -1,0 +1,83 @@
+# The edge runtime, in the shape it runs in.
+#
+# Three ways in:
+#
+#   docker compose -f pilot/docker/compose.yaml run --rm ros-tests
+#       The ROS2 tests: the bridge against a real ROS2 graph.
+#
+#   docker compose -f pilot/docker/compose.yaml up nav2 pilot
+#       Nav2 and a machine driving through it, reporting to a world model
+#       running on the host at 8100.
+#
+#   docker compose -f pilot/docker/compose.yaml run --rm shell
+#       A shell in the same environment, for when something needs looking at.
+#
+# The broker and the world model are expected on the host rather than run
+# here, because that is the real topology: the machine is in the field and
+# the platform is not.
+
+name: argus-pilot
+
+services:
+  ros-tests:
+    build:
+      context: ../..
+      dockerfile: pilot/docker/Dockerfile
+    image: argus-pilot:dev
+    environment:
+      # ROS2 Humble ships pytest plugins written against hook signatures
+      # that predate current pytest. Nothing here needs any plugin.
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    working_dir: /opt/argus
+    command: ["python3", "-m", "pytest", "pilot/ros/tests", "-v"]
+
+  nav2:
+    image: argus-pilot:dev
+    build:
+      context: ../..
+      dockerfile: pilot/docker/Dockerfile
+    network_mode: host
+    environment:
+      ROS_DOMAIN_ID: "42"
+    command:
+      ["ros2", "launch", "/opt/argus/pilot/ros/launch/pilot_nav2.py"]
+
+  pilot:
+    image: argus-pilot:dev
+    depends_on: [nav2]
+    network_mode: host
+    environment:
+      ROS_DOMAIN_ID: "42"
+    command:
+      - python3
+      - -m
+      - pilot.main
+      - --manifest
+      - /opt/argus/pilot/manifests/ugv-reference.yaml
+      - --navigator
+      - nav2
+      - --prefix
+      - site
+
+  # The same machine without ROS2 in the path, for when the question is
+  # about the runtime rather than about navigation.
+  pilot-direct:
+    image: argus-pilot:dev
+    network_mode: host
+    command:
+      - python3
+      - -m
+      - pilot.main
+      - --manifest
+      - /opt/argus/pilot/manifests/ugv-reference.yaml
+      - --prefix
+      - site
+
+  shell:
+    image: argus-pilot:dev
+    network_mode: host
+    environment:
+      ROS_DOMAIN_ID: "42"
+    command: ["bash"]
+    stdin_open: true
+    tty: true

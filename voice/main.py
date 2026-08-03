@@ -143,6 +143,19 @@ def create_app(
             "can_speak": usable.get("speak", False),
             "can_understand": usable.get("understand_order", False),
             "character": app.state.character_name,
+            # The policy this running service resolved, and whether that
+            # policy permits cloud. Published so an installer can verify the
+            # sovereignty claim against the process actually serving
+            # operators, rather than against a gateway built in whatever
+            # shell the check happens to run in. Not shown to anyone: C2
+            # ignores it, and the waterline law is about what reaches an
+            # operator's screen.
+            "profile": report.get("profile", ""),
+            "allows_cloud": report.get("allows_cloud"),
+            # True, False, or null for cannot-say. Relayed, not recomputed:
+            # this process holds the adapters, so its answer is the
+            # deployment's answer, which is the entire value of the field.
+            "anything_leaves_the_machine": report.get("anything_leaves_the_machine"),
         }
 
     async def _signed_in(service) -> bool:

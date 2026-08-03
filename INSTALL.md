@@ -11,6 +11,65 @@ that answer.
 
 ---
 
+## If you are an agent, start here
+
+Three commands bracket the whole install. Run the first one now.
+
+```bash
+bash scripts/preflight.sh            # if this box will run both, for development
+bash scripts/preflight.sh --platform # a laptop, server or ground station
+bash scripts/preflight.sh --machine  # a Jetson or any vehicle computer
+```
+
+Pass the scope if you know it. The two installs need different things, and
+without the flag a correctly provisioned platform box is failed for Docker
+it will never use. Section 1 tells you which you are on.
+
+It installs nothing and decides nothing. It reports what this machine is,
+what is already present, what is missing, and **which parts of ARGUS have
+actually been run on a target like this one**. That last part is the one
+worth reading: a step nobody has executed on this architecture is not a
+step that is known to work. Exit code 0 means ready, 1 means something is
+missing, 2 means this target is not supported by this build.
+
+Then follow this document from section 1.
+
+When you believe you are finished, prove it:
+
+```bash
+.venv/bin/python scripts/verify_install.py
+```
+
+This is **not** the test suite, and running `pytest` instead does not
+substitute for it. `pytest -q` proves the code is sound: it runs in one
+process against in-memory transports and never opens a socket, so it
+passes on a machine where nothing is installed at all. The verification
+goes through the real thing instead, on this box: real brokers, a real
+machine connecting over the contract, a real order coming back.
+
+Exit code 0 means nothing failed. It does **not** mean everything was
+checked: a check that could not run is reported as skipped and still exits
+0, because a skipped check is not a failure and pretending otherwise would
+teach an installer to ignore the exit code. Read the verdict, not just the
+status.
+
+The exception is the final run before a deployment is handed over:
+
+```bash
+.venv/bin/python scripts/verify_install.py --handover
+```
+
+At handover a check that did not run is not good enough, so `--handover`
+exits 1 on any skip. Everything must actually be running and actually be
+proven, including the sovereignty of the AI policy in force.
+
+**Report honestly.** If a check fails, say which one and stop. If a check
+is skipped, say so and do not describe the install as complete: a skipped
+check proves nothing. Do not work around a failure by editing the
+verification.
+
+---
+
 ## 0. What is honest about this document
 
 This describes what can be installed **today**, from this repository, and
@@ -153,8 +212,9 @@ an administrator. It is not reachable from any operator surface.
 | `dev` | A bench, while building | Permitted |
 | `demo` | A demonstration on a connected network | Permitted |
 
-**The default is `deployed`.** A missing or misspelled profile fails
-toward the air-gapped behaviour, never toward the internet.
+**The default is `deployed`.** A missing profile falls back to it, and a
+**misspelled** one is refused outright with an error rather than defaulted,
+so a typo in an install script cannot quietly enable cloud.
 
 ### 2.6 Speech (every profile needs this)
 
@@ -204,30 +264,58 @@ section 7 says a deployed profile has cloud adapters *not installed*, not
 merely refused, so a deployed image never carries it and the adapter never
 registers.
 
-**For `deployed`:** install a local model server and Apache-2.0 weights.
+**For `deployed`:** you need a local OpenAI-compatible model server and a
+set of weights.
+
+**Stop and read LICENSES.md before you pull anything.** No local language
+model has been chosen and none has been licence-verified for this project.
+Law 9 requires verifying every third-party licence for military use before
+integration, and that has not been done here. A model runner and its
+weights carry separate licences, and an unpinned tag can change what it
+resolves to between one install and the next. Meta Llama is already
+disqualified by the plan's sovereignty carve-out.
+
+So this step cannot be completed by following a command, and this document
+will not print one that would look like permission. Choose a model, verify
+its licence at a specific revision, record it in LICENSES.md, then:
 
 ```bash
-# Any OpenAI-compatible server works. Ollama is the simplest.
-ollama serve &
-ollama pull mistral:7b-instruct
+# Whatever OpenAI-compatible server you settled on, pointed at the weights
+# you verified. These two variables are all the gateway needs.
 export ARGUS_LOCAL_LLM=http://127.0.0.1:11434/v1
-export ARGUS_LOCAL_MODEL=mistral:7b-instruct
+export ARGUS_LOCAL_MODEL=<the model you verified, pinned>
 ```
+
+Until that is done, `deployed` will refuse to answer and say so plainly,
+which is the correct behaviour and not a fault to work around.
 
 **Verify what the gateway can actually do.** This is the important check,
 because it reports refusals and failures separately:
 
 ```bash
-ARGUS_AI_PROFILE=dev .venv/bin/python -c "
+# Whichever profile this deployment will actually run under. Checking a
+# bench profile proves nothing about a deployed one, and section 6 sends
+# you back here to confirm the refusal, which only happens on `deployed`.
+ARGUS_AI_PROFILE="${ARGUS_AI_PROFILE:-deployed}" .venv/bin/python -c "
 from gateway import Gateway
 import json; print(json.dumps(Gateway().check(), indent=2))"
 ```
 
-Every capability should list at least one adapter with `"usable": true`.
-An entry saying **"refused: this profile does not permit cloud adapters"**
-is not a fault: it is the sovereignty law working. An entry saying
-**"no API key is configured"** or **"the speech model is missing"** is a
-fault, and section 2.6 or 2.7 was not completed.
+Speech should list an adapter with `"usable": true`.
+
+Two entries are **not** faults, and both are expected on a correct
+`deployed` box:
+
+- **"refused: this profile does not permit cloud adapters"** is the
+  sovereignty law working.
+- **"no model has been chosen and verified"** on `understand_order` and
+  `answer_question` is the licensing law working. Until a local model has
+  been licence-checked and named in `ARGUS_LOCAL_MODEL`, a deployed target
+  correctly has no language adapter at all, and voice will hear and speak
+  but not understand.
+
+An entry saying **"no API key is configured"** or **"the speech model is
+missing"** is a fault, and section 2.6 or 2.7 was not completed.
 
 ### 2.8 Run the voice service
 
@@ -404,7 +492,7 @@ is a test for exactly this claim in `tests/test_pilot_loop.py`.
 |---|---|
 | A machine does not appear on the map | Both sides point at the same MQTT broker and the same `--prefix`. The platform defaults to `argus`. |
 | It appears but is named "Ground vehicle 00A1" | Its registry has not arrived yet. It rides telemetry and is sent on change; wait a few seconds. The composed name is the server being honest that the machine has not told it a name. |
-| The voice button is disabled | `curl localhost:8300/v1/voice/capabilities`. It says which of hearing, speaking and understanding is unavailable. |
+| The voice button is disabled | `curl -H "Authorization: Bearer $TOKEN" localhost:8300/v1/voice/capabilities` (it needs a key). It says which of hearing, speaking and understanding is unavailable. |
 | Voice says "I cannot reach the language service" | Section 2.7. Under `deployed` this also appears when no local model is running, which is correct: it refuses rather than reaching out. |
 | Nav2 never becomes active | Its costmaps wait for the locomotion bridge to publish `base_link` against `odom`. Anything that waits for Nav2 before starting the machine deadlocks. |
 | Tests fail on a fresh clone | Report it. The suite is the definition of done and is expected to pass from a clean checkout. |
@@ -417,6 +505,15 @@ Not covered by this document, and not optional before anything real runs:
 
 - **Rotate the generated tokens.** `var/tokens.yaml` is generated on first
   run for convenience. It is not a credential policy.
+- **Remove any machine the verification registered.** If no machine was
+  answering when `scripts/verify_install.py` ran, it started a temporary
+  one to prove the contract path, and the world model has no way to forget
+  an asset. The verification says so when this happens, and names the
+  identifier. Left in place it appears on the operator's map for ever as a
+  machine that is not answering, which is exactly the kind of thing the
+  disconnection wording exists to make operators take seriously. Removing
+  it currently means editing the database directly, which is a gap: there
+  is no administrative path for retiring a machine.
 - **Set `ARGUS_AI_PROFILE=deployed`** on anything that is not a bench, and
   confirm with the section 2.7 check that cloud adapters report as refused.
 - **Read LICENSES.md** before substituting any model or voice. Two of the

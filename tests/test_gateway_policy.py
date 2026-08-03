@@ -140,6 +140,11 @@ def test_no_provider_or_model_name_appears_in_code_outside_the_gateway():
 
     trees = [root / "voice", root / "track", root / "sim", root / "pilot", root / "gateway"]
     paths = [p for tree in trees for p in tree.rglob("*.py")]
+    # The install tooling is executable code, not documentation, and it once
+    # named a speech binary and two model files that only the gateway's
+    # adapters may know. Scanned so that cannot drift back in.
+    paths += list((root / "scripts").rglob("*.py"))
+    paths += list((root / "scripts").rglob("*.sh"))
     # Not just source: a provider named in a config, a stylesheet or a
     # bundled JSON is just as much a caller learning what answers it.
     for suffix in ("*.ts", "*.tsx", "*.css", "*.json"):
@@ -163,3 +168,149 @@ def test_no_provider_or_model_name_appears_in_code_outside_the_gateway():
                 offenders.append(f"{path.relative_to(root)} mentions {word!r}")
 
     assert not offenders, "a provider or model is named outside the gateway: " + "; ".join(offenders)
+
+
+def test_the_report_says_which_adapters_would_leave_the_machine():
+    """An installer has to be able to check the sovereignty claim, not trust it.
+
+    `scripts/verify_install.py` reads exactly this to decide whether a
+    deployed target is honest. The first version of that check looked for a
+    key the report never carried, so it passed on every machine including
+    ones where a cloud adapter was live. A check that cannot fail is worse
+    than no check, because it is reported as evidence.
+    """
+    profile = Profile(
+        name="dev", adapters={"understand_order": ["pretend_cloud"]}, allows_cloud=True
+    )
+    report = Gateway(profile=profile, adapters={"pretend_cloud": PretendCloud()}).check()
+
+    entry = report["capabilities"]["understand_order"][0]
+    assert entry["adapter"] == "pretend_cloud"
+    assert entry["usable"] is True
+    assert entry["leaves_the_machine"] is True, (
+        "the report must say this adapter leaves the machine, or the "
+        "installer's sovereignty check has nothing to read"
+    )
+
+
+def test_a_deployed_report_shows_a_cloud_adapter_as_refused_and_leaving():
+    """Both facts, separately: it would leave, and it is not usable.
+
+    Collapsing them would hide the difference between an adapter that is
+    safe and one that is merely broken today.
+    """
+    profile = Profile(
+        name="deployed",
+        adapters={"understand_order": ["pretend_cloud"]},
+        allows_cloud=False,
+    )
+    report = Gateway(profile=profile, adapters={"pretend_cloud": PretendCloud()}).check()
+
+    entry = report["capabilities"]["understand_order"][0]
+    assert entry["leaves_the_machine"] is True
+    assert entry["usable"] is False
+    assert "refused" in entry["detail"]
+
+    # The exact shape scripts/verify_install.py applies, stated here so the
+    # installer's check cannot drift away from what the report provides.
+    #
+    # It deliberately does not consult `usable`. The gateway sets that to
+    # False for precisely the adapters worth finding, so a check written
+    # against it is empty by construction and can never fail. Two versions
+    # of this check shipped that way before anyone noticed.
+    carried = [
+        f"{capability}/{entry['adapter']}"
+        for capability, entries in report["capabilities"].items()
+        for entry in entries
+        if entry.get("leaves_the_machine") is not False
+    ]
+    assert carried == ["understand_order/pretend_cloud"], (
+        "the check must see a cloud adapter that a deployed build carries, "
+        "even though the gateway refuses it at runtime: present and refused "
+        "is one edit from present and allowed"
+    )
+
+    assert report["allows_cloud"] is False
+
+
+def test_the_report_answers_the_whole_sovereignty_question_itself():
+    """One field, computed by the process that holds the adapters.
+
+    A caller enumerating the entries in its own process reads its own
+    environment, which is how the install verification shipped wrong three
+    times. The aggregate exists so the caller has nothing to compute.
+    """
+    # A deployed profile that carries a cloud adapter: refused at runtime,
+    # but carried, so the answer is True.
+    carrying = Profile(
+        name="deployed",
+        adapters={"understand_order": ["pretend_cloud"]},
+        allows_cloud=False,
+    )
+    report = Gateway(profile=carrying, adapters={"pretend_cloud": PretendCloud()}).check()
+    assert report["anything_leaves_the_machine"] is True, (
+        "refused is not the question. Carried is, and this build carries it."
+    )
+
+    # Everything known local: the one shape allowed to say False.
+    local = Profile(
+        name="deployed",
+        adapters={"understand_order": ["stays"]},
+        allows_cloud=False,
+    )
+
+    class Stays(PretendCloud):
+        name = "stays"
+
+        @property
+        def leaves_the_machine(self) -> bool:
+            return False
+
+    report = Gateway(profile=local, adapters={"stays": Stays()}).check()
+    assert report["anything_leaves_the_machine"] is False
+
+
+def test_an_unconstructable_adapter_makes_the_sovereignty_answer_unknown():
+    """None, not False. An adapter that never got built might have left the
+    machine, and saying False would be saying more than is known. The
+    installer's check treats None as a failure on a deployed target."""
+    profile = Profile(
+        name="deployed",
+        adapters={"understand_order": ["never_registered"]},
+        allows_cloud=False,
+    )
+    report = Gateway(profile=profile, adapters={}).check()
+    assert report["anything_leaves_the_machine"] is None
+
+
+def test_an_adapter_under_an_unknown_capability_key_still_counts():
+    """The open-vocabulary rule, applied to the sovereignty aggregate.
+
+    A profile can name a capability this build's enum has never heard of:
+    a newer build's vocabulary, or a misspelling. The adapters under it are
+    carried either way, so they must be enumerated either way. The audit
+    that demanded this test found that they were not, which let a cloud
+    adapter sit invisibly under an unknown key while the aggregate said
+    everything was known local.
+    """
+    hiding = Profile(
+        name="deployed",
+        adapters={"summarise_patrol": ["pretend_cloud"]},
+        allows_cloud=False,
+    )
+    report = Gateway(profile=hiding, adapters={"pretend_cloud": PretendCloud()}).check()
+
+    assert report["anything_leaves_the_machine"] is True, (
+        "a cloud adapter under an unknown capability key must not disappear "
+        "from the sovereignty answer"
+    )
+    assert report["capabilities"]["summarise_patrol"][0]["adapter"] == "pretend_cloud"
+
+    # And an unregistered adapter under an unknown key is unknown, not clean.
+    murky = Profile(
+        name="deployed",
+        adapters={"summarise_patrol": ["never_registered"]},
+        allows_cloud=False,
+    )
+    report = Gateway(profile=murky, adapters={}).check()
+    assert report["anything_leaves_the_machine"] is None

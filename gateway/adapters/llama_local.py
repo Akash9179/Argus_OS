@@ -3,9 +3,16 @@
 Speaks the OpenAI-compatible HTTP interface that llama.cpp, Ollama and vLLM
 all serve, so what runs behind it is a deployment choice rather than a code
 one: llama.cpp on a laptop, vLLM on the ground station, either of them on
-the machine itself. The weights are Apache 2.0 (the Mistral family is the
-plan's baseline), which the licensing law requires and which the Llama
-licences fail on military use.
+the machine itself.
+
+**No model has been chosen and none has been licence-verified.** The
+licensing law requires verifying every third-party licence for military use
+before integration, and that has not been done for any set of weights. So
+this adapter carries no default model: an installer must name one, having
+verified it and recorded it in LICENSES.md. Defaulting would mean a
+deployment quietly running weights nobody checked, which is the exact
+failure the law exists to prevent. Meta Llama is already disqualified by
+the plan for its military-use carve-out.
 
 Status: **this adapter is real and unexercised.** Stage 4 was built with no
 local model installed, so the code path exists, is configured, and has
@@ -34,7 +41,9 @@ from gateway.capabilities import Capability, GatewayError, LanguageRequest, Lang
 log = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINT = os.getenv("ARGUS_LOCAL_LLM", "http://127.0.0.1:11434/v1")
-DEFAULT_MODEL = os.getenv("ARGUS_LOCAL_MODEL", "mistral:7b-instruct")
+# Deliberately no fallback. See the module docstring: an unverified model
+# arriving by default is a licensing failure, not a convenience.
+DEFAULT_MODEL = os.getenv("ARGUS_LOCAL_MODEL", "")
 
 
 class LlamaLocal:
@@ -69,6 +78,12 @@ class LlamaLocal:
         return not _is_on_this_machine(self._endpoint)
 
     def available(self) -> tuple[bool, str]:
+        if not self._model:
+            return (
+                False,
+                "no model has been chosen and verified. Set ARGUS_LOCAL_MODEL to a "
+                "model whose licence you have checked and recorded in LICENSES.md.",
+            )
         if self.leaves_the_machine:
             # Said plainly at boot rather than discovered by a reviewer.
             # The gateway will refuse it under a profile that forbids

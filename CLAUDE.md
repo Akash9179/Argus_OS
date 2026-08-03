@@ -37,6 +37,13 @@ ARGUS-OS-PLAN.md is the single source of truth. Read it before any non-trivial w
 - gateway/: the AI gateway. The ONLY package allowed to name a model or a provider (law 3). Adapters under gateway/adapters/; policy profiles in gateway/data/policy_profiles.yaml. `deployed` refuses cloud, enforced at the point of use and covered by a test.
 - voice/: the voice service. Character sheets are data (voice/characters/*.yaml). Reaches TRACK over its public HTTP interface with the operator's own token, never by importing it.
 
+## Installing this on another machine
+If the task is to install ARGUS on the machine you are running on, rather than to develop it, **read INSTALL.md and follow it.** Do not improvise an install from this file: the commands below assume a working development checkout, which is the thing an install has to produce.
+
+Bracket the work with the two scripts. `bash scripts/preflight.sh` before anything, because it states what has never been run on this architecture. `.venv/bin/python scripts/verify_install.py` at the end, because `pytest` proves the code and not the deployment: it never opens a socket, so it passes on a machine where nothing is installed.
+
+No Jetson has ever run any of this. The container base image (`ros:humble-ros-base`) carries no CUDA and no TensorRT, which is right for simulated perception and wrong for real sensors.
+
 ## Commands
 Prerequisites: buf, protoc, node/npm, python3 (all on PATH). One-time setup: `cd link && npm install` and `python3 -m venv .venv && .venv/bin/pip install protobuf` at repo root.
 
@@ -62,10 +69,10 @@ Requires the local speech stack: `brew install whisper-cpp ffmpeg`, `.venv/bin/p
 
 - What this deployment's AI can do, and what it refuses: `ARGUS_AI_PROFILE=dev .venv/bin/python -c "from gateway import Gateway; import json; print(json.dumps(Gateway().check(), indent=2))"`
 - Run the voice service: `ARGUS_AI_PROFILE=dev TRACK_URL=http://127.0.0.1:8100 VOICE_PORT=8300 .venv/bin/python -m voice.main`
-- Health and capabilities: `curl -s localhost:8300/health` and `curl -s localhost:8300/v1/voice/capabilities`
+- Health and capabilities: `curl -s localhost:8300/health` and `curl -s -H "Authorization: Bearer $TOKEN" localhost:8300/v1/voice/capabilities` (capabilities needs a key; it also reports the profile actually in force)
 - Talk to it without a microphone: `curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"text":"what is happening"}' localhost:8300/v1/voice/say`
 
-Profiles: `deployed` (default, air-gapped, refuses cloud), `dev` and `demo` (cloud permitted). A misspelled profile is refused rather than defaulted, so a typo in an install script cannot quietly enable cloud. `dev` and `demo` need `ANTHROPIC_API_KEY`; `deployed` needs a local OpenAI-compatible model server (`ARGUS_LOCAL_LLM`).
+Profiles: `deployed` (default, air-gapped, refuses cloud), `dev` and `demo` (cloud permitted). A misspelled profile is refused rather than defaulted, so a typo in an install script cannot quietly enable cloud. `dev` and `demo` need `ANTHROPIC_API_KEY`; `deployed` needs a local OpenAI-compatible model server (`ARGUS_LOCAL_LLM`) **and** `ARGUS_LOCAL_MODEL` naming a model whose licence has been verified and recorded in LICENSES.md. Without the latter it refuses, which is the licensing law working and not a fault.
 
 Known gap: the local language adapter is written and configured but has never answered a request, so the fully air-gapped path is unproven. Speech is local and exercised on both profiles.
 

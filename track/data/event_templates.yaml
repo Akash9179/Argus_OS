@@ -51,6 +51,16 @@ asset_class_labels:
 unknown_asset_class_label: "Machine"
 asset_fallback_name: "{class_label} {short_id}"
 
+# How much the platform may do with a machine without being asked. These
+# are the only modes that exist: a mode not listed here cannot be enforced,
+# and a mode the platform cannot enforce is not a setting, it is a false
+# claim on an operator's screen. A machine with no mode recorded is manual,
+# because a machine nobody has decided about must not act on its own.
+autonomy_modes:
+  manual: "Manual"
+  automatic: "Automatic"
+default_autonomy_mode: manual
+
 # What each kind of order is called out loud.
 task_phrases:
   navigate: "drive to a point on the map"
@@ -75,6 +85,8 @@ severity:
   task_done: info
   task_failed: act
   task_cancelled: info
+  autonomy_manual: info
+  autonomy_automatic: attention
 
 # Where things came from, as an operator would say it.
 sources:
@@ -85,6 +97,9 @@ sources:
   # An order nobody was asked for. Names no person, so this line cannot
   # disagree with the reason carried on the order itself.
   self_issued: "Ordered {channel}"
+  # A setting somebody changed. Not an order, so it does not borrow the
+  # wording of one: nothing was told to do anything.
+  changed_by: "Changed by {who}"
 
 channels:
   map: "on the map"
@@ -147,6 +162,15 @@ templates:
   task_done: "{asset} finished: {task_phrase}."
   task_failed: "{asset} could not {task_phrase}. {reason}"
   task_cancelled: "The order for {asset} to {task_phrase} was cancelled."
+  # Switching a machine's mode. The sentence says what the platform will
+  # now do, not what the machine will do: the platform is the thing this
+  # setting actually governs, and claiming more would be a promise nothing
+  # keeps.
+  autonomy_manual: "{asset} will now only do what it is told."
+  # "May", and the condition, because only the nearest machine that is free
+  # to go is sent. Promising that this machine will go is a promise about
+  # every other machine on the site as well.
+  autonomy_automatic: "{asset} may now be sent to look at something new, when it is the nearest machine free to go."
 
 # Small connecting phrases.
 fragments:
@@ -179,5 +203,9 @@ errors:
   no_such_track: "That contact is no longer on record."
   no_such_entity: "There is nothing on record for that."
   no_such_task: "That order does not exist."
+  # A mode this build cannot enforce is refused rather than stored. The
+  # same reasoning as a misspelled AI policy profile: a setting the system
+  # cannot honour must never be accepted quietly.
+  no_such_autonomy_mode: "There is no setting called that. The choices are {choices}."
   asset_not_answering: "{asset} is not answering right now."
   task_already_finished: "That order has already finished."

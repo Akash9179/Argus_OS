@@ -63,39 +63,37 @@ export const say = {
     manual: 'Manual',
     automatic: 'Automatic',
     /**
-     * Manual and Automatic are settings in this browser. The world model
-     * neither holds nor enforces them, so another station, a voice order or
-     * another system can still task the same machine, and Automatic only
-     * ever tasks the machine selected here. Every sentence below is worded
-     * as what this station does to the selected machine, because anything
-     * broader is a promise C2 has no way to keep. Revisit if autonomy level
-     * moves to the machine, which is open decision 10 in the plan.
+     * The mode belongs to the machine and is held and enforced by the
+     * platform (plan decision 10, stage one), so these sentences say what
+     * the platform will do rather than what this browser tab will do.
+     *
+     * They still stop where the claim stops. "Will not send it anywhere"
+     * is a promise about the platform acting on its own; it is not a
+     * promise that nothing can task the machine, because another operator
+     * or a voice order still can. Widening it would be the same overclaim
+     * the browser-held version made.
      */
     manualMeans:
-      'This station only orders what you tell it to. It will not act on its own.',
+      'The platform will not send this machine anywhere on its own. It goes where it is told.',
     automaticMeans:
-      'This station sends the selected machine to look at anything new, and tells you what it did. You can take control at any time.',
+      'The platform may send this machine to look at something new, when it is the nearest machine free to go, and tells you what it did. You can take control at any time.',
     takeControl: 'Take control',
     /**
      * What the mode promises, short enough to sit at the end of the plan
      * strip's sentence.
      *
-     * Worded as what this station will do, not as what the machines will
-     * do. Manual and Automatic are settings in this browser and the world
-     * model does not hold or enforce them, so a second station, a voice
-     * order, or another system can still task the same machine. Promising
-     * that nothing else will happen would be a promise C2 has no way to
-     * keep. Revisit this wording if autonomy level moves to the machine,
-     * which is open decision 10 in the plan.
+     * The platform holds and enforces the mode now (plan decision 10,
+     * stage one), so this says what the platform will do. It stops there
+     * on purpose: a voice order or another operator can still task a
+     * machine set to manual, so this is not a promise that nothing will
+     * happen to it.
      */
-    manualAssurance: 'This station will order nothing else without your say-so.',
+    manualAssurance: 'The platform will order this machine nothing else on its own.',
     automaticAssurance: 'You can take control at any time.',
-    stopping: 'Switched to Manual. Stopping the order this station started.',
-    switchedToManual: 'Switched to Manual. This station will ask before anything else.',
-    switchedToManualAndStopped:
-      'Switched to Manual. The order this station had started has been stopped.',
+    switchedToManual:
+      'Switched to Manual. Anything the platform had started on its own has been withdrawn.',
     switchedToAutomatic:
-      'Switched to Automatic. This station will send the selected machine to look at anything new.',
+      'Switched to Automatic. The platform may now send this machine to look at something new.',
   },
 
   plan: {
@@ -112,6 +110,16 @@ export const say = {
   map: {
     clickToSend: 'Click the map to send the selected machine there',
     cannotSend: 'This machine is not answering, so it cannot be given anywhere to go.',
+    // Not a refusal, a redirection: in Automatic the platform decides where
+    // this machine goes, and taking control is one click away.
+    cannotSendAutomatic: 'The platform is deciding where this machine goes. Switch to Manual to send it yourself.',
+    // A mode from a newer platform. We do not know what it permits, so we
+    // do not offer to task the machine and we do not pretend to know why.
+    cannotSendUnknownMode: (mode: string) =>
+      `This machine is set to ${mode}, which this screen does not understand. It cannot be sent from here.`,
+    // The one case that still shows a control. A disabled button with no
+    // words on it tells an operator nothing about why it will not work.
+    noMachineSelected: 'No machine is selected to send.',
     scale: '200 m',
     lastHeard: 'Last heard',
     someTimeAgo: 'a while ago',
@@ -212,6 +220,7 @@ export const say = {
 
   errors: {
     orderFailed: 'The order was not accepted.',
+    modeFailed: 'That setting was not accepted.',
   },
 }
 
@@ -263,6 +272,17 @@ export function clockAt(epochSeconds: number, withSeconds = false): string {
   // must not look like two different conventions.
   const date = String(day.getUTCDate()).padStart(2, '0')
   return `${clock} on ${date} ${say.months[day.getUTCMonth()]}`
+}
+
+/**
+ * A machine's mode, in words. The two this build knows have their own
+ * names; anything else is server vocabulary from a newer platform and is
+ * shown as itself, for the same reason an unfamiliar machine status is.
+ */
+export function modeInWords(mode: string): string {
+  if (mode === 'manual') return say.mode.manual
+  if (mode === 'automatic') return say.mode.automatic
+  return plain(mode)
 }
 
 /**

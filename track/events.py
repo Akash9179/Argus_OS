@@ -86,6 +86,11 @@ class Language:
 
     # -- assembly ----------------------------------------------------------
 
+    @property
+    def severities(self) -> dict:
+        """Every event kind that has been given a colour."""
+        return dict(self._d["severity"])
+
     def severity(self, kind: str) -> str:
         return self._d["severity"].get(kind, "info")
 
@@ -113,6 +118,24 @@ class Language:
         if not zone_name:
             return ""
         return self._d["fragments"]["place_inside"].format(zone=zone_name)
+
+    # -- autonomy ----------------------------------------------------------
+
+    @property
+    def autonomy_modes(self) -> dict[str, str]:
+        """Every mode this platform can actually enforce, and its word."""
+        return dict(self._d["autonomy_modes"])
+
+    @property
+    def default_autonomy_mode(self) -> str:
+        return self._d["default_autonomy_mode"]
+
+    def knows_autonomy_mode(self, mode: str) -> bool:
+        return mode in self._d["autonomy_modes"]
+
+    def autonomy_choices(self) -> str:
+        """The modes, listed for a refusal an operator has to act on."""
+        return ", ".join(self._d["autonomy_modes"].values())
 
     def is_self_issued(self, channel: str) -> bool:
         """Did a station give this order on its own, with nobody asked?"""
@@ -172,6 +195,10 @@ class Language:
 
     def source_seen_by(self, asset_name: str) -> str:
         return self._d["sources"]["seen_by"].format(asset=asset_name)
+
+    def source_changed_by(self, who: str) -> str:
+        """Who changed a setting. Not an order, so not worded as one."""
+        return self._d["sources"]["changed_by"].format(who=who)
 
     def source_ordered_by(self, who: str, channel: str) -> str:
         """Who ordered something and how, for the feed's source line.
@@ -321,6 +348,23 @@ class EventWriter:
             subject_id=asset.asset_id,
         )
 
+    def autonomy_changed(self, asset: Asset, mode: str, principal_id: str) -> Event:
+        """A machine's mode was switched, and by whom.
+
+        The kind is the mode itself, so each mode carries its own sentence
+        and its own colour from the data file: going automatic is worth an
+        operator's attention, going manual is not.
+        """
+        kind = f"autonomy_{mode}"
+        text = self.lang.template(kind).format(asset=self.lang.asset_name(asset))
+        return new_event(
+            text=_sentence(text),
+            severity=self.lang.severity(kind),
+            source=self.lang.source_changed_by(self.name_person(principal_id)),
+            subject_kind="asset",
+            subject_id=asset.asset_id,
+        )
+
     def asset_fault(self, asset: Asset) -> Event:
         text = self.lang.template("asset_fault").format(asset=self.lang.asset_name(asset))
         return new_event(
@@ -339,13 +383,24 @@ class EventWriter:
             task_phrase=self.lang.task_phrase(task.task_type),
             reason=reason or self.lang.fragment("no_reason"),
         )
-        # The same test the order's own view applies, so the feed and the
-        # plan strip cannot disagree about whether a person was involved.
-        # An Issuer with no principal names nobody rather than becoming
-        # "someone signed in", which asserts a person we do not have.
-        if kind == "task_issued" and task.HasField("issued_by") and task.issued_by.principal_id:
-            who = self.name_person(task.issued_by.principal_id)
-            source = self.lang.source_ordered_by(who, task.issued_by.channel)
+        # Three cases, in the order the facts rank.
+        #
+        # A self-issued order says how it arrived and names nobody, even
+        # though it carries a principal or lacks one: the channel is the
+        # meaningful fact and no person was asked. A person-issued order
+        # names them. Anything else is the system's, because an Issuer with
+        # no principal and no self-issued channel tells us nothing about
+        # who acted, and "someone signed in" would assert a person the
+        # record does not have.
+        issuer = task.issued_by if task.HasField("issued_by") else None
+        if kind != "task_issued" or issuer is None:
+            source = self.lang.source_system()
+        elif self.lang.is_self_issued(issuer.channel):
+            source = self.lang.source_ordered_by("", issuer.channel)
+        elif issuer.principal_id:
+            source = self.lang.source_ordered_by(
+                self.name_person(issuer.principal_id), issuer.channel
+            )
         else:
             source = self.lang.source_system()
         return new_event(

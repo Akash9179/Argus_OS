@@ -21,14 +21,7 @@ from link.v1.ontology_pb2 import Asset, Issuer, Polygon, Position, TaskParameter
 from pydantic import BaseModel, Field
 
 from track import live
-from track.codec import (
-    asset_to_dict,
-    assets_to_dicts,
-    task_to_dict,
-    tasks_to_dicts,
-    to_dict,
-    to_dicts,
-)
+from track.codec import to_dict, to_dicts
 from track.identity import ROLE_ADMIN, ROLE_OPERATOR, Principal
 from track.ids import new_id
 from track.worldmodel import TaskRejected, WorldModel
@@ -157,7 +150,7 @@ async def whoami(principal: Operator) -> dict:
 @router.get("/assets")
 async def list_assets(request: Request, _: Operator) -> list[dict]:
     world = _world(request)
-    return assets_to_dicts(world.store.list_assets(), world.language)
+    return world.asset_views(world.store.list_assets())
 
 
 @router.get("/assets/{asset_id}")
@@ -166,7 +159,34 @@ async def get_asset(asset_id: str, request: Request, _: Operator) -> dict:
     asset = world.store.get_asset(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail=_say(request, "no_such_asset"))
-    return asset_to_dict(asset, world.language.asset_name(asset))
+    return world.asset_view(asset)
+
+
+class AutonomyIn(BaseModel):
+    """How much the platform may do with this machine without being asked."""
+
+    mode: str
+
+
+@router.put("/assets/{asset_id}/autonomy")
+async def set_autonomy(
+    asset_id: str, body: AutonomyIn, request: Request, principal: Operator
+) -> dict:
+    """Set a machine's autonomy, and act on it.
+
+    Operator, not admin: this is an operating decision made during a watch,
+    the way taking manual control of a vehicle is, not a configuration
+    change made once at install time.
+
+    Switching to automatic sends a machine to look at contacts nobody has
+    looked at yet. Switching away withdraws the orders this platform issued
+    on its own, and only those.
+    """
+    world = _world(request)
+    try:
+        return await world.set_autonomy(asset_id, body.mode, principal.principal_id)
+    except TaskRejected as refused:
+        raise HTTPException(status_code=409, detail=str(refused)) from refused
 
 
 @router.get("/assets/{asset_id}/registry")
@@ -236,7 +256,7 @@ async def upsert_asset(asset_id: str, body: AssetIn, request: Request, _: Admin)
         asset.capabilities.update(merged)
 
     world.store.put_asset(asset)
-    view = asset_to_dict(asset, world.language.asset_name(asset))
+    view = world.asset_view(asset)
     await world.bus.publish(live.ASSET_UPDATED, view)
     return view
 
@@ -408,7 +428,7 @@ async def stream(websocket: WebSocket, token: str = Query(default="")) -> None:
         {
             "kind": "snapshot",
             "data": {
-                "assets": assets_to_dicts(world.store.list_assets(), world.language),
+                "assets": world.asset_views(world.store.list_assets()),
                 "telemetry": [t.to_dict() for t in world.telemetry.values()],
                 "tracks": world.track_views(world.store.list_tracks()),
                 "zones": to_dicts(world.store.list_zones()),

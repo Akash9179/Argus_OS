@@ -22,6 +22,7 @@ vi.mock('../sdk/client', () => ({
   track: {
     issueTask: vi.fn(),
     cancelTask: vi.fn(),
+    setAutonomy: vi.fn(),
   },
 }))
 
@@ -30,6 +31,7 @@ import { Operate } from './Operate'
 
 const issueTask = api.issueTask as ReturnType<typeof vi.fn>
 const cancelTask = api.cancelTask as ReturnType<typeof vi.fn>
+const setAutonomy = api.setAutonomy as ReturnType<typeof vi.fn>
 
 function machine(overrides: Partial<Asset> = {}): Asset {
   return {
@@ -39,6 +41,7 @@ function machine(overrides: Partial<Asset> = {}): Asset {
     battery_fraction: 0.8,
     position: { latitude_deg: 51.5, longitude_deg: -0.12 },
     last_heartbeat: new Date().toISOString(),
+    autonomy: 'manual',
     ...overrides,
   }
 }
@@ -91,42 +94,44 @@ const modeButton = (name: string) => screen.getByRole('button', { name })
 beforeEach(() => {
   issueTask.mockReset().mockResolvedValue({ task_id: 'T-STATION' })
   cancelTask.mockReset().mockResolvedValue({})
+  setAutonomy.mockReset().mockResolvedValue({})
 })
 afterEach(cleanup)
 
-describe('the mode switch', () => {
+describe('the mode', () => {
+  it('shows what the server holds, not what this browser remembers', () => {
+    renderOperate(aWorld({ assets: [machine({ autonomy: 'automatic' })] }))
+    // The toggle is a view of server state. A tab that had its own idea
+    // would show an operator a setting that is not in force anywhere.
+    expect(modeButton('Automatic').className).toContain('on')
+    expect(modeButton('Manual').className).not.toContain('on')
+  })
+
+  it('asks the server to change the selected machine, and waits', async () => {
+    renderOperate(aWorld())
+    fireEvent.click(modeButton('Automatic'))
+    await waitFor(() => expect(setAutonomy).toHaveBeenCalledWith('M1', 'automatic'))
+  })
+
   it('does nothing at all when the mode clicked is already in force', async () => {
-    // The bug: this click ran the stop path and cancelled a running order.
+    // The bug this pins: the click ran a stop path and cancelled a
+    // running order, on a click an operator reads as a no-op.
     renderOperate(aWorld({ tasks: [operatorOrder()] }))
-
     fireEvent.click(modeButton('Manual'))
 
     await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(setAutonomy).not.toHaveBeenCalled()
     expect(cancelTask).not.toHaveBeenCalled()
   })
 
-  it("leaves an operator's order running across a trip through Automatic", async () => {
-    // The bug: entering Manual cancelled any open order, whoever gave it,
-    // and announced it as the station's own.
-    renderOperate(aWorld({ tasks: [operatorOrder()] }))
-
-    fireEvent.click(modeButton('Automatic'))
-    fireEvent.click(modeButton('Manual'))
-
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(cancelTask).not.toHaveBeenCalled()
-  })
-
-  it('takes back only the order the station issued itself', async () => {
-    // Automatic issues an investigate order for the fresh contact...
-    const { rerender } = renderOperate(aWorld({ tracks: [contact()] }))
-    fireEvent.click(modeButton('Automatic'))
-    await waitFor(() => expect(issueTask).toHaveBeenCalled())
-    expect(issueTask.mock.calls[0][0].channel).toBe('automatic')
-
-    // ...the stream echoes it back as an open task...
-    const stationTask: Task = {
-      task_id: 'T-STATION',
+  it('never cancels anything itself, whoever gave the order', async () => {
+    // The other bug, and now a structural guarantee rather than a
+    // careful branch: switching the mode is the platform's act, so this
+    // station has nothing to withdraw and no way to withdraw the wrong
+    // thing. Both an operator's order and a platform order must survive
+    // C2's involvement entirely.
+    const platformOrder: Task = {
+      task_id: 'T-PLATFORM',
       asset_id: 'M1',
       task_type: 'navigate',
       phrase: 'drive to a point on the map',
@@ -135,40 +140,22 @@ describe('the mode switch', () => {
       ordered_by: '',
       reason: 'because it was ordered automatically, without anyone being asked',
     }
-    rerender(
-      <Operate
-        world={aWorld({ tracks: [contact()], tasks: [stationTask] })}
-        link="good"
-        theme="dark"
-      />,
-    )
-
-    // ...and dropping to Manual withdraws exactly that order.
-    fireEvent.click(modeButton('Manual'))
-    await waitFor(() => expect(cancelTask).toHaveBeenCalledWith('T-STATION'))
+    for (const task of [operatorOrder(), platformOrder]) {
+      cleanup()
+      cancelTask.mockClear()
+      renderOperate(aWorld({ assets: [machine({ autonomy: 'automatic' })], tasks: [task] }))
+      fireEvent.click(modeButton('Manual'))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(cancelTask).not.toHaveBeenCalled()
+    }
   })
 
-  it("leaves another station's automatic order alone", async () => {
-    // The channel says a station issued it. It does not say this station
-    // did, and taking back another station's order would be the operator-
-    // order bug wearing a different channel.
-    const foreign: Task = {
-      task_id: 'T-ELSEWHERE',
-      asset_id: 'M1',
-      task_type: 'navigate',
-      phrase: 'drive to a point on the map',
-      status: 'TASK_STATE_RUNNING',
-      issued_by: { channel: 'automatic' },
-      ordered_by: '',
-      reason: 'because it was ordered automatically, without anyone being asked',
-    }
-    renderOperate(aWorld({ tasks: [foreign] }))
-
-    fireEvent.click(modeButton('Automatic'))
-    fireEvent.click(modeButton('Manual'))
-
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(cancelTask).not.toHaveBeenCalled()
+  it('never issues an order of its own accord', async () => {
+    // The browser engine is gone. A contact on the map with an automatic
+    // machine is the platform's business now, and C2 must stay out of it.
+    renderOperate(aWorld({ assets: [machine({ autonomy: 'automatic' })], tracks: [contact()] }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(issueTask).not.toHaveBeenCalled()
   })
 })
 
@@ -220,5 +207,81 @@ describe('the plan strip', () => {
     // "you" is a claim about who is reading the screen. The server cannot
     // make it and C2 must not invent it.
     expect(screen.queryByText(/because you ordered/)).toBeNull()
+  })
+})
+
+describe('a mode this build does not recognise', () => {
+  // One case, covering every claim the screen makes about a mode. It is
+  // here because three separate overclaims survived a fix to how the mode
+  // is displayed: the name was shown as sent while every sentence beside
+  // it still asserted the manual promise.
+  const newer = () =>
+    aWorld({ assets: [machine({ autonomy: 'supervised' })], tracks: [contact()] })
+
+  it('shows the mode as sent rather than as one of ours', () => {
+    renderOperate(newer())
+    expect(screen.getAllByText(/Supervised/).length).toBeGreaterThan(0)
+    expect(modeButton('Manual').className).not.toContain('on')
+    expect(modeButton('Automatic').className).not.toContain('on')
+  })
+
+  it('never promises what manual promises', () => {
+    renderOperate(newer())
+    expect(screen.queryByText(/will order this machine nothing else/)).toBeNull()
+    expect(screen.queryByText(/The machines are waiting for you/)).toBeNull()
+  })
+
+  it('does not invite a click it will drop, and says why', () => {
+    renderOperate(newer())
+    // The machine is answering, so blaming silence would be a lie.
+    expect(screen.queryByText(/is not answering/)).toBeNull()
+    expect(screen.queryByText(/Click the map to send/)).toBeNull()
+  })
+
+  it('does not offer to send a contact anywhere', () => {
+    renderOperate(newer())
+    fireEvent.click(screen.getByRole('button', { name: /Possible person/ }))
+    expect(screen.queryByText(/is not answering/)).toBeNull()
+  })
+})
+
+describe('when there is no machine to speak for', () => {
+  // An empty fleet, or a site whose only contacts came from a fixed
+  // sensor. Every claim on this screen is about a selected machine, so
+  // with none selected the screen must make no claims at all.
+  const empty = () => aWorld({ assets: [], tracks: [contact()] })
+
+  it('names no mode and makes no promise about one', () => {
+    renderOperate(empty())
+    expect(screen.queryByText(/The machines are waiting for you/)).toBeNull()
+    expect(screen.queryByText(/will order this machine nothing else/)).toBeNull()
+    // The mode chip describes a machine's setting. There is no machine.
+    expect(document.querySelector('.plan-mode')).toBeNull()
+  })
+
+  it('never leaves a control with nothing written on it', () => {
+    renderOperate(empty())
+    fireEvent.click(screen.getByRole('button', { name: /Possible person/ }))
+    const send = screen
+      .getAllByRole('button')
+      .find((b) => b.className.includes('primary'))
+    expect(send).toBeTruthy()
+    expect(send!.textContent?.trim()).not.toBe('')
+  })
+})
+
+describe('a server that sends no mode at all', () => {
+  // An older platform. C2 may keep letting the operator task the machine,
+  // because refusing would strand them against a server that works. It
+  // may not name a mode or repeat a promise on evidence it does not have.
+  const silent = () => aWorld({ assets: [machine({ autonomy: undefined })] })
+
+  it('claims no mode and no promise, while still allowing an order', () => {
+    renderOperate(silent())
+    expect(modeButton('Manual').className).not.toContain('on')
+    expect(screen.queryByText(/will order this machine nothing else/)).toBeNull()
+    expect(screen.queryByText(/The machines are waiting for you/)).toBeNull()
+    // Tasking stays available: the map still invites the click.
+    expect(screen.getByText(/Click the map to send/)).toBeTruthy()
   })
 })

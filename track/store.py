@@ -90,6 +90,26 @@ CREATE TABLE IF NOT EXISTS entity_aliases (
 -- survives an older server, exactly as unknown protobuf fields do.
 CREATE TABLE IF NOT EXISTS asset_registries (
     asset_id TEXT PRIMARY KEY, received REAL NOT NULL, snapshot TEXT NOT NULL);
+
+-- How much this platform may do with a machine without being asked.
+-- Deliberately not on the Asset record: an asset's own fields are the
+-- machine's declaration about itself, and this is the platform's policy
+-- about the machine. Mixing them would put the server's opinion inside
+-- contract data. An asset with no row here is manual, because a machine
+-- nobody has decided about must not act on its own.
+CREATE TABLE IF NOT EXISTS asset_autonomy (
+    asset_id TEXT PRIMARY KEY, mode TEXT NOT NULL,
+    changed_by TEXT NOT NULL, changed_at REAL NOT NULL);
+
+-- Which contacts this platform has already sent a machine to look at, and
+-- the order it issued. Persistent, so a restart does not send machines out
+-- again to contacts that were investigated hours ago, and so switching a
+-- machine back to manual can withdraw the platform's own orders without
+-- touching anyone else's.
+CREATE TABLE IF NOT EXISTS investigations (
+    track_id TEXT PRIMARY KEY, task_id TEXT NOT NULL,
+    asset_id TEXT NOT NULL, at REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS investigations_task ON investigations(task_id);
 """
 
 
@@ -230,6 +250,48 @@ class Store:
         payload = json.loads(row["snapshot"])
         payload["received_at"] = row["received"]
         return payload
+
+    # -- autonomy ----------------------------------------------------------
+
+    def set_autonomy(self, asset_id: str, mode: str, changed_by: str) -> None:
+        """Record how much this platform may do with a machine unasked."""
+        self._write(
+            "INSERT INTO asset_autonomy (asset_id, mode, changed_by, changed_at) "
+            "VALUES (?,?,?,?) ON CONFLICT(asset_id) DO UPDATE SET "
+            "mode=excluded.mode, changed_by=excluded.changed_by, "
+            "changed_at=excluded.changed_at",
+            (asset_id, mode, changed_by, epoch_now()),
+        )
+
+    def get_autonomy(self, asset_id: str) -> str | None:
+        """The recorded mode, or None if nobody has decided about this machine."""
+        rows = self._rows("SELECT mode FROM asset_autonomy WHERE asset_id=?", (asset_id,))
+        return rows[0]["mode"] if rows else None
+
+    def list_autonomy(self) -> dict[str, str]:
+        return {r["asset_id"]: r["mode"] for r in self._rows("SELECT asset_id, mode FROM asset_autonomy")}
+
+    # -- investigations ----------------------------------------------------
+
+    def record_investigation(self, track_id: str, task_id: str, asset_id: str) -> None:
+        self._write(
+            "INSERT INTO investigations (track_id, task_id, asset_id, at) VALUES (?,?,?,?) "
+            "ON CONFLICT(track_id) DO UPDATE SET task_id=excluded.task_id, "
+            "asset_id=excluded.asset_id, at=excluded.at",
+            (track_id, task_id, asset_id, epoch_now()),
+        )
+
+    def was_investigated(self, track_id: str) -> bool:
+        return bool(self._rows("SELECT 1 FROM investigations WHERE track_id=?", (track_id,)))
+
+    def investigation_tasks_for(self, asset_id: str) -> list[str]:
+        """The orders this platform issued to a machine on its own."""
+        return [
+            r["task_id"]
+            for r in self._rows(
+                "SELECT task_id FROM investigations WHERE asset_id=? ORDER BY at", (asset_id,)
+            )
+        ]
 
     # -- entities ----------------------------------------------------------
 

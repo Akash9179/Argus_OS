@@ -6,7 +6,7 @@
  * needs more room opens over the map and closes back.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { track as api, Refused } from '../sdk/client'
 import type { Link } from '../sdk/stream'
 import type { Asset, Track } from '../sdk/types'
@@ -25,6 +25,7 @@ import {
   agoInWords,
   assetStatus,
   clockAt,
+  modeInWords,
   outOfTen,
   plain,
   say,
@@ -32,7 +33,13 @@ import {
   statusInWords,
 } from './wording'
 
-type Mode = 'manual' | 'automatic'
+/**
+ * A mode is server vocabulary and open, like every other enum-shaped value
+ * the contract carries. Typed as a string so a mode a newer server holds
+ * reaches the operator as itself, rather than being forced into one of the
+ * two this build happens to know.
+ */
+type Mode = string
 
 interface Props {
   world: World
@@ -45,7 +52,6 @@ export function Operate({ world, link, theme }: Props) {
   const contacts = useContacts(world)
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
-  const [mode, setMode] = useState<Mode>('manual')
   const [notice, setNotice] = useState<string>('')
   const [now, setNow] = useState(() => Date.now() / 1000)
   // Both rails start open. A section an operator collapsed stays collapsed,
@@ -74,35 +80,47 @@ export function Operate({ world, link, theme }: Props) {
   const selected = selectedAssetId ? world.assets.get(selectedAssetId) ?? null : null
   const selectedTrack = selectedTrackId ? world.tracks.get(selectedTrackId) ?? null : null
   const openTask = selected ? openTaskFor(world, selected.asset_id) : undefined
-  const canSend = Boolean(selected && answering(selected.asset_id) && mode === 'manual')
-
   /**
-   * The orders this station issued on its own, by task identifier.
-   *
-   * Remembering what we did is not the same as working out who ordered
-   * something: that question belongs to the server, and asking it here by
-   * reading a channel code is how orders get attributed to the wrong
-   * person. This is only ever consulted to decide what this station may
-   * take back.
+   * The selected machine's mode, as the server holds it. Never local
+   * state: a toggle that moved before the server agreed would be showing
+   * an operator a setting that is not in force anywhere. Shown as sent,
+   * so an unrecognised mode reads as itself rather than as Manual, which
+   * would display a setting that is not in force and quietly re-enable
+   * tasking under it.
    */
-  const stationIssued = useRef<Set<string>>(new Set())
-  const isStationOrder = (task: { task_id: string } | undefined) =>
-    Boolean(task && stationIssued.current.has(task.task_id))
+  const mode: Mode = selected?.autonomy ?? ''
+  /**
+   * Whether this machine can be sent somewhere from here, and if not, the
+   * true reason. Computed once: three separate places used to work it out
+   * for themselves and gave three different answers, including telling an
+   * operator a machine was not answering when it plainly was.
+   */
+  const sending: { can: boolean; why: string } = !selected
+    ? { can: false, why: say.map.noMachineSelected }
+    : !answering(selected.asset_id)
+      ? { can: false, why: say.map.cannotSend }
+      : mode === 'automatic'
+        ? { can: false, why: say.map.cannotSendAutomatic }
+        : mode && mode !== 'manual'
+          ? { can: false, why: say.map.cannotSendUnknownMode(modeInWords(mode)) }
+          : // Manual, or a server too old to say. Tasking stays available in
+            // both cases: refusing would strand an operator against a server
+            // that works. Naming a mode we were not told is a separate
+            // question, answered below by naming none.
+            { can: true, why: say.map.clickToSend }
+  const canSend = sending.can
 
   const send = useCallback(
     async (lat: number, lon: number, channel: string, targetTrackId?: string) => {
       if (!selected) return
       try {
-        const issued = await api.issueTask({
+        await api.issueTask({
           asset_id: selected.asset_id,
           task_type: 'navigate',
           waypoints: [{ latitude_deg: lat, longitude_deg: lon }],
           target_track_id: targetTrackId ?? '',
           channel,
         })
-        if (channel === 'automatic' && issued?.task_id) {
-          stationIssued.current.add(issued.task_id)
-        }
         setNotice('')
       } catch (error) {
         // The server words its own refusals. We show what it said.
@@ -125,54 +143,22 @@ export function Operate({ world, link, theme }: Props) {
   }, [openTask])
 
   /**
-   * Automatic. The machines work to their standing orders rather than
-   * waiting to be told. For this build that means one standing order: go
-   * and look at anything new that turns up. C2 issues it through the same
-   * public endpoint an operator's click uses, and writes the channel into
-   * the audit trail so it is always clear who ordered what.
+   * Ask the platform to change this machine's mode.
+   *
+   * Nothing is cancelled here and nothing is issued here. Switching the
+   * mode is itself the act: the platform sends machines to look, and the
+   * platform withdraws what it started. A station that also did those
+   * things would be a second authority on a question only one thing can
+   * enforce, which is what this whole change replaced.
    */
-  const investigated = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    if (mode !== 'automatic' || !selected || !answering(selected.asset_id)) return
-    if (openTask) return
-    const fresh = contacts.find(
-      (c) =>
-        !investigated.current.has(c.track_id) &&
-        c.position?.latitude_deg !== undefined &&
-        c.position?.longitude_deg !== undefined,
-    )
-    if (!fresh) return
-    investigated.current.add(fresh.track_id)
-    void send(fresh.position!.latitude_deg!, fresh.position!.longitude_deg!, 'automatic', fresh.track_id)
-  }, [mode, contacts, selected, openTask, answering, send])
-
-  const switchMode = (next: Mode) => {
-    // Clicking the mode already in force is a no-op an operator reads as a
-    // no-op. Without this it ran the stop path below and cancelled a running
-    // order on a click that looked like nothing.
-    if (next === mode) return
-    setMode(next)
-
-    // Dropping into Manual stops what this station started on its own, and
-    // only that. An order the operator gave is theirs, and cancelling it
-    // here would both take an action they did not ask for and describe it
-    // as the station's own.
-    const stopping = next === 'manual' && Boolean(openTask) && isStationOrder(openTask)
-    if (next === 'automatic') {
-      setNotice(say.mode.switchedToAutomatic)
-      return
+  const switchMode = async (next: Mode) => {
+    if (!selected || next === mode) return
+    try {
+      await api.setAutonomy(selected.asset_id, next)
+      setNotice(next === 'automatic' ? say.mode.switchedToAutomatic : say.mode.switchedToManual)
+    } catch (error) {
+      setNotice(error instanceof Refused && error.message ? error.message : say.errors.modeFailed)
     }
-    if (!stopping) {
-      setNotice(say.mode.switchedToManual)
-      return
-    }
-    // "Has been stopped" is past tense, so it waits for the cancel to land.
-    // Announced first, it claimed a stop that had not happened yet, and a
-    // refusal would have arrived after the screen already said otherwise.
-    setNotice(say.mode.stopping)
-    void stop().then((stopped) => {
-      if (stopped) setNotice(say.mode.switchedToManualAndStopped)
-    })
   }
 
   return (
@@ -240,14 +226,18 @@ export function Operate({ world, link, theme }: Props) {
           onSelectTrack={setSelectedTrackId}
           onSendTo={(lat, lon) => void send(lat, lon, 'map')}
         />
-        {canSend && <div className="map-hint">{say.map.clickToSend}</div>}
+        {/* A map that quietly ignores clicks teaches an operator that the
+            system is unreliable, so it always states where it stands. With
+            no machine selected there is nothing to state. */}
+        {selected && <div className="map-hint">{sending.why}</div>}
         {link === 'lost' && <div className="map-warning">{say.link.lostDetail}</div>}
         {selectedTrack && (
           <ContactDetail
             contact={selectedTrack}
             world={world}
             now={now}
-            canSend={Boolean(selected && answering(selected.asset_id))}
+            canSend={canSend}
+            cannotSendWhy={sending.why}
             machineName={selected?.display_name ?? ''}
             onSend={() =>
               void send(
@@ -551,6 +541,7 @@ function ContactDetail({
   world,
   now,
   canSend,
+  cannotSendWhy,
   machineName,
   onSend,
   onClose,
@@ -559,6 +550,7 @@ function ContactDetail({
   world: World
   now: number
   canSend: boolean
+  cannotSendWhy: string
   machineName: string
   onSend: () => void
   onClose: () => void
@@ -602,7 +594,7 @@ function ContactDetail({
 
       <footer>
         <button className="primary" onClick={onSend} disabled={!canSend}>
-          {canSend ? say.detail.sendNamed(machineName) : say.map.cannotSend}
+          {canSend ? say.detail.sendNamed(machineName) : cannotSendWhy}
         </button>
       </footer>
     </section>
@@ -641,21 +633,34 @@ function PlanStrip({
 
   return (
     <div className="plan">
-      <span className="plan-mode">{mode === 'automatic' ? say.mode.automatic : say.mode.manual}</span>
+      {/* The mode is a machine's setting. With no machine selected, or a
+          server that did not say, there is no mode to name and naming one
+          would describe a machine that is not there. */}
+      {machine && mode && <span className="plan-mode">{modeInWords(mode)}</span>}
       <div className="plan-body">
         {task && machine ? (
           <>
             <span className="step on">
               {orderInWords(task)}
               {reason ? `, ${reason}` : ''}
-              {latest ? `. ${latest}` : '.'}{' '}
-              {mode === 'automatic' ? say.mode.automaticAssurance : say.mode.manualAssurance}
+              {latest ? `. ${latest}` : '.'}
+              {mode === 'manual' ? ` ${say.mode.manualAssurance}` : ''}
+              {mode === 'automatic' ? ` ${say.mode.automaticAssurance}` : ''}
             </span>
             <span className="step">{machine.display_name}</span>
           </>
         ) : (
           <span className="plan-empty">
-            {mode === 'automatic' ? say.mode.automaticMeans : say.plan.nothing}
+            {!machine
+              ? // Nothing selected. The rails already say whether any
+                // machine has connected; repeating a guess here would
+                // describe a fleet this strip cannot see.
+                ''
+              : mode === 'automatic'
+                ? say.mode.automaticMeans
+                : mode === 'manual'
+                  ? say.plan.nothing
+                  : say.plan.nothingFor}
           </span>
         )}
       </div>

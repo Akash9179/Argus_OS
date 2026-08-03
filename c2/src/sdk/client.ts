@@ -68,6 +68,13 @@ export const track = {
     call<Task[]>('/v1/tasks' + (assetId ? `?asset_id=${encodeURIComponent(assetId)}` : '')),
   events: (limit = 100) => call<WorldEvent[]>(`/v1/events?limit=${limit}`),
 
+  /** Set how much the platform may do with a machine unasked. */
+  setAutonomy: (assetId: string, mode: string) =>
+    call<Asset>(`/v1/assets/${encodeURIComponent(assetId)}/autonomy`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    }),
+
   issueTask: (body: TaskRequest) =>
     call<Task>('/v1/tasks', { method: 'POST', body: JSON.stringify(body) }),
 

@@ -39,6 +39,13 @@ export interface Asset {
   position?: Position
   battery_fraction?: number
   last_heartbeat?: string
+  /**
+   * How much the platform may do with this machine without being asked.
+   * Resolved and enforced by the server; C2 displays and sets it, and
+   * never decides it. Open vocabulary, so a mode a newer server holds
+   * still arrives rather than being forced into one this build knows.
+   */
+  autonomy?: string
 }
 
 export interface Telemetry {

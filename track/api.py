@@ -21,7 +21,14 @@ from link.v1.ontology_pb2 import Asset, Issuer, Polygon, Position, TaskParameter
 from pydantic import BaseModel, Field
 
 from track import live
-from track.codec import to_dict, to_dicts
+from track.codec import (
+    asset_to_dict,
+    assets_to_dicts,
+    task_to_dict,
+    tasks_to_dicts,
+    to_dict,
+    to_dicts,
+)
 from track.identity import ROLE_ADMIN, ROLE_OPERATOR, Principal
 from track.ids import new_id
 from track.worldmodel import TaskRejected, WorldModel
@@ -134,15 +141,17 @@ Admin = Annotated[Principal, Depends(requires(ROLE_ADMIN))]
 
 @router.get("/assets")
 async def list_assets(request: Request, _: Operator) -> list[dict]:
-    return to_dicts(_world(request).store.list_assets())
+    world = _world(request)
+    return assets_to_dicts(world.store.list_assets(), world.language)
 
 
 @router.get("/assets/{asset_id}")
 async def get_asset(asset_id: str, request: Request, _: Operator) -> dict:
-    asset = _world(request).store.get_asset(asset_id)
+    world = _world(request)
+    asset = world.store.get_asset(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail=_say(request, "no_such_asset"))
-    return to_dict(asset)
+    return asset_to_dict(asset, world.language.asset_name(asset))
 
 
 class AssetIn(BaseModel):
@@ -180,8 +189,9 @@ async def upsert_asset(asset_id: str, body: AssetIn, request: Request, _: Admin)
         asset.capabilities.update(merged)
 
     world.store.put_asset(asset)
-    await world.bus.publish(live.ASSET_UPDATED, to_dict(asset))
-    return to_dict(asset)
+    view = asset_to_dict(asset, world.language.asset_name(asset))
+    await world.bus.publish(live.ASSET_UPDATED, view)
+    return view
 
 
 @router.get("/telemetry")
@@ -246,15 +256,17 @@ async def list_relationships(
 async def list_tasks(
     request: Request, _: Operator, asset_id: str | None = None, limit: int = 200
 ) -> list[dict]:
-    return to_dicts(_world(request).store.list_tasks(asset_id=asset_id, limit=limit))
+    world = _world(request)
+    return tasks_to_dicts(world.store.list_tasks(asset_id=asset_id, limit=limit), world.language)
 
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str, request: Request, _: Operator) -> dict:
-    task = _world(request).store.get_task(task_id)
+    world = _world(request)
+    task = world.store.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=_say(request, "no_such_task"))
-    return to_dict(task)
+    return task_to_dict(task, world.language.task_phrase(task.task_type))
 
 
 @router.post("/tasks", status_code=201)
@@ -272,13 +284,15 @@ async def create_task(body: TaskIn, request: Request, principal: Operator) -> di
         )
     except TaskRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return to_dict(task)
+    return task_to_dict(task, world.language.task_phrase(task.task_type))
 
 
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str, request: Request, _: Operator) -> dict:
+    world = _world(request)
     try:
-        return to_dict(await _world(request).cancel_task(task_id))
+        cancelled = await world.cancel_task(task_id)
+        return task_to_dict(cancelled, world.language.task_phrase(cancelled.task_type))
     except TaskRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -345,11 +359,11 @@ async def stream(websocket: WebSocket, token: str = Query(default="")) -> None:
         {
             "kind": "snapshot",
             "data": {
-                "assets": to_dicts(world.store.list_assets()),
+                "assets": assets_to_dicts(world.store.list_assets(), world.language),
                 "telemetry": [t.to_dict() for t in world.telemetry.values()],
                 "tracks": to_dicts(world.store.list_tracks()),
                 "zones": to_dicts(world.store.list_zones()),
-                "tasks": to_dicts(world.store.list_tasks(limit=50)),
+                "tasks": tasks_to_dicts(world.store.list_tasks(limit=50), world.language),
                 "events": [e.to_dict() for e in world.store.list_events(limit=50)],
             },
         }

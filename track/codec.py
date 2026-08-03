@@ -24,3 +24,36 @@ def to_dict(message: Message) -> dict:
 
 def to_dicts(messages) -> list[dict]:
     return [to_dict(m) for m in messages]
+
+
+def asset_to_dict(asset: Message, display_name: str) -> dict:
+    """An asset as applications see it, carrying the name to put on screen.
+
+    Naming is resolved here rather than in the application. An application
+    that built a name out of asset_class would be reaching below the
+    hardware abstraction layer for something it has no business knowing,
+    and it would put a second naming authority in the system.
+    """
+    data = to_dict(asset)
+    data["display_name"] = display_name
+    return data
+
+
+def assets_to_dicts(assets, language) -> list[dict]:
+    return [asset_to_dict(a, language.asset_name(a)) for a in assets]
+
+
+def task_to_dict(task: Message, phrase: str) -> dict:
+    """A task as applications see it, carrying what was ordered in words.
+
+    The task type is contract vocabulary. Turning it into a sentence is the
+    server's job, from its language file, so that an order added after this
+    build shipped still reads as English rather than as a code word.
+    """
+    data = to_dict(task)
+    data["phrase"] = phrase
+    return data
+
+
+def tasks_to_dicts(tasks, language) -> list[dict]:
+    return [task_to_dict(t, language.task_phrase(t.task_type)) for t in tasks]

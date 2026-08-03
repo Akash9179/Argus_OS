@@ -40,7 +40,7 @@ from link.v1.ontology_pb2 import (
 )
 
 from track import live
-from track.codec import to_dict
+from track.codec import asset_to_dict, task_to_dict, to_dict
 from track.config import Settings
 from track.events import EventWriter, Language
 from track.fusion import TrackManager
@@ -196,7 +196,7 @@ class WorldModel:
         elif asset.status == AssetStatus.ASSET_STATUS_FAULT and previous_status != asset.status:
             await self._emit(self.events.asset_fault(asset))
 
-        await self.bus.publish(live.ASSET_UPDATED, to_dict(asset))
+        await self.bus.publish(live.ASSET_UPDATED, asset_to_dict(asset, self.language.asset_name(asset)))
 
     async def on_telemetry(self, msg: Telemetry) -> None:
         self._check_versions(msg.link_version, msg.ontology_version, msg.asset_id)
@@ -283,7 +283,7 @@ class WorldModel:
         await self.bus.publish(
             live.TASK_UPDATED,
             {
-                "task": to_dict(task),
+                "task": task_to_dict(task, self.language.task_phrase(task.task_type)),
                 "progress": update.progress,
                 "eta_sec": update.eta_sec if update.HasField("eta_sec") else None,
                 "message": update.message,
@@ -329,7 +329,7 @@ class WorldModel:
 
         self._send_task(task)
         await self._emit(self.events.task_event("task_issued", task, asset))
-        await self.bus.publish(live.TASK_UPDATED, {"task": to_dict(task), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
         return task
 
     async def cancel_task(self, task_id: str) -> Task:
@@ -355,7 +355,7 @@ class WorldModel:
         await self._emit(
             self.events.task_event("task_cancelled", task, self.store.get_asset(task.asset_id))
         )
-        await self.bus.publish(live.TASK_UPDATED, {"task": to_dict(task), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
         return task
 
     def _send_task(self, task: Task) -> None:
@@ -391,7 +391,7 @@ class WorldModel:
             asset.status = AssetStatus.ASSET_STATUS_OFFLINE
             self.store.put_asset(asset)
             await self._emit(self.events.asset_offline(asset))
-            await self.bus.publish(live.ASSET_UPDATED, to_dict(asset))
+            await self.bus.publish(live.ASSET_UPDATED, asset_to_dict(asset, self.language.asset_name(asset)))
             await self._fail_open_tasks(asset, self.language.fragment("reason_asset_silent"))
 
         for task in self.store.list_tasks_in_states([TaskState.TASK_STATE_PENDING]):
@@ -421,7 +421,7 @@ class WorldModel:
         await self._emit(
             self.events.task_event("task_failed", task, self.store.get_asset(task.asset_id), reason)
         )
-        await self.bus.publish(live.TASK_UPDATED, {"task": to_dict(task), "progress": 0.0})
+        await self.bus.publish(live.TASK_UPDATED, {"task": task_to_dict(task, self.language.task_phrase(task.task_type)), "progress": 0.0})
 
     # -- helpers -----------------------------------------------------------
 

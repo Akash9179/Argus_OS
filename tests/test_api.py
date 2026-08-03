@@ -165,3 +165,44 @@ def test_the_live_stream_opens_with_a_full_picture(
     for section in ("assets", "tracks", "zones", "tasks", "events", "telemetry"):
         assert section in first["data"]
     assert first["data"]["assets"][0]["asset_id"] == registered_asset.asset_id
+
+
+async def test_assets_carry_a_display_name_resolved_by_the_server(client, world):
+    """C2 must never have to invent a name for a machine.
+
+    Naming lives in the server's language file. An application that composed
+    a name out of asset_class would be reaching below the hardware
+    abstraction layer, and would become a second naming authority.
+    """
+    named = Asset(asset_id="01NAMED0000000000000000001", asset_class="ugv")
+    named.capabilities.update({"name": "Gatekeeper"})
+    world.store.put_asset(named)
+    world.store.put_asset(Asset(asset_id="01UNNAMED000000000000000A1", asset_class="ugv"))
+
+    by_id = {a["asset_id"]: a for a in (await client.get("/v1/assets")).json()}
+
+    assert by_id["01NAMED0000000000000000001"]["display_name"] == "Gatekeeper"
+
+    fallback = by_id["01UNNAMED000000000000000A1"]["display_name"]
+    assert fallback, "an unnamed machine still needs something to call it"
+    assert "01UNNAMED" not in fallback, "operators never read identifiers"
+    assert "ugv" not in fallback.lower(), "the class code is not operator language"
+
+
+async def test_an_order_names_the_person_not_their_identifier(client, world):
+    """Operators read names. An identifier on screen is a waterline leak."""
+    world.store.put_asset(Asset(asset_id="01ORDERTARGET00000000000A1", asset_class="ugv"))
+    await client.post(
+        "/v1/tasks",
+        json={
+            "asset_id": "01ORDERTARGET00000000000A1",
+            "task_type": "navigate",
+            "waypoints": [{"latitude_deg": SITE_LAT, "longitude_deg": SITE_LON}],
+        },
+    )
+    sources = [e["source"] for e in (await client.get("/v1/events")).json()]
+    ordered = [s for s in sources if s.startswith("Ordered by")]
+    assert ordered, "issuing an order should say who ordered it"
+    for source in ordered:
+        assert "operator-1" not in source, "that is an identifier, not a name"
+        assert "Operator" in source

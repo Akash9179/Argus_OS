@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C2 Operate v3: instrument grade</title>
+<style>
+  /* =====================================================================
+     The OS chrome (menu bar, dock) is the approved shell v3 and is
+     unchanged. The APPLICATION INTERIOR is re-cut against real operator
+     tools: Anduril Lattice and Palantir Blueprint.
+
+     What changed and why:
+       flat opaque panels          not frosted glass
+       square corners, 1px rules   not 12-18px radii and soft shadows
+       photographic terrain        not drawn vector contours
+       sans to read, mono only     not mono uppercase everywhere
+         for numbers
+       dense grouped rows          not generously padded cards
+       one primary action in reach not buttons buried in a popup
+     ===================================================================== */
+
+  :root {
+    /* ---- OS chrome, approved shell v3, untouched ---- */
+    --desk: #07090b;
+    --glass: rgba(24, 27, 31, 0.66);
+    --glass-strong: rgba(20, 23, 26, 0.86);
+    --raise: rgba(255, 255, 255, 0.055);
+    --hairline: rgba(255, 255, 255, 0.085);
+    --hairline-soft: rgba(255, 255, 255, 0.045);
+    --fill-btn: rgba(255, 255, 255, 0.08);
+    --fill-active: rgba(255, 255, 255, 0.10);
+    --shadow-dock: 0 18px 45px rgba(0, 0, 0, 0.55);
+    --shadow-icon: 0 6px 14px rgba(0, 0, 0, 0.45);
+    --icon-grad: linear-gradient(180deg, #444a52 0%, #262b31 55%, #1c2126 100%);
+    --icon-glyph: #e8ecf0;
+    --wall-top: #0d1319; --wall-bottom: #06080a; --wall-line: #131a20;
+    --wall-grid: #0f151b; --wall-road: #111820;
+    --wall-veil: rgba(0,0,0,0.65); --wall-tint: rgba(60,90,120,0.10);
+    --r-sm: 8px; --r-xl: 26px;
+
+    /* ---- application interior: instrument surfaces ---- */
+    --app-bg: #0a0d11;
+    --pane: #11151b;
+    --pane-2: #171d25;
+    --pane-3: #1e2530;
+    --line: #242c37;
+    --line-2: #2f3945;
+
+    --ink: #e9eef3;
+    --ink-2: #a7b2be;
+    --ink-3: #77828e;
+    --ink-4: #58626c;
+
+    /* Status. Four values, fixed meanings, unchanged from the shell. */
+    --ok: #30d158;
+    --warn: #ff9f0a;
+    --act: #ff453a;
+    --off: #8e8e93;
+    --glow-ok: rgba(48, 209, 88, 0.55);
+    --glow-warn: rgba(255, 159, 10, 0.5);
+    /* Selection is an affordance, never a status. It says "you are looking
+       at this", never "this is healthy". */
+    --sel: #4c90f0;
+    --sel-dim: rgba(76, 144, 240, 0.14);
+
+    --terrain-edge: rgba(255,255,255,0.07);
+    --map-chip: rgba(0,0,0,0.58);
+    --map-ink: rgba(255,255,255,0.88);
+    --map-line: rgba(255,255,255,0.18);
+    --map-grid: rgba(255,255,255,0.05);
+    --map-built: rgba(185,172,149,0.34);
+    --map-built-shadow: rgba(0,0,0,0.34);
+    --map-halo: rgba(0,0,0,0.35);
+    --map-wash: rgba(255,255,255,0.03);
+
+    --sans: "IBM Plex Sans", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  [data-theme="day"] {
+    --desk: #dfe4ea;
+    --glass: rgba(252, 252, 253, 0.72);
+    --glass-strong: rgba(255, 255, 255, 0.90);
+    --raise: rgba(255, 255, 255, 0.9);
+    --hairline: rgba(0, 0, 0, 0.13);
+    --hairline-soft: rgba(0, 0, 0, 0.07);
+    --fill-btn: rgba(0, 0, 0, 0.05);
+    --fill-active: rgba(0, 0, 0, 0.08);
+    --shadow-dock: 0 16px 40px rgba(20, 30, 45, 0.18);
+    --shadow-icon: 0 4px 10px rgba(20, 30, 45, 0.22);
+    --icon-grad: linear-gradient(180deg, #5a626b 0%, #3b424a 55%, #2e343b 100%);
+    --icon-glyph: #ffffff;
+    --wall-top: #eef2f6; --wall-bottom: #cfd8e0; --wall-line: #c2ccd6;
+    --wall-grid: #d8e0e7; --wall-road: #c8d2db;
+    --wall-veil: rgba(120,140,160,0.16); --wall-tint: rgba(255,255,255,0.35);
+
+    --app-bg: #eef1f4;
+    --pane: #f7f9fa;
+    --pane-2: #eceff3;
+    --pane-3: #e2e7ed;
+    --line: #d3dae1;
+    --line-2: #bcc6d0;
+
+    --ink: #10151a;
+    --ink-2: #39424c;
+    --ink-3: #5f6b78;
+    --ink-4: #808b96;
+
+    --ok: #248a3d;
+    --warn: #b35c00;
+    --act: #d70015;
+    --off: #6c7075;
+    --glow-ok: rgba(36, 138, 61, 0.30);
+    --glow-warn: rgba(179, 92, 0, 0.28);
+    --sel: #215db0;
+    --sel-dim: rgba(33, 93, 176, 0.12);
+    --terrain-edge: rgba(0,0,0,0.10);
+    --map-chip: rgba(255,255,255,0.82);
+    --map-ink: rgba(18,22,26,0.92);
+    --map-line: rgba(0,0,0,0.26);
+    --map-grid: rgba(0,0,0,0.08);
+    --map-built: rgba(92,84,70,0.48);
+    --map-built-shadow: rgba(0,0,0,0.16);
+    --map-halo: rgba(255,255,255,0.55);
+    --map-wash: rgba(0,0,0,0.045);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; font-family: var(--sans); color: var(--ink-2); padding: 22px; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+  .review-note {
+    max-width: 1280px; margin: 0 auto 12px; font-family: var(--mono);
+    font-size: 11px; color: #6b7075; letter-spacing: 0.3px; line-height: 1.7;
+  }
+  .review-note b { color: #aeb4bb; font-weight: 500; }
+  .review-note kbd { background: #1a1d21; border: 1px solid #2a2e33; border-radius: 4px; padding: 1px 5px; font-size: 10px; color: #aeb4bb; }
+
+  .machine {
+    max-width: 1280px; margin: 0 auto; aspect-ratio: 16 / 10; position: relative;
+    background: var(--desk); border-radius: 14px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+    isolation: isolate;
+  }
+
+  /* ================= OS chrome: approved, unchanged ================= */
+  .wallpaper { position: absolute; inset: 0; }
+  .wallpaper svg { width: 100%; height: 100%; display: block; }
+  .wallpaper::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(120% 90% at 50% 8%, var(--wall-tint), transparent 60%),
+                radial-gradient(100% 100% at 50% 100%, var(--wall-veil), transparent 55%);
+  }
+  .menubar {
+    position: absolute; top: 0; left: 0; right: 0; height: 30px; z-index: 60;
+    display: flex; align-items: center; gap: 20px; padding: 0 12px;
+    background: var(--glass); backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  .mb-mark { font-family: var(--mono); font-size: 11px; letter-spacing: 2.6px; color: var(--ink); font-weight: 700; }
+  .mb-app { font-size: 12.5px; color: var(--ink); font-weight: 600; }
+  .mb-items { display: flex; gap: 16px; }
+  .mb-item { font-size: 12.5px; color: var(--ink-2); }
+  .mb-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .mb-stat { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+  .mb-stat .mono { font-family: var(--mono); font-size: 11px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 7px var(--glow-ok); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 7px var(--glow-warn); }
+  .dot.off { background: var(--off); }
+  .theme-btn { display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--hairline); background: var(--fill-btn); color: var(--ink-2); font-size: 11px; }
+  .theme-btn svg { width: 13px; height: 13px; }
+
+  .desktop {
+    position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding-bottom: 40px;
+    transition: opacity 260ms ease, transform 320ms cubic-bezier(.2,.8,.2,1);
+  }
+  .machine.app-open .desktop { opacity: 0; transform: scale(1.04); pointer-events: none; }
+  .glance-time { font-size: 62px; font-weight: 300; color: var(--ink); letter-spacing: -2px; line-height: 1; font-variant-numeric: tabular-nums; }
+  .glance-date { font-size: 14px; color: var(--ink-3); }
+  .glance-state {
+    margin-top: 22px; display: flex; align-items: center; gap: 10px;
+    background: var(--glass); backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: 999px; padding: 9px 18px 9px 14px;
+  }
+  .glance-state span { font-size: 13.5px; color: var(--ink); }
+
+  .dock {
+    position: absolute; bottom: 12px; left: 50%; z-index: 70; transform: translateX(-50%);
+    display: flex; align-items: flex-start; gap: 6px; padding: 10px 12px 8px;
+    background: var(--glass); backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: var(--r-xl);
+    box-shadow: var(--shadow-dock), inset 0 1px 0 var(--raise);
+    transition: transform 280ms cubic-bezier(.2,.8,.2,1), opacity 200ms ease;
+  }
+  .machine.app-open .dock { transform: translateX(-50%) translateY(120px); opacity: 0; }
+  .dock-zone { position: absolute; left: 0; right: 0; bottom: 0; height: 12px; z-index: 71; }
+  .machine.app-open .dock-zone:hover ~ .dock, .machine.app-open .dock:hover { transform: translateX(-50%); opacity: 1; }
+  .dock-app { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 82px; }
+  .icon {
+    width: 50px; height: 50px; border-radius: 24%; background: var(--icon-grad);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(0,0,0,0.35), var(--shadow-icon);
+    display: grid; place-items: center; transition: transform 180ms cubic-bezier(.2,.8,.2,1);
+  }
+  .icon svg { width: 24px; height: 24px; color: var(--icon-glyph); }
+  .dock-app:not(.disabled):hover .icon { transform: translateY(-9px) scale(1.14); }
+  .dock-app.disabled .icon { filter: grayscale(1) brightness(0.62); }
+  .dock-app.disabled { cursor: not-allowed; }
+  .dock-name { font-size: 11.5px; color: var(--ink-2); line-height: 1; white-space: nowrap; }
+  .dock-app.disabled .dock-name { color: var(--ink-4); }
+  .dock-app.running .dock-name { color: var(--ink); font-weight: 600; }
+  .running { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-3); opacity: 0; }
+  .dock-app.running .running { opacity: 1; }
+  .tip {
+    position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%) translateY(6px);
+    background: var(--glass-strong); backdrop-filter: blur(20px); border: 1px solid var(--hairline);
+    border-radius: var(--r-sm); padding: 5px 11px; font-size: 11.5px; color: var(--ink-3);
+    white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 140ms ease;
+  }
+  .dock-app:hover .tip { opacity: 1; transform: translateX(-50%); }
+  .dock-sep { width: 1px; align-self: stretch; background: var(--hairline); margin: 6px 6px 20px; }
+
+  /* ===================== THE APPLICATION INTERIOR ===================== */
+  .app { position: absolute; inset: 30px 0 0; z-index: 30; display: none; opacity: 0; transition: opacity 200ms ease; }
+  .app.shown { display: block; }
+  .app.visible { opacity: 1; }
+
+  #app-operate {
+    display: none; background: var(--app-bg);
+    grid-template-columns: 296px 1fr 300px;
+    grid-template-rows: 36px 1fr 40px 56px;
+    grid-template-areas:
+      "bar  bar bar"
+      "left map right"
+      "plan plan plan"
+      "voice voice voice";
+  }
+  #app-operate.shown { display: grid; }
+
+  /* ---------------- toolbar ---------------- */
+  .bar {
+    grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px;
+    background: var(--pane); border-bottom: 1px solid var(--line);
+  }
+  .tool {
+    width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink-3);
+    border: 1px solid transparent;
+  }
+  .tool svg { width: 15px; height: 15px; }
+  .tool:hover { background: var(--pane-3); color: var(--ink); }
+  .tool.on { background: var(--sel-dim); border-color: var(--sel); color: var(--ink); }
+  .bar-sep { width: 1px; height: 18px; background: var(--line); }
+  .find {
+    display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 9px; min-width: 220px;
+    background: var(--app-bg); border: 1px solid var(--line); color: var(--ink-4); font-size: 12px;
+  }
+  .find svg { width: 12px; height: 12px; }
+
+  /* Manual and Automatic. The single most consequential control on the
+     screen, so it is never hidden in a menu. */
+  .seg { margin-left: auto; display: flex; border: 1px solid var(--line-2); height: 24px; }
+  .seg button {
+    display: flex; align-items: center; gap: 6px; padding: 0 11px; font-size: 11.5px;
+    color: var(--ink-3); letter-spacing: 0.1px;
+  }
+  .seg button + button { border-left: 1px solid var(--line-2); }
+  .seg button:hover { color: var(--ink); }
+  .seg button.on { background: var(--sel-dim); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--sel); }
+  .seg .pip { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.45; }
+  .seg button.on .pip { opacity: 1; background: var(--sel); }
+  .live { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px; color: var(--ink-3); }
+
+  /* ---------------- rails ---------------- */
+  .left  { grid-area: left;  background: var(--pane); border-right: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; }
+  .right { grid-area: right; background: var(--pane); border-left: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; }
+
+  .sec-h {
+    display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px;
+    background: var(--pane-2); border-bottom: 1px solid var(--line);
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.9px; color: var(--ink-3); text-transform: uppercase;
+  }
+  .sec-h .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0; }
+  .sec-h .chev { width: 11px; height: 11px; color: var(--ink-4); }
+
+  .filt { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  .filt .find { flex: 1; min-width: 0; }
+  .chip {
+    font-size: 11px; padding: 3px 8px; border: 1px solid var(--line-2); color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .chip.on { border-color: var(--sel); background: var(--sel-dim); color: var(--ink); }
+
+  /* dense rows, not cards */
+  .row-item {
+    display: block; width: 100%; text-align: left; padding: 8px 10px 9px;
+    border-bottom: 1px solid var(--line); border-left: 2px solid transparent;
+    background: transparent; transition: background 120ms ease;
+  }
+  .row-item:hover { background: var(--pane-2); }
+  .row-item.sel { background: var(--sel-dim); border-left-color: var(--sel); }
+  .row-top { display: flex; align-items: center; gap: 7px; }
+  .row-name { font-size: 12.5px; color: var(--ink); font-weight: 600; letter-spacing: -0.1px; }
+  .row-state { margin-left: auto; font-size: 11px; white-space: nowrap; flex: none; }
+  .s-ok { color: var(--ok); } .s-off { color: var(--off); } .s-warn { color: var(--warn); }
+  .row-line { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin-top: 3px; }
+  .row-nums {
+    display: flex; gap: 10px; margin-top: 6px; font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink-3); align-items: center;
+  }
+  .bbar { width: 26px; height: 3px; background: var(--line-2); display: inline-block; vertical-align: middle; }
+  .bfill { height: 100%; background: var(--ok); display: block; }
+  .glyph { width: 12px; height: 12px; flex: none; color: var(--ink-3); }
+  .dia { width: 8px; height: 8px; background: var(--warn); transform: rotate(45deg); flex: none; }
+
+  /* event feed */
+  .ev { padding: 7px 10px 8px; border-bottom: 1px solid var(--line); border-left: 2px solid var(--line-2); }
+  .ev.warn { border-left-color: var(--warn); }
+  .ev.ok { border-left-color: var(--ok); }
+  .ev.off { border-left-color: var(--off); }
+  .ev.act { border-left-color: var(--act); }
+  .ev.fresh { animation: land 380ms cubic-bezier(.2,.8,.2,1); }
+  @keyframes land { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .ev-t { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); }
+  .ev-x { font-size: 12px; color: var(--ink-2); line-height: 1.45; margin-top: 2px; }
+  .ev-s { font-size: 11px; color: var(--ink-4); margin-top: 3px; }
+  .scrollable { overflow: hidden; flex: 1; }
+
+  /* ---------------- map ---------------- */
+  .maparea { grid-area: map; position: relative; overflow: hidden; background: #000; }
+  .maparea > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .maparea.armed { cursor: crosshair; }
+  .maparea::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 0 1px var(--terrain-edge);
+  }
+  .maparea.anchored::after { box-shadow: inset 0 0 0 1px var(--sel); }
+  .terrain-day { display: none; }
+  [data-theme="day"] .terrain-dark { display: none; }
+  [data-theme="day"] .terrain-day { display: block; }
+
+  .m-tool { position: absolute; background: var(--pane); border: 1px solid var(--line); }
+  .zoom { right: 10px; top: 10px; display: flex; flex-direction: column; }
+  .zoom button { width: 24px; height: 24px; display: grid; place-items: center; color: var(--ink-2); font-size: 13px; }
+  .zoom button + button { border-top: 1px solid var(--line); }
+  .zoom button:hover { background: var(--pane-3); }
+  .compass { left: 10px; top: 10px; width: 30px; height: 30px; display: grid; place-items: center; }
+  .compass svg { width: 20px; height: 20px; color: var(--ink-2); }
+  .scale { left: 10px; bottom: 10px; padding: 4px 8px; display: flex; align-items: center; gap: 7px; }
+  .scale-bar { display: flex; width: 52px; height: 5px; border: 1px solid var(--ink-4); }
+  .scale-bar i { flex: 1; }
+  .scale-bar i:first-child { background: var(--ink-4); }
+  .scale span { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+  .map-hint {
+    position: absolute; left: 10px; bottom: 34px; font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-3); letter-spacing: 0.6px; background: var(--pane); border: 1px solid var(--line);
+    padding: 3px 7px; opacity: 0; transition: opacity 160ms ease;
+  }
+  .maparea.armed .map-hint { opacity: 1; }
+
+  /* ---------------- detail panel over the map ---------------- */
+  .detail {
+    position: absolute; left: 12px; top: 12px; bottom: 12px; width: 282px; z-index: 6;
+    background: var(--pane); border: 1px solid var(--line-2);
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    animation: slide 200ms cubic-bezier(.2,.8,.2,1);
+  }
+  [data-theme="day"] .detail { box-shadow: 0 10px 30px rgba(20,30,45,0.16); }
+  @keyframes slide { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+  .detail.hidden { display: none; }
+  .d-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--line); background: var(--pane-2); }
+  .d-title { font-size: 13px; color: var(--ink); font-weight: 600; }
+  .x { margin-left: auto; color: var(--ink-4); font-size: 15px; line-height: 1; padding: 0 3px; }
+  .x:hover { color: var(--ink); }
+  .d-body { flex: 1; overflow: auto; }
+
+  /* The honesty block. Never rounded up into a fact. */
+  .doubt { padding: 10px; background: var(--pane-2); border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+  .doubt b { color: var(--ink); font-weight: 600; }
+  .meter { display: flex; gap: 2px; margin-top: 8px; }
+  .meter i { height: 4px; flex: 1; background: var(--line-2); }
+  .meter i.f { background: var(--warn); }
+  .meter-k { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); margin-top: 5px; letter-spacing: 0.4px; }
+
+  .kv { display: flex; padding: 7px 10px; border-bottom: 1px solid var(--line); gap: 10px; }
+  .kv-k { font-size: 10.5px; font-weight: 600; letter-spacing: 0.7px; color: var(--ink-4); text-transform: uppercase; width: 62px; flex: none; padding-top: 1px; }
+  .kv-v { font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+
+  .cam { border-bottom: 1px solid var(--line); }
+  .cam-bar { display: flex; align-items: center; gap: 7px; padding: 6px 10px; background: var(--pane-2); border-bottom: 1px solid var(--line); }
+  .cam-t { font-size: 10.5px; font-weight: 600; letter-spacing: 0.7px; color: var(--ink-4); text-transform: uppercase; }
+  .cam-live { margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: 1px; color: var(--ink-3); display: flex; align-items: center; gap: 5px; }
+  .cam-v { position: relative; height: 132px; background: #0d1013; }
+  .cam-v svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .cam-scan { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 3px); }
+  .cam-cap { padding: 7px 10px; font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+
+  .d-actions { border-top: 1px solid var(--line); padding: 9px; display: flex; flex-direction: column; gap: 6px; background: var(--pane-2); }
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px;
+    font-size: 12.5px; border: 1px solid var(--line-2); color: var(--ink-2); background: var(--pane-3);
+    transition: background 130ms ease;
+  }
+  .btn:hover { background: var(--line); color: var(--ink); }
+  .btn.primary { background: var(--sel); border-color: var(--sel); color: #fff; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.1); }
+  .btn.row2 { flex: 1; }
+  .btn-pair { display: flex; gap: 6px; }
+  .btn svg { width: 13px; height: 13px; }
+
+  /* ---------------- the plan strip ---------------- */
+  .plan {
+    grid-area: plan; background: var(--pane); border-top: 1px solid var(--line);
+    display: flex; align-items: stretch;
+  }
+  .plan-k {
+    display: flex; align-items: center; gap: 8px; padding: 0 11px; border-right: 1px solid var(--line);
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.9px; color: var(--ink-4); text-transform: uppercase;
+    background: var(--pane-2); flex: none;
+  }
+  .steps { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow: hidden; }
+  .step {
+    display: flex; align-items: center; gap: 8px; padding: 0 13px; border-right: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-3); position: relative; white-space: nowrap;
+  }
+  .step .n { font-family: var(--mono); font-size: 9.5px; color: var(--ink-4); }
+  .step.done { color: var(--ink-3); }
+  .step.done .n { color: var(--ok); }
+  .step.run { color: var(--ink); background: var(--pane-2); }
+  .step.run .n { color: var(--sel); }
+  .step.wait { color: var(--ink-4); }
+  .step-prog { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--sel); width: 0%; transition: width 300ms linear; }
+  .plan-empty { display: flex; align-items: center; padding: 0 13px; font-size: 12px; color: var(--ink-3); }
+  .plan-act { margin-left: auto; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-left: 1px solid var(--line); flex: none; }
+  .mini { font-size: 11.5px; padding: 4px 10px; border: 1px solid var(--line-2); color: var(--ink-2); }
+  .mini:hover { background: var(--pane-3); color: var(--ink); }
+  .mini.stop { border-color: var(--act); color: var(--act); }
+
+  /* ---------------- voice ---------------- */
+  .voice { grid-area: voice; background: var(--pane); border-top: 1px solid var(--line); display: flex; align-items: center; gap: 13px; padding: 0 12px; }
+  .ptt {
+    width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+    background: var(--pane-3); border: 1px solid var(--line-2); color: var(--ink);
+  }
+  .ptt.live { border-color: var(--sel); background: var(--sel-dim); }
+  .ptt svg { width: 15px; height: 15px; }
+  .heard { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); letter-spacing: 0.3px; }
+  .heard b { color: var(--ink-3); font-weight: 400; }
+  /* Whatever the machine says out loud is printed here, always. */
+  .said { font-size: 13px; color: var(--ink); margin-top: 3px; line-height: 1.35; }
+  .v-acts { display: flex; gap: 6px; flex: none; }
+  .v-acts .btn { height: 27px; padding: 0 13px; }
+
+  /* ---------------- Settings, from the approved shell ---------------- */
+  #app-admin { display: none; place-items: center; }
+  #app-admin.shown { display: grid; }
+  .window {
+    width: 76%; height: 78%; display: grid; grid-template-columns: 190px 1fr;
+    background: var(--glass-strong); backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 40px 90px rgba(0,0,0,0.65), inset 0 1px 0 var(--raise);
+  }
+  .wsidebar { background: rgba(255,255,255,0.03); border-right: 1px solid var(--hairline-soft); padding: 14px 10px; }
+  [data-theme="day"] .wsidebar { background: rgba(0,0,0,0.022); }
+  .wtitle { font-size: 11px; color: var(--ink-4); font-family: var(--mono); letter-spacing: 1.4px; padding: 0 8px 10px; }
+  .snav { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-2); padding: 7px 9px; border-radius: 8px; }
+  .snav.active { background: var(--fill-active); color: var(--ink); }
+  .snav svg { width: 14px; height: 14px; opacity: 0.75; }
+  .wmain { padding: 22px 26px; overflow: auto; }
+  .wmain h2 { font-size: 21px; color: var(--ink); font-weight: 600; letter-spacing: -0.4px; }
+  .wsub { font-size: 13px; color: var(--ink-4); margin: 5px 0 20px; }
+  .appearance { display: flex; gap: 12px; }
+  .swatch { flex: 1; border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; text-align: left; }
+  .swatch.on { border-color: var(--ink-3); box-shadow: 0 0 0 2px var(--fill-active); }
+  .swatch-art { height: 58px; display: block; }
+  .swatch-label { padding: 9px 11px; font-size: 12.5px; color: var(--ink); }
+  .swatch-label small { display: block; color: var(--ink-4); font-size: 11.5px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="review-note">
+  <b>C2 Operate v3, founder gate 1.</b> Interior re-cut against Anduril Lattice and Palantir Blueprint: flat opaque panels,
+  square corners, 1px rules, photographic terrain, dense grouped rows, sans to read and mono only for numbers.
+  The OS chrome (menu bar, dock) is the approved shell v3 and is untouched.<br>
+  <b>New:</b> <b>Manual</b> and <b>Automatic</b> in the toolbar, and a plan strip along the bottom showing what the machine
+  is doing and what it will do next.<br>
+  <b>Try:</b> switch to <b>Automatic</b> and watch it go look at the contact by itself. Or stay in Manual and press
+  <b>Send UGV-1</b>. Click the amber diamond, or any row. <kbd>Esc</kbd> closes, then leaves.
+</div>
+
+<div class="machine app-open" id="machine" data-theme="dark">
+
+  <div class="wallpaper">
+    <svg viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+      <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--wall-top)"/><stop offset="100%" stop-color="var(--wall-bottom)"/>
+      </linearGradient></defs>
+      <rect width="1600" height="1000" fill="url(#sky)"/>
+      <g stroke="var(--wall-line)" stroke-width="1.2" fill="none">
+        <path d="M-50,700 Q300,640 640,700 T1650,660"/><path d="M-50,760 Q300,700 640,760 T1650,720"/>
+        <path d="M-50,820 Q300,762 640,822 T1650,782"/><path d="M-50,300 Q380,230 760,300 T1650,250"/>
+      </g>
+      <path d="M-50,470 Q400,540 820,455 T1650,500" stroke="var(--wall-road)" stroke-width="46" fill="none"/>
+      <g stroke="var(--wall-grid)" stroke-width="1">
+        <line x1="0" y1="200" x2="1600" y2="200"/><line x1="0" y1="400" x2="1600" y2="400"/>
+        <line x1="0" y1="600" x2="1600" y2="600"/><line x1="0" y1="800" x2="1600" y2="800"/>
+        <line x1="266" y1="0" x2="266" y2="1000"/><line x1="533" y1="0" x2="533" y2="1000"/>
+        <line x1="800" y1="0" x2="800" y2="1000"/><line x1="1066" y1="0" x2="1066" y2="1000"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="menubar">
+    <div class="mb-mark">ARGUS</div>
+    <div class="mb-app" id="mb-app">Operate</div>
+    <div class="mb-items" id="mb-items"></div>
+    <div class="mb-right">
+      <div class="mb-stat"><div class="dot ok"></div><span class="mono">SITE LINK GOOD</span></div>
+      <div class="mb-stat"><div class="dot warn"></div><span class="mono" id="mb-count">1 OF 2 ANSWERING</span></div>
+      <button class="theme-btn" id="theme-btn">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
+        <span id="theme-label">Dark</span>
+      </button>
+      <div class="mb-stat"><span>A. Suryavanshi</span></div>
+      <div class="mb-stat"><span class="mono" id="mb-clock">14:32 Z</span></div>
+    </div>
+  </div>
+
+  <div class="desktop" id="desktop">
+    <div class="glance-time" id="glance-time">14:32</div>
+    <div class="glance-date">Sunday 2 August</div>
+    <div class="glance-state"><div class="dot warn"></div><span>One machine is out on patrol. One is not answering.</span></div>
+  </div>
+
+  <!-- ============================= OPERATE ============================= -->
+  <div class="app shown visible" id="app-operate">
+
+    <!-- toolbar -->
+    <div class="bar">
+      <button class="tool on" title="Select"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l14 8-6 1.6L10 19z"/></svg></button>
+      <button class="tool" title="Measure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 15L15 3l6 6L9 21z"/><path d="M7.5 10.5l2 2M11 7l2 2M14.5 3.5l2 2"/></svg></button>
+      <button class="tool" title="Mark a place"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.4"/></svg></button>
+      <div class="bar-sep"></div>
+      <div class="find"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Find a place or a machine</div>
+
+      <div class="seg" id="seg">
+        <button class="on" data-mode="manual"><span class="pip"></span>Manual</button>
+        <button data-mode="auto"><span class="pip"></span>Automatic</button>
+      </div>
+      <div class="live"><span class="dot ok"></span>LIVE</div>
+    </div>
+
+    <!-- left rail -->
+    <div class="left">
+      <div class="filt">
+        <div class="find"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Filter</div>
+        <div class="chip on">All</div>
+      </div>
+
+      <div class="sec-h">
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        Our machines <span class="n">2</span>
+      </div>
+
+      <button class="row-item sel" id="row-ugv">
+        <div class="row-top">
+          <span class="dot ok"></span>
+          <span class="row-name">UGV-1</span>
+          <span class="row-state s-ok" id="ugv-state">On patrol</span>
+        </div>
+        <div class="row-line" id="ugv-line">Patrolling the north perimeter.</div>
+        <div class="row-nums">
+          <span><span class="bbar"><span class="bfill" id="ugv-batt" style="width:87%"></span></span> <span id="ugv-battv">87%</span></span>
+          <span id="ugv-speed">2.4 m/s</span>
+          <span id="ugv-head">NW</span>
+        </div>
+      </button>
+
+      <!-- No manifest name is set for this machine, so it reads as what it is,
+           never as an identifier. -->
+      <button class="row-item" id="row-sim">
+        <div class="row-top">
+          <span class="dot off"></span>
+          <span class="row-name">Ground vehicle 00A1</span>
+          <span class="row-state s-off">No answer</span>
+        </div>
+        <div class="row-line">Last heard 12 minutes ago. The map shows where it was, not where it is.</div>
+        <div class="row-nums"><span>Battery was 64%</span></div>
+      </button>
+
+      <div class="sec-h">
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        Seen nearby <span class="n" id="track-n">1</span>
+      </div>
+
+      <button class="row-item" id="row-track">
+        <div class="row-top">
+          <span class="dia"></span>
+          <span class="row-name">Possible person</span>
+          <span class="row-state s-warn">4 in 10</span>
+        </div>
+        <div class="row-line" id="track-line">Inside Gate 3. Seen by UGV-1, <span id="track-age">3 seconds</span> ago.</div>
+      </button>
+
+      <div class="scrollable"></div>
+    </div>
+
+    <!-- map -->
+    <div class="maparea armed" id="maparea">
+      <svg viewBox="0 0 1069 1000" preserveAspectRatio="xMidYMid slice" id="mapsvg">
+        <defs>
+          <!-- Terrain, not a diagram of terrain. Fractal noise is treated as a
+               height field and lit from the north west, so the ground has real
+               relief. A finer turbulence pass multiplies in erosion detail, and
+               a very coarse pass varies the soil and scrub colour. The light
+               colour is the ground colour, which is why this is three passes
+               and not a painting. -->
+          <filter id="ground-d" x="0" y="0" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.0095" numOctaves="6" seed="17"/>
+            <feDiffuseLighting surfaceScale="16" diffuseConstant="1.25" lighting-color="#38362f">
+              <feDistantLight azimuth="318" elevation="34"/>
+            </feDiffuseLighting>
+          </filter>
+          <filter id="ground-l" x="0" y="0" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.0095" numOctaves="6" seed="17"/>
+            <feDiffuseLighting surfaceScale="13" diffuseConstant="1.15" lighting-color="#aea48b">
+              <feDistantLight azimuth="318" elevation="43"/>
+            </feDiffuseLighting>
+          </filter>
+          <filter id="erode" x="0" y="0" width="100%" height="100%">
+            <feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="4" seed="9"/>
+            <feDiffuseLighting surfaceScale="1.8" diffuseConstant="1" lighting-color="#ffffff">
+              <feDistantLight azimuth="318" elevation="55"/>
+            </feDiffuseLighting>
+          </filter>
+          <filter id="patch" x="0" y="0" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.0025" numOctaves="3" seed="41"/>
+            <feColorMatrix type="matrix" values="0 0 0 0 0.14  0 0 0 0 0.16  0 0 0 0 0.11  0 0 0 0.55 0"/>
+          </filter>
+          <filter id="grain" x="0" y="0" width="100%" height="100%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="2" seed="3"/>
+            <feColorMatrix type="matrix" values="0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0.05 0"/>
+          </filter>
+        </defs>
+
+        <g class="terrain-dark">
+          <rect width="1069" height="1000" filter="url(#ground-d)"/>
+          <rect width="1069" height="1000" filter="url(#erode)" style="mix-blend-mode:multiply" opacity="0.6"/>
+          <rect width="1069" height="1000" filter="url(#patch)" style="mix-blend-mode:multiply" opacity="0.85"/>
+        </g>
+        <g class="terrain-day">
+          <rect width="1069" height="1000" filter="url(#ground-l)"/>
+          <rect width="1069" height="1000" filter="url(#erode)" style="mix-blend-mode:multiply" opacity="0.48"/>
+          <rect width="1069" height="1000" filter="url(#patch)" style="mix-blend-mode:multiply" opacity="0.45"/>
+        </g>
+        <rect width="1069" height="1000" filter="url(#grain)"/>
+
+        <!-- roads and the track down to the compound -->
+        <path d="M-20,940 C 190,868 320,760 440,678 S 680,516 748,360 L 820,120"
+              stroke="#000" stroke-opacity="0.30" stroke-width="17" fill="none"/>
+        <path d="M-20,940 C 190,868 320,760 440,678 S 680,516 748,360 L 820,120"
+              stroke="#b7a887" stroke-opacity="0.26" stroke-width="10" fill="none"/>
+        <path d="M440,678 C 384,706 320,724 252,730" stroke="#b7a887" stroke-opacity="0.18" stroke-width="6" fill="none"/>
+
+        <!-- watercourse -->
+        <path d="M-20,626 C 170,680 316,612 502,650 S 840,732 1089,686"
+              stroke="#0d1b22" stroke-opacity="0.55" stroke-width="13" fill="none" stroke-linecap="round"/>
+
+        <!-- compound -->
+        <g transform="rotate(-6 250 748)">
+          <g fill="var(--map-built-shadow)">
+            <rect x="160" y="678" width="76" height="46"/><rect x="250" y="690" width="48" height="34"/>
+            <rect x="160" y="740" width="112" height="30"/><rect x="286" y="746" width="55" height="52"/>
+            <rect x="171" y="790" width="66" height="40"/>
+          </g>
+          <g fill="var(--map-built)" transform="translate(-2,-3)">
+            <rect x="160" y="678" width="76" height="46"/><rect x="250" y="690" width="48" height="34"/>
+            <rect x="160" y="740" width="112" height="30"/><rect x="286" y="746" width="55" height="52"/>
+            <rect x="171" y="790" width="66" height="40"/>
+          </g>
+        </g>
+        <polygon points="132,644 336,620 364,852 162,876" fill="none" stroke="var(--map-line)" stroke-width="1" stroke-dasharray="5 5"/>
+
+        <!-- gate structure on the road -->
+        <g stroke="var(--map-built)" stroke-width="4">
+          <line x1="714" y1="392" x2="744" y2="378"/><line x1="768" y1="362" x2="798" y2="348"/>
+        </g>
+        <rect x="790" y="396" width="34" height="26" fill="var(--map-built)" transform="rotate(-14 807 409)"/>
+
+        <!-- graticule -->
+        <g stroke="var(--map-grid)" stroke-width="1">
+          <line x1="0" y1="200" x2="1069" y2="200"/><line x1="0" y1="400" x2="1069" y2="400"/>
+          <line x1="0" y1="600" x2="1069" y2="600"/><line x1="0" y1="800" x2="1069" y2="800"/>
+          <line x1="267" y1="0" x2="267" y2="1000"/><line x1="534" y1="0" x2="534" y2="1000"/>
+          <line x1="801" y1="0" x2="801" y2="1000"/>
+        </g>
+        <g fill="var(--map-ink)" opacity="0.4" font-family="ui-monospace, monospace" font-size="9" letter-spacing="1">
+          <text x="272" y="15">42</text><text x="539" y="15">44</text><text x="806" y="15">46</text>
+          <text x="5" y="212">78</text><text x="5" y="412">76</text><text x="5" y="612">74</text><text x="5" y="812">72</text>
+        </g>
+
+        <!-- zones -->
+        <polygon points="664,190 938,158 968,406 690,442" fill="var(--warn)" fill-opacity="0.025"/>
+        <polygon points="664,190 938,158 968,406 690,442" fill="none" stroke="var(--warn)" stroke-opacity="0.55" stroke-width="1.2" stroke-dasharray="8 5"/>
+        <rect x="686" y="200" width="66" height="17" fill="var(--map-chip)"/>
+        <text x="691" y="213" fill="var(--warn)" fill-opacity="0.9" font-family="ui-monospace, monospace" font-size="10" letter-spacing="1.4">GATE 3</text>
+
+        <polygon points="132,644 336,620 364,852 162,876" fill="var(--map-wash)"/>
+        <rect x="150" y="654" width="52" height="17" fill="var(--map-chip)"/>
+        <text x="155" y="667" fill="var(--map-ink)" opacity="0.75" font-family="ui-monospace, monospace" font-size="10" letter-spacing="1.4">HOME</text>
+
+        <!-- the patrol route, named -->
+        <path id="patrol" d="M258,748 L320,448 L556,352 L748,470 L728,770 L452,834 Z"
+              fill="none" stroke="var(--ok)" stroke-width="1.8" stroke-dasharray="7 8" opacity="0.85"/>
+        <rect x="470" y="846" width="88" height="16" fill="var(--map-chip)"/>
+        <text x="475" y="858" fill="var(--ok)" fill-opacity="0.85" font-family="ui-monospace, monospace" font-size="9.5" letter-spacing="1.2">PATROL ROUTE</text>
+
+        <!-- route of the current order -->
+        <path id="taskline" d="" fill="none" stroke="var(--sel)" stroke-width="1.8" stroke-dasharray="4 5" opacity="0"/>
+        <g id="taskmark" opacity="0">
+          <circle r="14" fill="none" stroke="var(--sel)" stroke-width="1.4"/>
+          <path d="M-21,0 h10 M11,0 h10 M0,-21 v10 M0,11 v10" stroke="var(--sel)" stroke-width="1.4"/>
+          <rect id="tasklabel-bg" x="24" y="-9" width="70" height="17" fill="var(--map-chip)"/>
+          <text id="tasklabel" x="29" y="4" fill="var(--sel)" font-family="ui-monospace, monospace" font-size="10" letter-spacing="1">GATE 3</text>
+        </g>
+
+        <!-- contact -->
+        <g id="trackmark" transform="translate(812,318)" style="cursor:pointer">
+          <circle id="track-halo" r="21" fill="none" stroke="var(--warn)" stroke-width="1.2" opacity="0.5"/>
+          <circle r="30" fill="transparent"/>
+          <rect x="-7" y="-7" width="14" height="14" transform="rotate(45)" fill="var(--warn)"/>
+          <rect x="20" y="-8" width="56" height="16" fill="var(--map-chip)"/>
+          <text x="25" y="4" fill="var(--warn)" font-family="ui-monospace, monospace" font-size="10" letter-spacing="0.8">4 IN 10</text>
+          <rect id="judged-bg" x="20" y="10" width="126" height="16" fill="var(--map-chip)" opacity="0"/>
+          <text id="track-judged" x="25" y="22" fill="var(--off)" font-family="ui-monospace, monospace" font-size="10" opacity="0">CALLED NOT A PERSON</text>
+        </g>
+
+        <!-- our machines -->
+        <g id="ugvmark" transform="translate(320,448)">
+          <circle id="ugv-halo" r="23" fill="none" stroke="var(--sel)" stroke-width="1.4" opacity="0.9"/>
+          <circle r="15" fill="var(--map-halo)"/>
+          <g id="ugv-body">
+            <polygon points="0,-12 9,10 -9,10" fill="var(--ok)"/>
+            <line x1="0" y1="-12" x2="0" y2="-26" stroke="var(--ok)" stroke-width="1.6" opacity="0.6"/>
+          </g>
+        </g>
+        <rect id="ugv-label-bg" x="342" y="440" width="50" height="16" fill="var(--map-chip)"/>
+        <text id="ugv-label" x="347" y="452" fill="var(--map-ink)" font-family="ui-monospace, monospace" font-size="10" letter-spacing="0.6">UGV-1</text>
+
+        <g transform="translate(862,878)">
+          <circle r="15" fill="var(--map-halo)"/>
+          <polygon points="0,-11 8,9 -8,9" fill="var(--off)"/>
+          <circle r="20" fill="none" stroke="var(--off)" stroke-width="1" stroke-dasharray="3 4" opacity="0.7"/>
+        </g>
+        <rect x="884" y="862" width="132" height="16" fill="var(--map-chip)"/>
+        <text x="889" y="874" fill="var(--off)" font-family="ui-monospace, monospace" font-size="10">GROUND VEHICLE 00A1</text>
+        <rect x="884" y="880" width="106" height="15" fill="var(--map-chip)"/>
+        <text x="889" y="891" fill="var(--off)" font-family="ui-monospace, monospace" font-size="9.5" opacity="0.85">LAST HEARD 14:02</text>
+      </svg>
+
+      <div class="m-tool compass">
+        <svg viewBox="0 0 26 26" fill="none">
+          <path d="M13 3 L17 15 L13 12.4 L9 15 Z" fill="currentColor" opacity="0.9"/>
+          <text x="13" y="24" text-anchor="middle" font-family="ui-monospace, monospace" font-size="7.5" fill="currentColor">N</text>
+        </svg>
+      </div>
+      <div class="m-tool zoom"><button>+</button><button>&minus;</button></div>
+      <div class="m-tool scale"><div class="scale-bar"><i></i><i></i></div><span>200 m</span></div>
+      <div class="map-hint">CLICK THE MAP TO SEND UGV-1 THERE</div>
+
+      <!-- detail panel -->
+      <div class="detail hidden" id="detail">
+        <div class="d-head">
+          <span class="dia"></span>
+          <span class="d-title">Possible person</span>
+          <button class="x" id="detail-x">&times;</button>
+        </div>
+        <div class="d-body">
+          <div class="doubt" id="doubt">
+            <b>This might be wrong.</b> The machine is 4 in 10 sure it is a person. It has seen it 7 times.
+            <div class="meter"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="meter-k">4 OF 10</div>
+          </div>
+          <div class="cam">
+            <div class="cam-bar">
+              <span class="cam-t">Camera</span>
+              <span class="cam-live"><span class="dot ok"></span>LIVE</span>
+            </div>
+            <div class="cam-v">
+              <svg viewBox="0 0 282 132" preserveAspectRatio="none">
+                <rect width="282" height="132" fill="#12161a"/>
+                <path d="M0,88 Q72,76 144,90 T282,82 L282,132 L0,132 Z" fill="#1b2026"/>
+                <rect x="14" y="46" width="48" height="46" fill="#1b2026"/>
+                <rect x="226" y="32" width="42" height="60" fill="#1b2026"/>
+                <g transform="translate(134,58)">
+                  <ellipse cx="0" cy="-12" rx="4.4" ry="5.4" fill="#71787f"/>
+                  <path d="M-5,-6 L5,-6 L7,10 L-7,10 Z" fill="#71787f"/>
+                  <path d="M-3,10 L-4,23 M3,10 L4,23" stroke="#71787f" stroke-width="3"/>
+                </g>
+                <rect x="118" y="36" width="33" height="52" fill="none" stroke="var(--warn)" stroke-width="1.3"/>
+                <path d="M118,36 h7 M144,36 h7 M118,88 h7 M144,88 h7" stroke="var(--warn)" stroke-width="2.4"/>
+              </svg>
+              <div class="cam-scan"></div>
+            </div>
+            <div class="cam-cap">Looking north east, towards Gate 3. The box is what the machine thinks it has found.</div>
+          </div>
+          <div class="kv"><div class="kv-k">Where</div><div class="kv-v" id="kv-where">Inside Gate 3, about 240 m from UGV-1.</div></div>
+          <div class="kv"><div class="kv-k">Moving</div><div class="kv-v">Slowly west when last seen, roughly walking pace.</div></div>
+          <div class="kv"><div class="kv-k">Seen by</div><div class="kv-v">UGV-1 camera. First at 14:31:52, last seen <span id="track-age-2">3 seconds</span> ago.</div></div>
+        </div>
+        <div class="d-actions">
+          <button class="btn primary" id="btn-send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13"/><path d="M13 6l6 6-6 6"/></svg>
+            Send UGV-1 to look
+          </button>
+          <div class="btn-pair">
+            <button class="btn row2" id="btn-watch">Keep watching</button>
+            <button class="btn row2" id="btn-notperson">Not a person</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- right rail: what happened -->
+    <div class="right">
+      <div class="sec-h">
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        What happened
+      </div>
+      <div id="feed" class="scrollable">
+        <div class="ev warn"><div class="ev-t">14:32:07</div><div class="ev-x">Possible person inside Gate 3. Low confidence, 4 in 10.</div><div class="ev-s">Seen by UGV-1</div></div>
+        <div class="ev"><div class="ev-t">14:28:41</div><div class="ev-x">UGV-1 started patrolling the north perimeter.</div><div class="ev-s">Ordered by A. Suryavanshi, by voice</div></div>
+        <div class="ev ok"><div class="ev-t">14:15:03</div><div class="ev-x">UGV-1 is online and healthy. Battery 91 percent.</div><div class="ev-s">System</div></div>
+        <div class="ev off"><div class="ev-t">14:02:56</div><div class="ev-x">Ground vehicle 00A1 stopped answering. Its last position is still shown.</div><div class="ev-s">System</div></div>
+        <div class="ev"><div class="ev-t">13:58:12</div><div class="ev-x">Ground vehicle 00A1 finished checking the south fence.</div><div class="ev-s">System</div></div>
+      </div>
+    </div>
+
+    <!-- the plan strip: what it is doing and what it will do next -->
+    <div class="plan">
+      <div class="plan-k" id="plan-k">Manual</div>
+      <div class="steps" id="steps"></div>
+      <div class="plan-act" id="plan-act"></div>
+    </div>
+
+    <!-- voice -->
+    <div class="voice">
+      <button class="ptt" id="ptt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg></button>
+      <div style="flex:1; min-width:0">
+        <div class="heard" id="heard">HEARD <b>&ldquo;Argus, what is happening at gate three?&rdquo;</b></div>
+        <div class="said" id="said">A camera saw something inside Gate 3 that might be a person. I am not sure, 4 in 10.</div>
+      </div>
+      <div class="v-acts" id="v-acts"></div>
+      <div class="heard" style="flex:none">HOLD SPACE</div>
+    </div>
+  </div>
+
+  <!-- ============================= SETTINGS ============================= -->
+  <div class="app" id="app-admin">
+    <div class="window">
+      <div class="wsidebar">
+        <div class="wtitle">SETTINGS</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Zones</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M7 7V5h10v2"/></svg>Machines</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>People</div>
+        <div class="snav active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/></svg>Appearance</div>
+        <div class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>AI policy</div>
+      </div>
+      <div class="wmain">
+        <h2>Appearance</h2>
+        <div class="wsub">Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.</div>
+        <div class="appearance">
+          <button class="swatch on" data-set="dark">
+            <svg class="swatch-art" viewBox="0 0 200 58" preserveAspectRatio="none">
+              <rect width="200" height="58" fill="#0a0d11"/><rect width="200" height="9" fill="#171b1f"/>
+              <rect x="12" y="18" width="56" height="28" fill="#11151b"/><rect x="76" y="18" width="112" height="28" fill="#1b2026"/>
+              <circle cx="150" cy="32" r="4" fill="#30d158"/>
+            </svg>
+            <div class="swatch-label">Dark<small>Default. Best at night.</small></div>
+          </button>
+          <button class="swatch" data-set="day">
+            <svg class="swatch-art" viewBox="0 0 200 58" preserveAspectRatio="none">
+              <rect width="200" height="58" fill="#e6eaef"/><rect width="200" height="9" fill="#fafbfc"/>
+              <rect x="12" y="18" width="56" height="28" fill="#f7f9fa"/><rect x="76" y="18" width="112" height="28" fill="#dfe5ea"/>
+              <circle cx="150" cy="32" r="4" fill="#248a3d"/>
+            </svg>
+            <div class="swatch-label">Day<small>Bright, for sunlight.</small></div>
+          </button>
+          <button class="swatch" data-set="auto">
+            <svg class="swatch-art" viewBox="0 0 200 58" preserveAspectRatio="none">
+              <rect width="100" height="58" fill="#0a0d11"/><rect x="100" width="100" height="58" fill="#e6eaef"/>
+              <rect width="100" height="9" fill="#171b1f"/><rect x="100" width="100" height="9" fill="#fafbfc"/>
+            </svg>
+            <div class="swatch-label">Auto<small>Follows sunrise and sunset.</small></div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dock-zone"></div>
+  <div class="dock" id="dock">
+    <button class="dock-app running" data-app="operate">
+      <div class="tip">Watch the map. Send the machines.</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.6"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3"/></svg></div>
+      <div class="dock-name">Operate</div><div class="running"></div>
+    </button>
+    <button class="dock-app disabled"><div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h10M4 18h13"/><circle cx="18.5" cy="12" r="2.2"/></svg></div>
+      <div class="dock-name">Plan</div><div class="running"></div></button>
+    <button class="dock-app disabled"><div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 12a8.5 8.5 0 1 0 2.9-6.4"/><path d="M3.5 4.5v5h5"/><path d="M12 8v4.3l2.8 1.8"/></svg></div>
+      <div class="dock-name">Review</div><div class="running"></div></button>
+    <button class="dock-app disabled"><div class="tip">Not in this version</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="4.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="6" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="6" rx="1.6"/></svg></div>
+      <div class="dock-name">Fleet</div><div class="running"></div></button>
+    <div class="dock-sep"></div>
+    <button class="dock-app" data-app="admin"><div class="tip">Zones, machines, people, appearance</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg></div>
+      <div class="dock-name">Settings</div><div class="running"></div></button>
+  </div>
+</div>
+
+<script>
+/* ===================== shell ===================== */
+const machine = document.getElementById('machine');
+const mbApp = document.getElementById('mb-app'), mbItems = document.getElementById('mb-items');
+const MENUS = { operate: ['View', 'Machines', 'Zones', 'Voice'], admin: ['Edit', 'Import', 'Help'] };
+const TITLES = { operate: 'Operate', admin: 'Settings' };
+
+function closeApp() {
+  document.querySelectorAll('.app').forEach(a => { a.classList.remove('visible'); setTimeout(() => a.classList.remove('shown'), 200); });
+  document.querySelectorAll('.dock-app').forEach(d => d.classList.remove('running'));
+  machine.classList.remove('app-open');
+  mbApp.textContent = 'Desktop'; mbItems.innerHTML = '';
+}
+function openApp(name, button) {
+  document.querySelectorAll('.app').forEach(a => a.classList.remove('visible', 'shown'));
+  const el = document.getElementById('app-' + name);
+  el.classList.add('shown');
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
+  machine.classList.add('app-open');
+  document.querySelectorAll('.dock-app').forEach(d => d.classList.remove('running'));
+  button.classList.add('running');
+  mbApp.textContent = TITLES[name];
+  mbItems.innerHTML = (MENUS[name] || []).map(m => `<div class="mb-item">${m}</div>`).join('');
+}
+document.querySelectorAll('.dock-app').forEach(b => b.addEventListener('click', () => {
+  if (b.classList.contains('disabled')) return;
+  if (b.classList.contains('running')) { closeApp(); return; }
+  openApp(b.dataset.app, b);
+}));
+mbItems.innerHTML = MENUS.operate.map(m => `<div class="mb-item">${m}</div>`).join('');
+
+const MOON = '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>';
+const SUN = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/>';
+function applyTheme(choice) {
+  const eff = choice === 'auto' ? 'day' : choice;
+  machine.dataset.theme = eff;
+  document.getElementById('theme-icon').innerHTML = eff === 'day' ? SUN : MOON;
+  document.getElementById('theme-label').textContent = eff === 'day' ? 'Day' : 'Dark';
+  document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('on', s.dataset.set === choice));
+}
+document.getElementById('theme-btn').addEventListener('click', () => applyTheme(machine.dataset.theme === 'day' ? 'dark' : 'day'));
+document.querySelectorAll('.swatch').forEach(s => s.addEventListener('click', () => applyTheme(s.dataset.set)));
+applyTheme('dark');
+
+/* ===================== Operate ===================== */
+const patrol = document.getElementById('patrol'), taskline = document.getElementById('taskline');
+const taskmark = document.getElementById('taskmark'), tasklabel = document.getElementById('tasklabel');
+const ugvmark = document.getElementById('ugvmark'), ugvBody = document.getElementById('ugv-body');
+const ugvLabel = document.getElementById('ugv-label'), ugvLabelBg = document.getElementById('ugv-label-bg');
+const mapsvg = document.getElementById('mapsvg'), maparea = document.getElementById('maparea');
+const detail = document.getElementById('detail'), feed = document.getElementById('feed');
+
+const PLEN = patrol.getTotalLength();
+const SPEED = 21, M_PER_UNIT = 1.0;
+const TRACK = { x: 812, y: 318 };
+
+let mode = 'manual';            // manual | auto
+let motion = 'patrol';          // patrol | going | arrived | returning
+let s = 0, leg = null, dwell = 0;
+let battery = 87, clock = 14 * 3600 + 32 * 60 + 7, trackAge = 3;
+let selected = 'ugv', investigated = false, watching = false, judged = false;
+
+const HEADINGS = ['N','NE','E','SE','S','SW','W','NW'];
+const headingName = d => HEADINGS[Math.round((((d % 360) + 360) % 360) / 45) % 8];
+const hhmmss = t => [Math.floor(t/3600)%24, Math.floor(t/60)%60, Math.floor(t)%60].map(n => String(n).padStart(2,'0')).join(':');
+function plainSeconds(n) {
+  n = Math.max(0, Math.round(n));
+  if (n < 10) return 'a few seconds';
+  if (n < 60) return Math.round(n / 5) * 5 + ' seconds';
+  const m = Math.round(n / 60);
+  return m + (m === 1 ? ' minute' : ' minutes');
+}
+
+/* Every entry says who or what caused it. An operator has to be able to
+   answer for it later. */
+function addEvent(text, source, kind) {
+  const el = document.createElement('div');
+  el.className = 'ev fresh' + (kind ? ' ' + kind : '');
+  el.innerHTML = `<div class="ev-t">${hhmmss(clock)}</div><div class="ev-x">${text}</div><div class="ev-s">${source}</div>`;
+  feed.prepend(el);
+  while (feed.children.length > 7) feed.removeChild(feed.lastChild);
+  setTimeout(() => el.classList.remove('fresh'), 400);
+}
+
+/* Anything said out loud is printed here at the same moment. */
+function speak(heardText, saidText, actions) {
+  document.getElementById('heard').innerHTML = heardText ? `HEARD <b>&ldquo;${heardText}&rdquo;</b>` : 'HEARD <b>nothing yet</b>';
+  document.getElementById('said').textContent = saidText;
+  const box = document.getElementById('v-acts');
+  box.innerHTML = '';
+  (actions || []).forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'btn' + (a.primary ? ' primary' : '');
+    b.textContent = a.label;
+    b.addEventListener('click', () => { box.innerHTML = ''; a.run && a.run(); });
+    box.appendChild(b);
+  });
+}
+
+/* ---------- Manual and Automatic ----------
+   The difference is real, not decorative. In Manual the machine only does
+   what it was told and asks before anything else. In Automatic it works to
+   its standing orders and tells you afterwards. Either way you can take it
+   back in one click, and the strip along the bottom always says which. */
+function renderPlan() {
+  const k = document.getElementById('plan-k');
+  const steps = document.getElementById('steps');
+  const act = document.getElementById('plan-act');
+  k.textContent = mode === 'auto' ? 'Automatic' : 'Manual';
+  steps.innerHTML = ''; act.innerHTML = '';
+
+  const add = (n, label, cls, prog) => {
+    const d = document.createElement('div');
+    d.className = 'step ' + cls;
+    d.innerHTML = `<span class="n">${n}</span>${label}` + (prog != null ? `<span class="step-prog" style="width:${prog}%"></span>` : '');
+    steps.appendChild(d);
+  };
+
+  if (mode === 'auto') {
+    add('1', 'Patrol the north perimeter', motion === 'patrol' ? 'run' : 'done');
+    add('2', 'Go and look at anything new',
+        motion === 'going' || motion === 'arrived' ? 'run' : (investigated ? 'done' : 'wait'),
+        (motion === 'going' && leg) ? (100 * leg.t / leg.len) : null);
+    add('3', 'Come home when the battery gets low', 'wait');
+  } else if (motion === 'going' || motion === 'arrived') {
+    add('1', 'Drive to ' + leg.label, motion === 'arrived' ? 'done' : 'run',
+        motion === 'going' ? (100 * leg.t / leg.len) : 100);
+    if (motion === 'arrived') add('2', 'Stand and watch', 'run');
+  } else if (motion === 'returning') {
+    add('1', 'Go back to the patrol', 'run', 100 * leg.t / leg.len);
+  } else {
+    const d = document.createElement('div');
+    d.className = 'plan-empty';
+    d.textContent = 'Patrolling the north perimeter, because you ordered it at 14:28. Nothing else without your say-so.';
+    steps.appendChild(d);
+  }
+
+  if (motion === 'going' || motion === 'arrived') {
+    const b = document.createElement('button');
+    b.className = 'mini stop'; b.textContent = 'Stop';
+    b.addEventListener('click', cancelOrder);
+    act.appendChild(b);
+  }
+  if (mode === 'auto') {
+    const b = document.createElement('button');
+    b.className = 'mini'; b.textContent = 'Take control';
+    b.addEventListener('click', () => setMode('manual'));
+    act.appendChild(b);
+  }
+}
+
+function setMode(next) {
+  if (mode === next) return;
+  mode = next;
+  document.querySelectorAll('#seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === next));
+  if (next === 'auto') {
+    addEvent('Switched to Automatic. UGV-1 will work to its standing orders and tell you what it did.',
+             'Set by A. Suryavanshi', null);
+    speak('', 'Automatic. UGV-1 will patrol, and it will go and look at anything new by itself. You can take control at any time.');
+    // A standing order it has not carried out yet: go and look.
+    if (!investigated && !judged) {
+      setTimeout(() => {
+        if (mode !== 'auto' || investigated) return;
+        investigated = true;
+        sendTo(TRACK.x, TRACK.y + 36, 'Gate 3', 'Gate 3', true);
+      }, 1400);
+    }
+  } else {
+    addEvent('Switched to Manual. UGV-1 will only do what you tell it, and will ask before anything else.',
+             'Set by A. Suryavanshi', null);
+    speak('', 'Manual. UGV-1 will only do what you tell it. It will ask before anything else.');
+    if (motion === 'going' || motion === 'arrived') startReturn();
+  }
+  select(selected);   // map-click tasking belongs to Manual only
+  renderPlan();
+}
+document.querySelectorAll('#seg button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+/* ---------- selection ---------- */
+function select(which) {
+  selected = which;
+  document.getElementById('row-ugv').classList.toggle('sel', which === 'ugv');
+  document.getElementById('row-sim').classList.toggle('sel', which === 'sim');
+  document.getElementById('ugv-halo').style.opacity = which === 'ugv' ? 0.9 : 0;
+  maparea.classList.toggle('armed', which === 'ugv' && mode === 'manual');
+  maparea.classList.toggle('anchored', which === 'ugv');
+}
+document.getElementById('row-ugv').addEventListener('click', () => select('ugv'));
+document.getElementById('row-sim').addEventListener('click', () => {
+  select('sim');
+  speak('', 'Ground vehicle 00A1 has not answered for 12 minutes. I am showing where it was, not where it is. I cannot send it anywhere until it answers.');
+});
+
+/* ---------- the contact ---------- */
+const openDetail = () => detail.classList.remove('hidden');
+document.getElementById('trackmark').addEventListener('click', e => { e.stopPropagation(); openDetail(); });
+document.getElementById('row-track').addEventListener('click', openDetail);
+document.getElementById('detail-x').addEventListener('click', () => detail.classList.add('hidden'));
+
+document.getElementById('btn-watch').addEventListener('click', () => {
+  if (watching) return;
+  watching = true;
+  addEvent('Set to keep watching. UGV-1 will say if it moves or if the machine becomes more sure.',
+           'Ordered by A. Suryavanshi', null);
+  speak('', 'I will keep watching it and say if anything changes.');
+});
+
+/* A human judgement is recorded BESIDE the machine's observation, never in
+   place of it. The contact stays on the map and the estimate stays visible. */
+document.getElementById('btn-notperson').addEventListener('click', () => {
+  if (judged) return;
+  judged = true;
+  const at = hhmmss(clock).slice(0, 5);
+  document.getElementById('track-judged').setAttribute('opacity', '1');
+  document.getElementById('judged-bg').setAttribute('opacity', '1');
+  document.getElementById('track-line').innerHTML =
+    'Inside Gate 3. You called this not a person at ' + at + '. The machine still gives it 4 in 10.';
+  document.getElementById('doubt').innerHTML =
+    '<b>You called this not a person</b> at ' + at + '. The machine has not changed its mind: still 4 in 10, and still watching.';
+  document.getElementById('btn-notperson').style.display = 'none';
+  addEvent('Called not a person. The machine is still watching that spot and will speak up if it changes.',
+           'Judged by A. Suryavanshi', 'off');
+});
+
+/* ---------- orders ---------- */
+function sendTo(x, y, label, spokenPlace, byItself) {
+  const p = currentPoint();
+  taskline.setAttribute('d', `M${p.x},${p.y} L${x},${y}`);
+  leg = { len: taskline.getTotalLength(), t: 0, label, x, y };
+  taskline.style.opacity = 0.9;
+  taskmark.setAttribute('transform', `translate(${x},${y})`);
+  taskmark.style.opacity = 1;
+  tasklabel.textContent = label.toUpperCase();
+  document.getElementById('tasklabel-bg').setAttribute('width', label.length * 6.6 + 12);
+  motion = 'going';
+  detail.classList.add('hidden');
+  document.getElementById('ugv-state').textContent = 'On task';
+  if (byItself) {
+    addEvent('UGV-1 went to look at the possible person on its own, under Automatic.', 'UGV-1', null);
+    speak('', 'I am going to look at it myself. Say take control if you want to stop me.');
+  } else {
+    addEvent('UGV-1 was sent to ' + spokenPlace + '.', 'Ordered by A. Suryavanshi', null);
+    speak('', 'Sending UGV-1 to ' + spokenPlace + '. I will tell you when it gets there.');
+  }
+  renderPlan();
+}
+document.getElementById('btn-send').addEventListener('click', () => {
+  investigated = true;
+  sendTo(TRACK.x, TRACK.y + 36, 'Gate 3', 'Gate 3, where the possible person was seen', false);
+});
+function cancelOrder() {
+  if (motion !== 'going' && motion !== 'arrived') return;
+  addEvent('The order was stopped. UGV-1 is going back to its patrol.', 'Stopped by A. Suryavanshi', null);
+  speak('', 'Stopped. UGV-1 is going back to the north perimeter patrol.');
+  startReturn();
+}
+
+maparea.addEventListener('click', e => {
+  if (selected !== 'ugv' || mode !== 'manual') return;
+  if (e.target.closest('.detail') || e.target.closest('.m-tool') || e.target.closest('#trackmark')) return;
+  const r = mapsvg.getBoundingClientRect();
+  const sc = Math.max(r.width / 1069, r.height / 1000);
+  const x = (e.clientX - r.left - (r.width - 1069 * sc) / 2) / sc;
+  const y = (e.clientY - r.top - (r.height - 1000 * sc) / 2) / sc;
+  if (x < 0 || x > 1069 || y < 0 || y > 1000) return;
+  sendTo(x, y, 'your point', 'the point you picked on the map', false);
+});
+
+/* ---------- movement ---------- */
+function currentPoint() {
+  if (motion === 'patrol') return patrol.getPointAtLength(s % PLEN);
+  return leg ? taskline.getPointAtLength(Math.min(leg.t, leg.len)) : patrol.getPointAtLength(s % PLEN);
+}
+function nearestOnPatrol(p) {
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < 240; i++) {
+    const l = PLEN * i / 240, q = patrol.getPointAtLength(l);
+    const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    if (d < bd) { bd = d; best = l; }
+  }
+  return best;
+}
+function startReturn() {
+  const p = currentPoint();
+  s = nearestOnPatrol(p);
+  const q = patrol.getPointAtLength(s);
+  taskline.setAttribute('d', `M${p.x},${p.y} L${q.x},${q.y}`);
+  leg = { len: taskline.getTotalLength(), t: 0, label: 'patrol', x: q.x, y: q.y };
+  taskline.style.opacity = 0.45;
+  taskmark.style.opacity = 0;
+  motion = 'returning';
+  renderPlan();
+}
+function place(p, h) {
+  ugvmark.setAttribute('transform', `translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`);
+  ugvBody.setAttribute('transform', `rotate(${h.toFixed(1)})`);
+  ugvLabel.setAttribute('x', (p.x + 25).toFixed(1)); ugvLabel.setAttribute('y', (p.y + 4).toFixed(1));
+  ugvLabelBg.setAttribute('x', (p.x + 20).toFixed(1)); ugvLabelBg.setAttribute('y', (p.y - 8).toFixed(1));
+}
+
+let last = performance.now(), planTick = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  clock += dt; trackAge += dt; battery = Math.max(0, battery - dt * 0.011);
+
+  let p, h = 0;
+  if (motion === 'patrol') {
+    s = (s + SPEED * dt) % PLEN;
+    p = patrol.getPointAtLength(s);
+    const q = patrol.getPointAtLength((s + 3) % PLEN);
+    h = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + 90;
+  } else if (motion === 'going' || motion === 'returning') {
+    leg.t = Math.min(leg.len, leg.t + SPEED * dt);
+    p = taskline.getPointAtLength(leg.t);
+    const q = taskline.getPointAtLength(Math.min(leg.len, leg.t + 3));
+    h = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI + 90;
+    if (leg.t >= leg.len) {
+      if (motion === 'going') {
+        motion = 'arrived'; dwell = 0;
+        addEvent('UGV-1 arrived at ' + leg.label + ' and is looking around.', 'UGV-1', 'ok');
+        speak('', 'UGV-1 is at ' + leg.label + '. Its camera is on the spot.');
+      } else {
+        motion = 'patrol'; leg = null;
+        taskline.style.opacity = 0;
+        document.getElementById('ugv-state').textContent = 'On patrol';
+        addEvent('UGV-1 is back on the north perimeter patrol.', 'UGV-1', null);
+      }
+      renderPlan();
+    }
+  } else {
+    p = taskline.getPointAtLength(leg.len); h = -34; dwell += dt;
+    if (dwell > 9) startReturn();
+  }
+  place(p, h);
+
+  document.getElementById('ugv-line').textContent =
+    motion === 'going' ? 'On its way to ' + leg.label + '.' :
+    motion === 'arrived' ? 'Standing at ' + leg.label + ', watching.' :
+    motion === 'returning' ? 'Going back to its patrol.' : 'Patrolling the north perimeter.';
+  document.getElementById('ugv-speed').textContent = (motion === 'arrived' ? '0.0' : (2.4 + Math.sin(now / 900) * 0.18).toFixed(1)) + ' m/s';
+  document.getElementById('ugv-head').textContent = headingName(h);
+  const bf = document.getElementById('ugv-batt');
+  bf.style.width = battery.toFixed(1) + '%';
+  bf.style.background = battery < 15 ? 'var(--act)' : battery < 30 ? 'var(--warn)' : 'var(--ok)';
+  document.getElementById('ugv-battv').textContent = Math.round(battery) + '%';
+
+  const dx = TRACK.x - p.x, dy = TRACK.y - p.y;
+  const metres = Math.round(Math.sqrt(dx * dx + dy * dy) * M_PER_UNIT / 10) * 10;
+  document.getElementById('kv-where').textContent = 'Inside Gate 3, about ' + metres + ' m from UGV-1.';
+
+  const age = plainSeconds(trackAge);
+  const a1 = document.getElementById('track-age'); if (a1) a1.textContent = age;
+  document.getElementById('track-age-2').textContent = age;
+  document.getElementById('mb-clock').textContent = hhmmss(clock).slice(0, 5) + ' Z';
+  document.getElementById('glance-time').textContent = hhmmss(clock).slice(0, 5);
+  document.getElementById('track-halo').setAttribute('r', (19 + Math.sin(now / 620) * 3).toFixed(1));
+
+  planTick += dt;
+  if (planTick > 0.25) { planTick = 0; if (motion === 'going' || motion === 'returning') renderPlan(); }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (!detail.classList.contains('hidden')) { detail.classList.add('hidden'); return; }
+    closeApp();
+  }
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault();
+    document.getElementById('ptt').classList.add('live');
+    speak('', 'Listening.');
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code !== 'Space') return;
+  document.getElementById('ptt').classList.remove('live');
+  speak('Argus, send the vehicle to gate three.', 'Confirm: send UGV-1 to Gate 3?', [
+    { label: 'Confirm', primary: true, run: () => { investigated = true; sendTo(TRACK.x, TRACK.y + 36, 'Gate 3', 'Gate 3', false); } },
+    { label: 'Cancel', run: () => speak('', 'Cancelled. Nothing was sent.') }
+  ]);
+});
+
+select('ugv');
+renderPlan();
+</script>
+
+</body>
+</html>

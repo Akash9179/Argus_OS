@@ -122,6 +122,21 @@ class EventWriter:
 
     def __init__(self, language: Language):
         self.lang = language
+        self._person_lookup = None
+
+    def bind_person_lookup(self, lookup) -> None:
+        """How to turn a principal into a name an operator can read."""
+        self._person_lookup = lookup
+
+    def name_person(self, principal_id: str) -> str:
+        """Who did it, in words.
+
+        An identifier must never reach a sentence. If we cannot name the
+        person, the sentence says so plainly rather than printing the
+        identifier we happen to hold.
+        """
+        name = self._person_lookup(principal_id) if self._person_lookup else ""
+        return name or self.lang.fragment("unknown_person")
 
     # -- things in the world ----------------------------------------------
 
@@ -229,7 +244,8 @@ class EventWriter:
             reason=reason or self.lang.fragment("no_reason"),
         )
         if kind == "task_issued" and task.HasField("issued_by"):
-            source = self.lang.source_ordered_by(task.issued_by.principal_id, task.issued_by.channel)
+            who = self.name_person(task.issued_by.principal_id)
+            source = self.lang.source_ordered_by(who, task.issued_by.channel)
         else:
             source = self.lang.source_system()
         return new_event(

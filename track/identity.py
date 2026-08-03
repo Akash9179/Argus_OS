@@ -70,10 +70,25 @@ class TokenDirectory:
         for entry in raw.get("tokens", []):
             tokens[entry["token"]] = Principal(
                 principal_id=entry["principal_id"],
-                display_name=entry.get("display_name", entry["principal_id"]),
+                # No fallback to the identifier: an unnamed principal is
+                # better described in plain words than printed as an id.
+                display_name=entry.get("display_name", ""),
                 role=entry.get("role", ROLE_OPERATOR),
             )
         return cls(tokens)
 
     def lookup(self, token: str) -> Principal | None:
         return self._tokens.get(token)
+
+    def display_name(self, principal_id: str) -> str:
+        """What to call a person on screen.
+
+        Operators read names, never identifiers. An identifier that has no
+        matching person is still not shown: the caller gets a plain word
+        instead, because a stray identifier on screen is a leak whether or
+        not we recognise it.
+        """
+        for principal in self._tokens.values():
+            if principal.principal_id == principal_id:
+                return principal.display_name
+        return ""

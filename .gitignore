@@ -6,3 +6,8 @@ node_modules/
 var/
 *.log
 *.egg-info/
+.gstack/
+*.tsbuildinfo
+dist/
+# Scratch from web research, never part of the build.
+.firecrawl/

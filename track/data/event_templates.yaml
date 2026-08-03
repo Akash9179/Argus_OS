@@ -109,6 +109,9 @@ fragments:
   place_none: ""
   battery_clause: " Battery {battery} percent."
   no_reason: "No reason was given."
+  # Used when an order carries a person we cannot name. Better a plain
+  # word than an identifier on an operator's screen.
+  unknown_person: "someone signed in"
   # Reasons the server itself ends an order. Written as the operator should
   # hear them, not as the system understands them.
   reason_asset_silent: "It stopped answering."

@@ -46,6 +46,9 @@ def create_app(
             transport=app.state.transport,
             bus=app.state.bus,
         )
+        # Names for the event feed. Naming people is the identity service's
+        # job, so the event writer asks it rather than printing identifiers.
+        app.state.world.events.bind_person_lookup(app.state.tokens.display_name)
         await app.state.world.start()
         log.info("world model server ready")
         try:

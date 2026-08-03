@@ -198,16 +198,19 @@ class Language:
 
         A channel this build has never heard of still has to reach the
         operator, because losing the "how" leaves them reading a bare name.
-        It reaches them as the fact that it came from somewhere else, not as
+        It reaches them as the fact that we do not know the route, not as
         the token itself: unlike an entity class, a channel is a free-form
         string a caller chose, and "task_api_v2" on an operator's screen is
-        system vocabulary crossing the waterline. The value itself is
-        preserved in the record either way; this is only how it is read out.
+        system vocabulary crossing the waterline. Naming it another system
+        would be worse still, because a future station using its own channel
+        would have an operator's own click reported back to them as somebody
+        else's. The value is preserved in the record either way; this is
+        only how it is read out.
         """
         known = self._d["channels"].get(channel, "")
         if known:
             return known
-        return self._d["channels"]["api"] if channel else ""
+        return self._d["channels"]["unknown"] if channel else ""
 
 
 class EventWriter:

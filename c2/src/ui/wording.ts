@@ -90,6 +90,7 @@ export const say = {
      */
     manualAssurance: 'This station will order nothing else without your say-so.',
     automaticAssurance: 'You can take control at any time.',
+    stopping: 'Switched to Manual. Stopping the order this station started.',
     switchedToManual: 'Switched to Manual. This station will ask before anything else.',
     switchedToManualAndStopped:
       'Switched to Manual. The order this station had started has been stopped.',
@@ -151,6 +152,22 @@ export const say = {
 
   theme: { dark: 'Dark', day: 'Day' },
   signOut: 'Sign out',
+
+  /** Month names, for a time that needs its date. Kept with the other words. */
+  months: [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ],
 
   machine: {
     notAnswering: 'No answer',
@@ -241,24 +258,12 @@ export function clockAt(epochSeconds: number, withSeconds = false): string {
   const today = new Date().toISOString().slice(0, 10)
   if (iso.slice(0, 10) === today) return clock
   const day = new Date(epochSeconds * 1000)
-  const month = MONTHS[day.getUTCMonth()]
-  return `${clock} on ${day.getUTCDate()} ${month}`
+  // Zero padded to match the server's dated form, because a reason phrase
+  // from the server and a marker chip from here can sit in one window and
+  // must not look like two different conventions.
+  const date = String(day.getUTCDate()).padStart(2, '0')
+  return `${clock} on ${date} ${say.months[day.getUTCMonth()]}`
 }
-
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-]
 
 /**
  * The four status colours, and nothing else. Meaning never changes between

@@ -383,6 +383,13 @@ async def test_a_self_issued_order_never_reads_as_a_persons_order(client, world)
     assert "Test Operator" not in itself["reason"], (
         "an order nobody clicked must not be attributed to the operator"
     )
+    # The reason and the name have to agree. C2 does not render ordered_by
+    # today, but this is the published interface: the next application to
+    # show who ordered something would otherwise reproduce the very
+    # misattribution the reason phrase was written to prevent.
+    assert itself["ordered_by"] == "", (
+        "a self-issued order names nobody on every surface, not just in its reason"
+    )
 
 
 async def test_a_channel_this_build_never_heard_of_still_reaches_the_operator(client, world):
@@ -404,11 +411,14 @@ async def test_a_channel_this_build_never_heard_of_still_reaches_the_operator(cl
     )
     sources = [e["source"] for e in (await client.get("/v1/events")).json()]
     ordered = [s for s in sources if s.startswith("Ordered")]
-    assert any("by another system" in s for s in ordered), (
-        "an unfamiliar channel must still tell the operator the order came from elsewhere"
+    assert any("cannot name" in s for s in ordered), (
+        "an unfamiliar channel must say the route is unknown, not assert one"
     )
     assert not any("handheld_radio" in s for s in ordered), (
         "the raw token is system vocabulary and does not belong on an operator's screen"
+    )
+    assert not any("by another system" in s for s in ordered), (
+        "claiming another system would report an operator's own click back as somebody else's"
     )
 
 

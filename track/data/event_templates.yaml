@@ -91,6 +91,10 @@ channels:
   voice: "by voice"
   api: "by another system"
   system: "automatically"
+  # A channel this build does not recognise. Says that we do not know the
+  # route rather than asserting one: calling it another system would report
+  # an operator's own click back to them as somebody else's.
+  unknown: "from somewhere we cannot name"
   # An order a station issued on its own, under a standing instruction,
   # rather than one a person clicked. Without this the feed reads as though
   # the operator gave an order they never gave.

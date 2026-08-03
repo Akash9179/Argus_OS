@@ -162,7 +162,12 @@ class WorldModel:
         channel = ""
         if task.HasField("issued_by"):
             channel = task.issued_by.channel
-            if task.issued_by.principal_id:
+            # A self-issued order names nobody, even though it was made on a
+            # person's token. All three surfaces that can say who acted (this
+            # field, the reason beside it, and the event feed's source line)
+            # read the one list, so an application built on this later cannot
+            # reintroduce the misattribution by picking a different field.
+            if task.issued_by.principal_id and not self.language.is_self_issued(channel):
                 who = self.events.name_person(task.issued_by.principal_id)
         return task_to_dict(
             task,

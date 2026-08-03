@@ -112,12 +112,15 @@ export function Operate({ world, link, theme }: Props) {
     [selected],
   )
 
-  const stop = useCallback(async () => {
-    if (!openTask) return
+  /** Returns whether the order actually stopped, so no caller announces one that did not. */
+  const stop = useCallback(async (): Promise<boolean> => {
+    if (!openTask) return false
     try {
       await api.cancelTask(openTask.task_id)
+      return true
     } catch (error) {
       setNotice(error instanceof Refused && error.message ? error.message : say.errors.orderFailed)
+      return false
     }
   }, [openTask])
 
@@ -155,14 +158,21 @@ export function Operate({ world, link, theme }: Props) {
     // here would both take an action they did not ask for and describe it
     // as the station's own.
     const stopping = next === 'manual' && Boolean(openTask) && isStationOrder(openTask)
-    setNotice(
-      next === 'automatic'
-        ? say.mode.switchedToAutomatic
-        : stopping
-          ? say.mode.switchedToManualAndStopped
-          : say.mode.switchedToManual,
-    )
-    if (stopping) void stop()
+    if (next === 'automatic') {
+      setNotice(say.mode.switchedToAutomatic)
+      return
+    }
+    if (!stopping) {
+      setNotice(say.mode.switchedToManual)
+      return
+    }
+    // "Has been stopped" is past tense, so it waits for the cancel to land.
+    // Announced first, it claimed a stop that had not happened yet, and a
+    // refusal would have arrived after the screen already said otherwise.
+    setNotice(say.mode.stopping)
+    void stop().then((stopped) => {
+      if (stopped) setNotice(say.mode.switchedToManualAndStopped)
+    })
   }
 
   return (

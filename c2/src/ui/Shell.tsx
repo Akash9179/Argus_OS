@@ -20,7 +20,7 @@ const DRIVE_URL_KEY = 'argus.driveUrl'
 export function driveUrl(): string {
   return (
     window.localStorage.getItem(DRIVE_URL_KEY) ??
-    'http://localhost:5174/?bridge=localhost:8090&key=demo'
+    'http://localhost:5174/?bridge=localhost:8090&key=Argus@2026'
   )
 }
 

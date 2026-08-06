@@ -25,12 +25,16 @@ interface VehicleStore {
   setStick: (steer: number, throttle: number) => void
   setGear: (g: Gear) => void
   setMode: (m: DriveMode) => void
+  toggleIgnition: () => void
   toggleHeadlights: () => void
   setBlinker: (b: Blinker) => void
   toggleHorn: () => void
   toggleRecord: () => void
   arm: () => void
   estop: () => void
+  remote: boolean
+  setRemote: (on: boolean) => void
+  applyRemoteTelemetry: (t: Telemetry) => void
   tick: (dtSec: number) => void
   reset: () => void
 }
@@ -43,6 +47,7 @@ function makeInitial() {
 
 export const useVehicleStore = create<VehicleStore>((set) => ({
   ...makeInitial(),
+  remote: false,
 
   setStick: (steer, throttle) =>
     set((s) => ({
@@ -56,6 +61,20 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
   setGear: (g) => set((s) => ({ command: { ...s.command, gear: g } })),
 
   setMode: (m) => set((s) => ({ command: { ...s.command, mode: m } })),
+
+  toggleIgnition: () =>
+    set((s) => ({
+      command: {
+        ...s.command,
+        aux: { ...s.command.aux, ignition: !s.command.aux.ignition },
+      },
+    })),
+
+  setRemote: (on) => set({ remote: on }),
+
+  // While a bridge link is live, the vehicle's own telemetry is the truth;
+  // the local sim keeps ticking (it feeds nothing) but must not fight it.
+  applyRemoteTelemetry: (t) => set({ telemetry: t }),
 
   toggleHeadlights: () =>
     set((s) => ({
@@ -99,7 +118,7 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
   tick: (dtSec) =>
     set((s) => {
       const sim = stepVehicle(s.sim, s.command, dtSec)
-      const telemetry = toTelemetry(sim, s.command)
+      const telemetry = s.remote ? s.telemetry : toTelemetry(sim, s.command)
       // Clear momentary safety edges AFTER stepping.
       const command: Command = {
         ...s.command,

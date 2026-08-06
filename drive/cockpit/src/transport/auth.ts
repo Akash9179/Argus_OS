@@ -9,7 +9,8 @@ const KEY = 'argus.driveKey'
 
 export function isDriveMode(): boolean {
   if (typeof window === 'undefined') return false
-  return new URLSearchParams(window.location.search).has('drive')
+  const q = new URLSearchParams(window.location.search)
+  return q.has('drive') || q.has('bridge')
 }
 
 export function getDriveKey(): string | null {

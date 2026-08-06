@@ -101,7 +101,7 @@ describe('toTelemetry', () => {
   it('echoes headlights and recording from cmd and steerAngle from steer', () => {
     const c = cmd({
       steer: 1,
-      aux: { headlights: true, blinker: 'left', horn: false, record: true },
+      aux: { ignition: true, headlights: true, blinker: 'left', horn: false, record: true },
     })
     const t = toTelemetry(initialSimState(), c)
     expect(t.lights.headlights).toBe(true)

@@ -8,11 +8,12 @@ export interface Command {
   throttle: number // 0..1
   gear: Gear
   mode: DriveMode
-  aux: { headlights: boolean; blinker: Blinker; horn: boolean; record: boolean }
+  aux: { ignition: boolean; headlights: boolean; blinker: Blinker; horn: boolean; record: boolean }
   safety: { arm: boolean; estop: boolean }
 }
 
 export interface Telemetry {
+  ignition: boolean
   speedKmh: number
   gear: Gear
   steerAngleDeg: number
@@ -36,7 +37,7 @@ export function neutralCommand(): Command {
     throttle: 0,
     gear: 'F',
     mode: 'MANUAL',
-    aux: { headlights: false, blinker: 'off', horn: false, record: true },
+    aux: { ignition: false, headlights: false, blinker: 'off', horn: false, record: true },
     safety: { arm: false, estop: false },
   }
 }

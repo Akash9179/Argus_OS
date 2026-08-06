@@ -93,6 +93,7 @@ export function stepVehicle(s: SimState, cmd: Command, dtSec: number): SimState 
 
 export function toTelemetry(s: SimState, cmd: Command): Telemetry {
   return {
+    ignition: cmd.aux.ignition,
     speedKmh: Math.round(Math.abs(s.speedKmh) * 10) / 10,
     gear: cmd.gear,
     steerAngleDeg: Math.round(clampSigned(cmd.steer) * STEER_MAX_DEG),

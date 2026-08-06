@@ -1,7 +1,7 @@
 """Run the bridge daemon.
 
-    ARGUS_PASSWORD=secret python3 -m bridge                 # mock vehicle, :8090
-    ARGUS_PASSWORD=secret python3 -m bridge --port 9000 --watchdog-ms 700
+    ARGUS_PASSWORD=secret python3 -m drive.bridge                 # mock vehicle, :8090
+    ARGUS_PASSWORD=secret python3 -m drive.bridge --port 9000 --watchdog-ms 700
 
 The real ugv-01 adapter is selected with --vehicle once it exists (after the
 hardware survey). Until then, mock is the only choice and the default.
@@ -18,7 +18,7 @@ from .vehicle import MockVehicle
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="bridge", description="ARGUS DRIVE vehicle daemon")
+    ap = argparse.ArgumentParser(prog="drive.bridge", description="ARGUS DRIVE vehicle daemon")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--vehicle", choices=["mock"], default="mock")

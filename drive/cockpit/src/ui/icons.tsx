@@ -124,6 +124,13 @@ export const LightsIcon = (p: SVGProps<SVGSVGElement>) => (
   </Icon>
 )
 
+export const IgnitionIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M12 3v8" />
+    <path d="M6.6 6.6a7.5 7.5 0 1 0 10.8 0" />
+  </Icon>
+)
+
 export const BlinkerIcon = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}>
     <path d="M5 12h11" />

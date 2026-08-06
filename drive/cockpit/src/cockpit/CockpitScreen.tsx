@@ -3,6 +3,7 @@ import { Button } from '../ui/Button'
 import { SourceTag } from '../ui/Chip'
 import {
   LightsIcon,
+  IgnitionIcon,
   BlinkerIcon,
   HazardIcon,
   HornIcon,
@@ -21,6 +22,7 @@ import { useManualDrive, type DriveDir } from '../input/useManualDrive'
 import { PadGlyph } from '../ui/PadGlyph'
 import { Metric } from '../ui/Metric'
 import { useRemoTransport, type RemoLink } from '../transport/useRemoTransport'
+import { useBridgeTransport } from '../transport/useBridgeTransport'
 import { DriveConnect } from '../transport/DriveConnect'
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { Telemetry } from '../contract'
@@ -451,6 +453,7 @@ function WithHint({ show, glyph, children }: { show: boolean; glyph: ReactNode; 
 function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints, manual }: { tele: Telemetry; onStick: (x: number, y: number) => void; padConnected: boolean; onOpenController: () => void; hints: boolean; manual: { press: (d: DriveDir) => void; release: (d: DriveDir) => void } }) {
   const setGear = useVehicleStore((s) => s.setGear)
   const setMode = useVehicleStore((s) => s.setMode)
+  const toggleIgnition = useVehicleStore((s) => s.toggleIgnition)
   const toggleHeadlights = useVehicleStore((s) => s.toggleHeadlights)
   const setBlinker = useVehicleStore((s) => s.setBlinker)
   const toggleHorn = useVehicleStore((s) => s.toggleHorn)
@@ -492,6 +495,13 @@ function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints,
           </div>
         </>
       )}
+
+      <Divider />
+
+      <div className="flex items-center">
+        <GroupLabel>Ignition</GroupLabel>
+        <ToggleChip label={tele.ignition ? 'On' : 'Off'} icon={<IgnitionIcon width={15} height={15} />} state={st(tele.ignition)} tone="accent" onClick={toggleIgnition} />
+      </div>
 
       <Divider />
 
@@ -574,6 +584,8 @@ export function CockpitScreen() {
   const [entered, setEntered] = useState(false)
   const showConnect = isDriveMode() && !entered
   const remo = useRemoTransport(driveKey, entered)
+  const bridge = useBridgeTransport(driveKey, entered)
+  const link = bridge.active ? bridge : remo
   const pad = useGamepad()
   // keyboard arrows + on-screen pad drive only when no gamepad and cockpit is shown
   const manual = useManualDrive(!pad.connected && !showConnect)
@@ -780,10 +792,10 @@ export function CockpitScreen() {
         <BrainPanel assistEnabled={assist} onDriveIntent={handleDriveIntent} />
       </div>
 
-      <RemoLinkBadge link={remo} />
+      <RemoLinkBadge link={link} />
       {showConnect && (
         <DriveConnect
-          link={remo}
+          link={link}
           hasPassword={!!driveKey}
           onSetPassword={(pw) => {
             setDriveKey(pw)
@@ -804,10 +816,10 @@ export function CockpitScreen() {
 function RemoLinkBadge({ link }: { link: RemoLink }) {
   if (!link.active) return null
   const map = {
-    connecting: { dot: 'bg-warning', text: 'text-warning', label: 'REMO · CONNECTING' },
-    open: { dot: 'bg-success', text: 'text-success', label: 'REMO · LIVE' },
-    closed: { dot: 'bg-critical', text: 'text-critical', label: 'REMO · LINK LOST' },
-    error: { dot: 'bg-critical', text: 'text-critical', label: 'REMO · ERROR' },
+    connecting: { dot: 'bg-warning', text: 'text-warning', label: 'LINK · CONNECTING' },
+    open: { dot: 'bg-success', text: 'text-success', label: 'LINK · LIVE' },
+    closed: { dot: 'bg-critical', text: 'text-critical', label: 'LINK · LOST' },
+    error: { dot: 'bg-critical', text: 'text-critical', label: 'LINK · ERROR' },
   }[link.status]
   return (
     <div

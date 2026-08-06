@@ -3,6 +3,7 @@ import { evaluatePreflight } from './preflight'
 import type { Telemetry } from '../contract'
 
 const base: Telemetry = {
+  ignition: true,
   speedKmh: 0, gear: 'N', steerAngleDeg: 0, mode: 'MANUAL', armed: false,
   safetyState: 'STOPPED', battery: { percent: 90, runtimeMin: 120 },
   lights: { headlights: false, blinker: 'off', horn: false }, recording: true,

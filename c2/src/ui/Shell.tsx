@@ -14,12 +14,13 @@
 import type { ReactNode } from 'react'
 import { say } from './wording'
 
-export type ShellApp = 'desktop' | 'operate' | 'drive'
+export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
 
 const DRIVE_URL_KEY = 'argus.driveUrl'
 export function driveUrl(): string {
   return (
     window.localStorage.getItem(DRIVE_URL_KEY) ??
+    (import.meta.env.VITE_DRIVE_URL as string | undefined) ??
     'http://localhost:5174/?bridge=localhost:8090&key=Argus@2026'
   )
 }
@@ -93,6 +94,7 @@ export function Desktop({ nowSec, line, healthy, open }: { nowSec: number; line:
 
 interface DockEntry {
   id: ShellApp | 'intel' | 'review' | 'fleet'
+  sep?: boolean
   name: string
   live: boolean
   tip: string
@@ -164,6 +166,19 @@ const DOCK: DockEntry[] = [
       </svg>
     ),
   },
+  {
+    id: 'settings',
+    name: say.shell.settings.title,
+    live: true,
+    tip: say.shell.tips.settings,
+    sep: true,
+    icon: (
+      <svg viewBox="0 0 24 24" {...stroke}>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19" />
+      </svg>
+    ),
+  },
 ]
 
 export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean; onOpen: (app: ShellApp) => void }) {
@@ -173,8 +188,9 @@ export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean
       {away && <div className="dock-reveal" aria-hidden />}
       <div className={`dock${away ? ' is-away' : ''}`}>
         {DOCK.map((entry) => (
+          <span key={entry.id} style={{ display: 'contents' }}>
+          {entry.sep && <span className="dock-sep" aria-hidden />}
           <button
-            key={entry.id}
             type="button"
             className={`dock-app${entry.live ? '' : ' is-disabled'}${active === entry.id ? ' is-running' : ''}`}
             onClick={() => entry.live && onOpen(entry.id as ShellApp)}
@@ -185,9 +201,55 @@ export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean
             <span className="dock-name">{entry.name}</span>
             <span className="running-dot" />
           </button>
+          </span>
         ))}
       </div>
     </>
+  )
+}
+
+/* ----------------------------- settings app ----------------------------- */
+
+type Theme = 'dark' | 'day'
+
+export function SettingsApp({ open, theme, onTheme }: { open: boolean; theme: Theme; onTheme: (t: Theme) => void }) {
+  const nav = say.shell.settings.nav
+  const ap = say.shell.settings.appearance
+  return (
+    <div className={`shell-app is-settings${open ? '' : ' is-away'}`} aria-hidden={!open}>
+      <div className="swindow">
+        <div className="swin-side">
+          <div className="swin-title">{say.shell.settings.title.toUpperCase()}</div>
+          {([nav.zones, nav.machines, nav.people] as string[]).map((label) => (
+            <div key={label} className="snav is-inert" title={say.notBuiltYet}>{label}</div>
+          ))}
+          <div className="snav is-active">{nav.appearance}</div>
+          <div className="snav is-inert" title={say.notBuiltYet}>{nav.ai}</div>
+        </div>
+        <div className="swin-main">
+          <h2>{ap.heading}</h2>
+          <p className="swin-sub">{ap.sub}</p>
+          <div className="swatches">
+            <button type="button" className={`swatch${theme === 'dark' ? ' is-on' : ''}`} onClick={() => onTheme('dark')}>
+              <svg className="swatch-art" viewBox="0 0 200 62" preserveAspectRatio="none">
+                <rect width="200" height="62" fill="#0a0d10" /><rect width="200" height="9" fill="#171b1f" />
+                <rect x="12" y="20" width="58" height="30" rx="4" fill="#20252a" /><rect x="78" y="20" width="110" height="30" rx="4" fill="#161a1e" />
+                <circle cx="150" cy="35" r="4" fill="#30d158" />
+              </svg>
+              <span className="swatch-label">{ap.dark}<small>{ap.darkNote}</small></span>
+            </button>
+            <button type="button" className={`swatch${theme === 'day' ? ' is-on' : ''}`} onClick={() => onTheme('day')}>
+              <svg className="swatch-art" viewBox="0 0 200 62" preserveAspectRatio="none">
+                <rect width="200" height="62" fill="#e6eaef" /><rect width="200" height="9" fill="#fafbfc" />
+                <rect x="12" y="20" width="58" height="30" rx="4" fill="#ffffff" /><rect x="78" y="20" width="110" height="30" rx="4" fill="#f0f3f6" />
+                <circle cx="150" cy="35" r="4" fill="#248a3d" />
+              </svg>
+              <span className="swatch-label">{ap.day}<small>{ap.dayNote}</small></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

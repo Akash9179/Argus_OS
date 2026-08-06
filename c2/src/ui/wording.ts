@@ -40,6 +40,17 @@ export const say = {
     tips: {
       operate: 'The site: map, machines, events, voice.',
       drive: 'Take the wheel of one machine.',
+      settings: 'Zones, machines, people, appearance, AI policy.',
+    },
+    settings: {
+      title: 'Settings',
+      nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', ai: 'AI policy' },
+      appearance: {
+        heading: 'Appearance',
+        sub: 'Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.',
+        dark: 'Dark', darkNote: 'Default. Best at night.',
+        day: 'Day', dayNote: 'High brightness, for sunlight.',
+      },
     },
     glance: {
       allQuiet: (n: number) =>

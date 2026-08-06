@@ -461,3 +461,65 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 @media (prefers-reduced-motion: reduce) {
   .desktop, .shell-app, .dock, .dock-app .icon { transition: none; }
 }
+
+/* ============================ small screens ============================ */
+/* One column phone/tablet cut: map first, rails after, voice always last.
+   Same information, nothing hidden — just restacked. */
+
+@media (max-width: 1000px) {
+  .operate {
+    grid-template-columns: 1fr;
+    grid-template-rows: 36px minmax(42vh, 1fr) auto auto 40px 52px;
+    grid-template-areas: 'bar' 'map' 'left' 'right' 'plan' 'voice';
+  }
+  .rail-left, .rail-right { max-height: 24vh; overflow-y: auto; border-right: 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+
+@media (max-width: 820px) {
+  .menubar { gap: 10px; overflow-x: auto; scrollbar-width: none; }
+  .menubar::-webkit-scrollbar { display: none; }
+  .menubar-items { display: none; }
+  .glance-time { font-size: 46px; }
+  .glance-state { margin: 16px 12px 0; padding: 8px 14px; }
+  .glance-state span:last-child { font-size: 12.5px; }
+}
+
+@media (max-width: 700px) {
+  .dock { gap: 2px; padding: 8px 8px 6px; bottom: 8px; max-width: calc(100vw - 16px); overflow-x: auto; }
+  .dock-app { width: 60px; }
+  .dock-app .icon { width: 42px; height: 42px; }
+  .dock-app .icon svg { width: 20px; height: 20px; }
+  .dock-name { font-size: 10px; }
+  .dock-app .tip { display: none; }
+  .signin form { width: min(92vw, 360px); padding: 24px 20px; }
+}
+
+/* ============================== settings ============================== */
+.dock-sep { width: 1px; align-self: stretch; background: var(--hairline); margin: 6px 6px 20px; }
+
+.shell-app.is-settings { display: grid; place-items: center; padding: 4vh 16px 90px; }
+.swindow {
+  display: grid; grid-template-columns: 180px 1fr; width: min(720px, 94vw); min-height: 340px;
+  background: var(--pane); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55);
+}
+.swin-side { background: var(--pane-2); border-right: 1px solid var(--line); padding: 14px 8px; display: flex; flex-direction: column; gap: 2px; }
+.swin-title { font-family: var(--mono); font-size: 11px; letter-spacing: 1.4px; color: var(--ink-4); padding: 0 8px 10px; }
+.snav { padding: 7px 10px; border-radius: 7px; font-size: 13px; color: var(--ink-2); }
+.snav.is-active { background: var(--sel-dim); color: var(--ink); font-weight: 600; }
+.snav.is-inert { color: var(--ink-4); cursor: not-allowed; }
+.swin-main { padding: 22px 24px; }
+.swin-main h2 { font-size: 17px; color: var(--ink); margin: 0 0 6px; }
+.swin-sub { font-size: 13px; color: var(--ink-3); margin: 0 0 18px; max-width: 46ch; }
+.swatches { display: flex; gap: 14px; flex-wrap: wrap; }
+.swatch {
+  width: 200px; background: var(--pane-2); border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; cursor: pointer; padding: 0; text-align: left; font: inherit; color: inherit;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.swatch:active { transform: scale(0.98); }
+.swatch.is-on { border-color: var(--ink-3); box-shadow: 0 0 0 2px var(--sel-dim); }
+.swatch-art { height: 62px; display: block; width: 100%; }
+.swatch-label { display: block; padding: 9px 11px; font-size: 12.5px; color: var(--ink); }
+.swatch-label small { display: block; color: var(--ink-4); font-size: 11.5px; margin-top: 2px; }
+@media (max-width: 640px) { .swindow { grid-template-columns: 1fr; } .swin-side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); } .swin-title { display: none; } }

@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
-import { Desktop, Dock, DriveApp, Wallpaper, type ShellApp } from './Shell'
+import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
 import { clockAt, say } from './wording'
 
 type Theme = 'dark' | 'day'
@@ -90,7 +90,13 @@ function Station({
   }, [])
 
   const appName =
-    screen === 'desktop' ? say.shell.desktop : screen === 'drive' ? say.shell.apps.drive : say.shell.apps.operate
+    screen === 'desktop'
+      ? say.shell.desktop
+      : screen === 'drive'
+        ? say.shell.apps.drive
+        : screen === 'settings'
+          ? say.shell.settings.title
+          : say.shell.apps.operate
   const glanceLine =
     link === 'lost' ? say.shell.glance.linkDown : say.shell.glance.allQuiet(answeringCount)
 
@@ -136,6 +142,7 @@ function Station({
           )}
         </div>
         {driveOpened && <DriveApp open={screen === 'drive'} />}
+        <SettingsApp open={screen === 'settings'} theme={theme} onTheme={onTheme} />
         <Dock active={screen} away={screen !== 'desktop'} onOpen={openApp} />
       </div>
     </div>

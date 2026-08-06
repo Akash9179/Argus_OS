@@ -11,6 +11,10 @@ architecture bug (HAL law).
 
 ## Status: hardware survey pending
 
+**Running Claude Code on the Jetson? Open `SURVEY.md` in this folder and
+follow it.** It is the whole brief: what to record, in what order, and the
+safety rules (rule zero: nothing that actuates).
+
 `ARGUS_INTEGRATION_NOTES.md` in this folder documents the ORIGINAL Remo
 controller (bang-bang steering, throttle levels, no watchdog). **It is
 outdated:** the vehicle's MCU side and sensors have been upgraded since it was

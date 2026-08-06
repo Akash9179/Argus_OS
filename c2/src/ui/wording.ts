@@ -27,6 +27,30 @@ export const say = {
   menus: ['View', 'Machines', 'Zones', 'Voice'],
   notBuiltYet: 'Not in this build yet.',
 
+  /** The operating system's own furniture: desktop, dock, application names. */
+  shell: {
+    desktop: 'Desktop',
+    apps: {
+      operate: 'Operate',
+      drive: 'Drive',
+      intel: 'Intel',
+      review: 'Review',
+      fleet: 'Fleet',
+    },
+    tips: {
+      operate: 'The site: map, machines, events, voice.',
+      drive: 'Take the wheel of one machine.',
+    },
+    glance: {
+      allQuiet: (n: number) =>
+        n === 0
+          ? 'No machines connected yet.'
+          : `Everything is running. ${n === 1 ? 'One machine' : `${n} machines`} connected, nothing needs you.`,
+      linkDown: 'The site link is down. Showing the last thing we were told.',
+      backHint: 'Esc returns to the desktop.',
+    },
+  },
+
   tools: {
     select: 'Select',
     measure: 'Measure',

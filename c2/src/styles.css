@@ -339,3 +339,108 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .signin input { height: 30px; padding: 0 9px; background: var(--app-bg); border: 1px solid var(--line-2); color: var(--ink); font-family: var(--mono); font-size: 12px; }
 .signin input:focus { outline: none; border-color: var(--sel); }
 .signin .problem { color: var(--act); }
+
+/* ============================= the OS shell ============================= */
+/* Desktop, dock, application layer — os-shell-v3 made real. Apps stay
+   mounted and are hidden by opacity/transform (never display:none), so the
+   map keeps its size and the cockpit keeps its session. */
+
+.mark.as-button { background: none; border: none; cursor: pointer; font: inherit; letter-spacing: inherit; color: inherit; padding: 0; }
+
+.shell-stage { position: relative; overflow: hidden; background: var(--app-bg); }
+.shell-stage::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 8%, rgba(60, 90, 120, 0.10), transparent 60%),
+    radial-gradient(100% 100% at 50% 100%, rgba(0, 0, 0, 0.45), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 79px, var(--line) 79px 80px),
+    repeating-linear-gradient(90deg, transparent 0 79px, var(--line) 79px 80px);
+}
+:root[data-theme='day'] .shell-stage::before {
+  background:
+    radial-gradient(120% 90% at 50% 8%, rgba(255, 255, 255, 0.4), transparent 60%),
+    radial-gradient(100% 100% at 50% 100%, rgba(120, 140, 160, 0.14), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 79px, var(--line) 79px 80px),
+    repeating-linear-gradient(90deg, transparent 0 79px, var(--line) 79px 80px);
+}
+
+.desktop {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding-bottom: 120px;
+  transition: opacity 260ms ease, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.desktop.is-away { opacity: 0; transform: scale(1.04); pointer-events: none; }
+.glance-time {
+  font-size: 64px; font-weight: 300; color: var(--ink); letter-spacing: -2px;
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+.glance-date { font-size: 14px; color: var(--ink-3); }
+.glance-state {
+  margin-top: 20px; display: flex; align-items: center; gap: 10px;
+  background: var(--glass); backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--hairline); border-radius: 999px; padding: 9px 18px 9px 14px;
+}
+.glance-state span:last-child { font-size: 13.5px; color: var(--ink); }
+.glance-state .dot { width: 7px; height: 7px; border-radius: 50%; }
+.glance-state .dot.is-ok { background: var(--ok); box-shadow: 0 0 7px rgba(48, 209, 88, 0.55); }
+.glance-state .dot.is-warn { background: var(--warn); box-shadow: 0 0 7px rgba(255, 159, 10, 0.5); }
+
+.shell-app {
+  position: absolute; inset: 0; z-index: 30; display: grid;
+  transition: opacity 240ms ease, transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.shell-app.is-away { opacity: 0; transform: scale(0.97); pointer-events: none; }
+.drive-frame { width: 100%; height: 100%; border: 0; background: #0b0e12; }
+
+.dock {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 70;
+  display: flex; align-items: flex-start; gap: 6px; padding: 10px 12px 8px;
+  background: var(--glass); backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--hairline); border-radius: 26px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 220ms ease;
+}
+.dock.is-away { transform: translateX(-50%) translateY(110px); opacity: 0; }
+.dock-reveal { position: absolute; bottom: 0; left: 0; right: 0; height: 6px; z-index: 69; }
+.dock-reveal:hover ~ .dock, .dock:hover { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+.dock-app {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  gap: 6px; width: 82px; padding: 0 2px; background: none; border: none; cursor: pointer; font: inherit;
+}
+.dock-app .icon {
+  width: 50px; height: 50px; border-radius: 24%;
+  background: linear-gradient(180deg, #444a52 0%, #262b31 55%, #1c2126 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.35), 0 6px 14px rgba(0, 0, 0, 0.45);
+  display: grid; place-items: center; color: #e8ecf0;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 180ms ease;
+}
+:root[data-theme='day'] .dock-app .icon {
+  background: linear-gradient(180deg, #5a626b 0%, #3b424a 55%, #2e343b 100%); color: #fff;
+}
+.dock-app .icon svg { width: 24px; height: 24px; }
+.dock-app:not(.is-disabled):hover .icon { transform: translateY(-9px) scale(1.14); }
+.dock-app:not(.is-disabled):active .icon { transform: translateY(-4px) scale(1.04); }
+.dock-app.is-disabled .icon { filter: grayscale(1) brightness(0.62); }
+.dock-app.is-disabled { cursor: not-allowed; }
+.dock-name { font-size: 11.5px; color: var(--ink-2); line-height: 1; white-space: nowrap; }
+.dock-app.is-disabled .dock-name { color: var(--ink-4); }
+.dock-app.is-running .dock-name { color: var(--ink); font-weight: 600; }
+.running-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ink-3); opacity: 0; }
+.dock-app.is-running .running-dot { opacity: 1; }
+
+.dock-app .tip {
+  position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%) translateY(6px);
+  background: var(--pane-2); border: 1px solid var(--hairline); border-radius: 8px;
+  padding: 5px 11px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity 140ms ease, transform 140ms ease;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.dock-app:hover .tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop, .shell-app, .dock, .dock-app .icon { transition: none; }
+}

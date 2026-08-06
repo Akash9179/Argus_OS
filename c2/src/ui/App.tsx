@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
+import { Desktop, Dock, DriveApp, type ShellApp } from './Shell'
 import { clockAt, say } from './wording'
 
 type Theme = 'dark' | 'day'
@@ -55,6 +56,24 @@ function Station({
   // nothing else, so this is the only way to put a person on screen without
   // showing the identifier underneath them.
   const [who, setWho] = useState('')
+
+  // The shell: which application is up. The desktop is the resting state,
+  // and Esc always brings it back (never from inside a text field).
+  const [screen, setScreen] = useState<ShellApp>('desktop')
+  const [driveOpened, setDriveOpened] = useState(false)
+  const openApp = (app: ShellApp) => {
+    setScreen(app)
+    if (app === 'drive') setDriveOpened(true)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      if (e.key === 'Escape') setScreen('desktop')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   useEffect(() => {
     let cancelled = false
     void api
@@ -70,11 +89,18 @@ function Station({
     }
   }, [])
 
+  const appName =
+    screen === 'desktop' ? say.shell.desktop : screen === 'drive' ? say.shell.apps.drive : say.shell.apps.operate
+  const glanceLine =
+    link === 'lost' ? say.shell.glance.linkDown : say.shell.glance.allQuiet(answeringCount)
+
   return (
     <div className="station">
       <header className="menubar">
-        <span className="mark">ARGUS</span>
-        <span className="app-name">{say.app}</span>
+        <button className="mark as-button" onClick={() => setScreen('desktop')} title={say.shell.desktop}>
+          ARGUS
+        </button>
+        <span className="app-name">{appName}</span>
         <nav className="menubar-items">
           {say.menus.map((item) => (
             <span key={item} className="menu-item is-inert" title={say.notBuiltYet}>
@@ -99,11 +125,18 @@ function Station({
         </div>
       </header>
 
-      {ready ? (
-        <Operate world={world} link={link} theme={theme} />
-      ) : (
-        <div className="waiting">{say.link.connecting}</div>
-      )}
+      <div className="shell-stage">
+        <Desktop nowSec={now} line={glanceLine} healthy={link !== 'lost'} open={screen === 'desktop'} />
+        <div className={`shell-app${screen === 'operate' ? '' : ' is-away'}`} aria-hidden={screen !== 'operate'}>
+          {ready ? (
+            <Operate world={world} link={link} theme={theme} />
+          ) : (
+            <div className="waiting">{say.link.connecting}</div>
+          )}
+        </div>
+        {driveOpened && <DriveApp open={screen === 'drive'} />}
+        <Dock active={screen} away={screen !== 'desktop'} onOpen={openApp} />
+      </div>
     </div>
   )
 }

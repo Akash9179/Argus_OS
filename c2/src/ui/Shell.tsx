@@ -11,7 +11,8 @@
  * the cockpit folds into this SDK application. Override the address with
  * localStorage 'argus.driveUrl'; the default matches the local dev pair.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { clockDate, clockTime, setClockPrefs, useClockPrefs, zoneChoices } from './clockPrefs'
 import { say } from './wording'
 
 export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
@@ -72,16 +73,11 @@ export function Wallpaper() {
 /* ------------------------------- desktop ------------------------------- */
 
 export function Desktop({ nowSec, line, healthy, open }: { nowSec: number; line: string; healthy: boolean; open: boolean }) {
-  const d = new Date(nowSec * 1000)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const date = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const prefs = useClockPrefs()
   return (
     <div className={`desktop${open ? '' : ' is-away'}`} aria-hidden={!open}>
-      <div className="glance-time">
-        {hh}:{mm}
-      </div>
-      <div className="glance-date">{date}</div>
+      <div className="glance-time">{clockTime(nowSec, prefs)}</div>
+      <div className="glance-date">{clockDate(nowSec, prefs)}</div>
       <div className="glance-state">
         <span className={`dot ${healthy ? 'is-ok' : 'is-warn'}`} />
         <span>{line}</span>
@@ -101,7 +97,7 @@ interface DockEntry {
   icon: ReactNode
 }
 
-const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 } as const
+const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 2 } as const
 
 const DOCK: DockEntry[] = [
   {
@@ -111,8 +107,9 @@ const DOCK: DockEntry[] = [
     tip: say.shell.tips.operate,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z" />
-        <circle cx="12" cy="10" r="2.5" />
+        <path d="M3.5 19c3-6 5-2.5 8-7s5.5-5 9-6" strokeDasharray="2.6 2.2" opacity="0.75" strokeWidth="1.6" />
+        <path d="M12 20s5.4-4.9 5.4-8.5A5.4 5.4 0 1 0 6.6 11.5C6.6 15.1 12 20 12 20z" fill="rgba(255,255,255,0.14)" />
+        <circle cx="12" cy="11.3" r="2" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -123,9 +120,9 @@ const DOCK: DockEntry[] = [
     tip: say.shell.tips.drive,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.5" />
-        <circle cx="12" cy="12" r="2.4" />
-        <path d="M12 14.4V20.5M9.8 10.9 4 8.6M14.2 10.9 20 8.6" />
+        <circle cx="12" cy="12" r="8.6" fill="rgba(255,255,255,0.08)" />
+        <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" />
+        <path d="M12 14.6V20.4M9.6 11 3.8 9M14.4 11 20.2 9" strokeWidth="2.4" />
       </svg>
     ),
   },
@@ -136,8 +133,10 @@ const DOCK: DockEntry[] = [
     tip: say.notBuiltYet,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="11" cy="11" r="6.5" />
-        <path d="M16 16l4.5 4.5" />
+        <circle cx="12" cy="12" r="8.6" opacity="0.9" />
+        <path d="M12 12 L18.6 7.6 A8.6 8.6 0 0 0 12 3.4 Z" fill="rgba(255,255,255,0.22)" stroke="none" />
+        <circle cx="8.6" cy="14.2" r="1.3" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="15.6" r="1" fill="currentColor" stroke="none" opacity="0.7" />
       </svg>
     ),
   },
@@ -148,8 +147,9 @@ const DOCK: DockEntry[] = [
     tip: say.notBuiltYet,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.5" />
-        <path d="M12 7v5l3.5 2" />
+        <circle cx="12" cy="12" r="8.6" fill="rgba(255,255,255,0.08)" />
+        <path d="M12 6.8V12l3.6 2.1" strokeWidth="2.4" />
+        <path d="M5.5 3.8 3 6.3M18.5 3.8 21 6.3" strokeWidth="1.6" opacity="0.8" />
       </svg>
     ),
   },
@@ -160,9 +160,10 @@ const DOCK: DockEntry[] = [
     tip: say.notBuiltYet,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <rect x="3.5" y="13" width="7" height="7" rx="1.5" />
-        <rect x="13.5" y="13" width="7" height="7" rx="1.5" />
-        <rect x="8.5" y="3.5" width="7" height="7" rx="1.5" />
+        <rect x="8.4" y="3.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.2)" stroke="none" />
+        <rect x="3" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
+        <rect x="13.8" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
+        <path d="M12 10.6v1.6M12 12.2l-5 1.2M12 12.2l5 1.2" strokeWidth="1.4" opacity="0.8" />
       </svg>
     ),
   },
@@ -174,8 +175,8 @@ const DOCK: DockEntry[] = [
     sep: true,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5 5l2.1 2.1M16.9 16.9 19 19M19 5l-2.1 2.1M7.1 16.9 5 19" />
+        <circle cx="12" cy="12" r="7.4" fill="rgba(255,255,255,0.08)" strokeWidth="2.6" strokeDasharray="2.7 2.4" />
+        <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
       </svg>
     ),
   },
@@ -197,7 +198,7 @@ export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean
             aria-disabled={!entry.live}
           >
             <span className="tip">{entry.tip}</span>
-            <span className="icon">{entry.icon}</span>
+            <span className={`icon i-${entry.id}`}>{entry.icon}</span>
             <span className="dock-name">{entry.name}</span>
             <span className="running-dot" />
           </button>
@@ -212,20 +213,56 @@ export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean
 
 type Theme = 'dark' | 'day'
 
-export function SettingsApp({ open, theme, onTheme }: { open: boolean; theme: Theme; onTheme: (t: Theme) => void }) {
+export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; theme: Theme; onTheme: (t: Theme) => void; onClose: () => void }) {
   const nav = say.shell.settings.nav
   const ap = say.shell.settings.appearance
+  const tm = say.shell.settings.time
+  const [pane, setPane] = useState<'appearance' | 'time'>('appearance')
+  const prefs = useClockPrefs()
   return (
     <div className={`shell-app is-settings${open ? '' : ' is-away'}`} aria-hidden={!open}>
       <div className="swindow">
+        <div className="swin-bar">
+          <button type="button" className="swin-close" onClick={onClose} title="Close (Esc)" aria-label="Close settings" />
+          <span className="swin-bar-title">{say.shell.settings.title}</span>
+        </div>
         <div className="swin-side">
           <div className="swin-title">{say.shell.settings.title.toUpperCase()}</div>
           {([nav.zones, nav.machines, nav.people] as string[]).map((label) => (
             <div key={label} className="snav is-inert" title={say.notBuiltYet}>{label}</div>
           ))}
-          <div className="snav is-active">{nav.appearance}</div>
+          <button type="button" className={`snav as-nav${pane === 'appearance' ? ' is-active' : ''}`} onClick={() => setPane('appearance')}>{nav.appearance}</button>
+          <button type="button" className={`snav as-nav${pane === 'time' ? ' is-active' : ''}`} onClick={() => setPane('time')}>{nav.time}</button>
           <div className="snav is-inert" title={say.notBuiltYet}>{nav.ai}</div>
         </div>
+        {pane === 'time' ? (
+        <div className="swin-main">
+          <h2>{tm.heading}</h2>
+          <p className="swin-sub">{tm.sub}</p>
+          <div className="sfield">
+            <label htmlFor="tz-select">{tm.zone}</label>
+            <select id="tz-select" value={prefs.timeZone} onChange={(e) => setClockPrefs({ timeZone: e.target.value })}>
+              <option value="">{tm.zoneSystem}</option>
+              <option value="UTC">{tm.zoneUtc}</option>
+              <option disabled>{'\u2014\u2014\u2014\u2014\u2014\u2014'}</option>
+              {zoneChoices().map((z) => (
+                <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sfield">
+            <span>{tm.format}</span>
+            <div className="swatches">
+              <button type="button" className={`swatch is-mini${!prefs.twelveHour ? ' is-on' : ''}`} onClick={() => setClockPrefs({ twelveHour: false })}>
+                <span className="swatch-label">{tm.h24}<small>{tm.h24Note}</small></span>
+              </button>
+              <button type="button" className={`swatch is-mini${prefs.twelveHour ? ' is-on' : ''}`} onClick={() => setClockPrefs({ twelveHour: true })}>
+                <span className="swatch-label">{tm.h12}<small>{tm.h12Note}</small></span>
+              </button>
+            </div>
+          </div>
+        </div>
+        ) : (
         <div className="swin-main">
           <h2>{ap.heading}</h2>
           <p className="swin-sub">{ap.sub}</p>
@@ -248,6 +285,7 @@ export function SettingsApp({ open, theme, onTheme }: { open: boolean; theme: Th
             </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

@@ -12,7 +12,8 @@ import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
 import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
-import { clockAt, say } from './wording'
+import { say } from './wording'
+import { clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
 
 type Theme = 'dark' | 'day'
 
@@ -56,6 +57,7 @@ function Station({
   // nothing else, so this is the only way to put a person on screen without
   // showing the identifier underneath them.
   const [who, setWho] = useState('')
+  const clockPrefs = useClockPrefs()
 
   // The shell: which application is up. The desktop is the resting state,
   // and Esc always brings it back (never from inside a text field).
@@ -124,7 +126,7 @@ function Station({
             {theme === 'dark' ? say.theme.dark : say.theme.day}
           </button>
           {who && <span className="stat">{who}</span>}
-          <span className="stat mono">{clockAt(now)}</span>
+          <span className="stat mono">{clockTime(now, clockPrefs)} {zoneLabel(now, clockPrefs)}</span>
           <button className="chip" onClick={onSignOut}>
             {say.signOut}
           </button>
@@ -142,7 +144,7 @@ function Station({
           )}
         </div>
         {driveOpened && <DriveApp open={screen === 'drive'} />}
-        <SettingsApp open={screen === 'settings'} theme={theme} onTheme={onTheme} />
+        <SettingsApp open={screen === 'settings'} theme={theme} onTheme={onTheme} onClose={() => setScreen('desktop')} />
         <Dock active={screen} away={screen !== 'desktop'} onOpen={openApp} />
       </div>
     </div>

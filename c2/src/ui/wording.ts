@@ -44,12 +44,22 @@ export const say = {
     },
     settings: {
       title: 'Settings',
-      nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', ai: 'AI policy' },
+      nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', time: 'Time', ai: 'AI policy' },
       appearance: {
         heading: 'Appearance',
         sub: 'Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.',
         dark: 'Dark', darkNote: 'Default. Best at night.',
         day: 'Day', dayNote: 'High brightness, for sunlight.',
+      },
+      time: {
+        heading: 'Time',
+        sub: 'How moments are shown on this station. Records and messages between machines always keep universal time underneath.',
+        zone: 'Timezone',
+        zoneSystem: 'This machine\u2019s timezone',
+        zoneUtc: 'Universal time (UTC)',
+        format: 'Clock',
+        h24: '24-hour', h24Note: '17:35',
+        h12: '12-hour', h12Note: '5:35 PM',
       },
     },
     glance: {

@@ -282,3 +282,85 @@ def test_arm_refused_until_ignition_runs_preflight(daemon):
     pf = c.recv_until("preflight")
     assert pf["ran"] is False and pf["pass"] is False
     c.close()
+
+
+# -------------------------------------------------------------- link reporter
+class FakeLink:
+    """In-memory VehicleLink capturing publishes."""
+
+    def __init__(self):
+        self.published = []
+        self._handlers = {}
+
+    def publish(self, topic, payload):
+        self.published.append((topic, payload))
+
+    def subscribe(self, topic, handler):
+        self._handlers[topic] = handler
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    @property
+    def connected(self):
+        return True
+
+
+def make_reporter(vehicle):
+    from bridge.link_reporter import LinkReporter
+    r = LinkReporter.__new__(LinkReporter)
+    from sim.link_client import LinkClient
+    r.vehicle = vehicle
+    r.lat, r.lon = 51.5055, -0.118
+    r._link = FakeLink()
+    r._client = LinkClient("01BENCHUGV0000000000000001", r._link, "argus", on_task=lambda t: None)
+    import threading
+    r._stop = threading.Event()
+    return r
+
+
+def test_reporter_heartbeat_and_telemetry_reflect_the_vehicle():
+    from link.v1.messages_pb2 import Heartbeat, Telemetry as LinkTelemetry
+
+    v = MockVehicle()
+    v.apply(Command(gear="F", ignition=True, arm=True, throttle=1.0))
+    advance(v, 5.0)
+    r = make_reporter(v)
+    r.step(dt=1.0, send_heartbeat=True)
+
+    topics = [t for t, _ in r._link.published]
+    hb_raw = [p for t, p in r._link.published if t.endswith("heartbeat")]
+    tel_raw = [p for t, p in r._link.published if t.endswith("telemetry")]
+    assert hb_raw and tel_raw, topics
+
+    hb = Heartbeat(); hb.ParseFromString(hb_raw[0])
+    assert hb.asset_class == "ugv"
+    assert 0 < hb.battery_fraction <= 1
+
+    tel = LinkTelemetry(); tel.ParseFromString(tel_raw[0])
+    assert tel.speed_mps > 1
+
+
+def test_reporter_dead_reckons_north():
+    v = MockVehicle()
+    r = make_reporter(v)
+    lat0, lon0 = r.lat, r.lon
+    r.dead_reckon(speed_mps=5.0, heading_deg=0.0, dt=10.0)  # 50 m north
+    assert r.lat > lat0
+    assert abs(r.lon - lon0) < 1e-9
+    assert abs((r.lat - lat0) * 111_320.0 - 50.0) < 0.5
+
+
+def test_reporter_standby_when_not_driving():
+    from link.v1.messages_pb2 import Heartbeat
+    from link.v1.ontology_pb2 import ASSET_STATUS_STANDBY
+
+    v = MockVehicle()  # ignition off, not armed
+    r = make_reporter(v)
+    r.step(dt=0.5, send_heartbeat=True)
+    hb_raw = [p for t, p in r._link.published if t.endswith("heartbeat")][0]
+    hb = Heartbeat(); hb.ParseFromString(hb_raw)
+    assert hb.status == ASSET_STATUS_STANDBY

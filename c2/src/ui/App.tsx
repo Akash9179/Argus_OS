@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
-import { Desktop, Dock, DriveApp, type ShellApp } from './Shell'
+import { Desktop, Dock, DriveApp, Wallpaper, type ShellApp } from './Shell'
 import { clockAt, say } from './wording'
 
 type Theme = 'dark' | 'day'
@@ -126,6 +126,7 @@ function Station({
       </header>
 
       <div className="shell-stage">
+        <Wallpaper />
         <Desktop nowSec={now} line={glanceLine} healthy={link !== 'lost'} open={screen === 'desktop'} />
         <div className={`shell-app${screen === 'operate' ? '' : ' is-away'}`} aria-hidden={screen !== 'operate'}>
           {ready ? (

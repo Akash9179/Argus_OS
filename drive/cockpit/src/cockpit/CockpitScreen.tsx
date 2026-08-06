@@ -400,16 +400,27 @@ function ArrowPad({ press, release }: { press: (d: DriveDir) => void; release: (
 }
 
 /* ─────────────────────── Drive control bar ─────────────────────── */
-function Segmented<T extends string>({ options, value, onChange, disabled = [], badges }: { options: T[]; value: T; onChange: (v: T) => void; disabled?: T[]; badges?: Partial<Record<T, string>> }) {
+/* Bare-word selector: no pill, no border — the active word is simply bright.
+   State is carried by contrast, not chrome. */
+function BareSeg<T extends string>({ options, value, onChange, disabled = [], size = 'sm' }: { options: T[]; value: T; onChange: (v: T) => void; disabled?: T[]; size?: 'sm' | 'lg' }) {
   return (
-    <div className="inline-flex items-center gap-1 rounded-full bg-surface-inset p-1">
+    <div className={`inline-flex items-center ${size === 'lg' ? 'gap-5' : 'gap-3'}`}>
       {options.map((opt) => {
         const active = opt === value
-        const isDisabled = disabled.includes(opt)
+        const off = disabled.includes(opt)
         return (
-          <button key={opt} type="button" disabled={isDisabled} onClick={() => !isDisabled && onChange(opt)} title={isDisabled ? 'Coming soon' : undefined} className={`inline-flex min-w-[40px] items-center justify-center gap-1 rounded-full px-3 py-1.5 font-mono text-[13px] font-semibold transition-colors ${active ? 'bg-accent text-white' : isDisabled ? 'cursor-not-allowed text-text-3/40' : 'text-text-3 hover:text-text-2'}`}>
+          <button
+            key={opt}
+            type="button"
+            disabled={off}
+            onClick={() => !off && onChange(opt)}
+            title={off ? 'Coming soon' : undefined}
+            aria-pressed={active}
+            className={`leading-none transition-colors duration-200 ${
+              size === 'lg' ? 'text-[19px] tracking-[0.02em]' : 'font-mono text-[11px] uppercase tracking-[0.14em]'
+            } ${active ? 'font-semibold text-text' : off ? 'cursor-not-allowed font-medium text-text-3/30' : 'font-medium text-text-3 hover:text-text-2'}`}
+          >
             {opt}
-            {badges?.[opt] && <span className={`text-[11px] ${active ? 'text-white/70' : 'text-text-3'}`}>{badges[opt]}</span>}
           </button>
         )
       })}
@@ -417,16 +428,18 @@ function Segmented<T extends string>({ options, value, onChange, disabled = [], 
   )
 }
 
-type ToggleState = 'off' | 'pending' | 'confirmed'
-function ToggleChip({ label, icon, state, tone = 'success', badge, onClick }: { label: string; icon: ReactNode; state: ToggleState; tone?: 'success' | 'accent'; badge?: ReactNode; onClick: () => void }) {
-  let cls = 'border border-line text-text-2 hover:bg-surface-3 hover:text-text'
-  if (state === 'pending') cls = 'border border-line bg-surface-3 text-text-3'
-  else if (state === 'confirmed') cls = tone === 'success' ? 'border border-success/40 bg-success-weak text-success' : 'border border-accent/40 bg-accent-weak text-accent'
+/* Icon-only auxiliary control: no border, no fill. ON = lit icon + accent tick. */
+function AuxButton({ title, icon, on, blink = false, onClick }: { title: string; icon: ReactNode; on: boolean; blink?: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={state === 'confirmed'} className={`inline-flex h-9 items-center gap-1.5 rounded-control px-2.5 text-[12px] font-semibold transition-colors ${cls}`}>
-      <span className={state === 'pending' ? 'argus-blink' : ''}>{icon}</span>
-      {label}
-      {badge && <span className="ml-0.5">{badge}</span>}
+    <button
+      type="button"
+      title={title}
+      aria-pressed={on}
+      onClick={onClick}
+      className="group relative grid h-11 w-11 place-items-center rounded-control transition-colors hover:bg-surface-3"
+    >
+      <span className={`transition-colors ${on ? 'text-text' : 'text-text-3 group-hover:text-text-2'} ${on && blink ? 'argus-blink' : ''}`}>{icon}</span>
+      <span className={`absolute bottom-[5px] left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-accent transition-opacity duration-200 ${on ? 'opacity-100' : 'opacity-0'}`} />
     </button>
   )
 }
@@ -434,10 +447,6 @@ function ToggleChip({ label, icon, state, tone = 'success', badge, onClick }: { 
 /** Vertical hairline separating control groups in the drive bar. */
 function Divider() {
   return <span className="h-8 w-px shrink-0 self-center bg-line-strong" aria-hidden />
-}
-
-function GroupLabel({ children }: { children: string }) {
-  return <span className="label mr-2 text-text-3">{children}</span>
 }
 
 /** Shows a controller-button glyph above a control when hints are on. */
@@ -460,131 +469,123 @@ function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints,
   const estop = useVehicleStore((s) => s.estop)
   const arm = useVehicleStore((s) => s.arm)
 
-  const driving = tele.safetyState === 'DRIVING'
   const preflight = useVehicleStore((s) => s.preflight)
   const remoteMode = useVehicleStore((s) => s.remote)
+  const driving = tele.safetyState === 'DRIVING'
+  const latched = tele.safetyState === 'LATCHED'
   const blinker = tele.lights.blinker
-  const st = (on: boolean): ToggleState => (on ? 'confirmed' : 'off')
+
+  const selfTest =
+    remoteMode && tele.ignition
+      ? !preflight.ran
+        ? { label: 'SELF-TEST', cls: 'text-warning', dot: 'bg-warning argus-blink' }
+        : preflight.pass
+          ? { label: `SELF-TEST ${preflight.checks.length}/${preflight.checks.length}`, cls: 'text-success', dot: 'bg-success' }
+          : { label: `SELF-TEST FAIL ${preflight.checks.filter((c) => !c.ok).length}`, cls: 'text-critical', dot: 'bg-critical argus-blink' }
+      : null
 
   return (
-    <div className="flex items-center gap-x-4 rounded-card border border-line bg-surface-2 px-5 py-[clamp(8px,1.6vh,14px)]">
-      {/* driving controls — grouped zones separated by hairlines */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-3">
+    <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-card border border-line bg-surface-2 px-6 py-[clamp(10px,1.8vh,16px)]">
+      {/* input — how the human drives */}
       <WithHint show={hints} glyph={<><PadGlyph k="lstick" /><PadGlyph k="r2" /></>}>
-        <div className="flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-4">
           <Joystick onChange={onStick} />
+          {!padConnected && <ArrowPad press={manual.press} release={manual.release} />}
           <button
             type="button"
             onClick={onOpenController}
-            className={`inline-flex items-center gap-1.5 rounded-chip px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors hover:brightness-110 ${
-              padConnected ? 'bg-success-weak text-success' : 'bg-surface-3 text-text-3 hover:text-text-2'
-            }`}
+            className="group flex flex-col items-center gap-1 text-text-3 transition-colors hover:text-text-2"
             title="Open controller setup & test"
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${padConnected ? 'bg-success' : 'bg-text-3'}`} />
-            {padConnected ? 'DualSense' : 'On-screen'}
+            <span className={`h-1.5 w-1.5 rounded-full ${padConnected ? 'bg-success' : 'bg-text-3 group-hover:bg-text-2'}`} />
+            <span className="font-mono text-[9px] uppercase tracking-[0.14em]">{padConnected ? 'DualSense' : 'On-screen'}</span>
           </button>
         </div>
       </WithHint>
 
-      {/* arrow keys / on-screen accelerator — only when no gamepad drives */}
-      {!padConnected && (
-        <>
-          <Divider />
-          <div className="flex flex-col items-center gap-1.5">
-            <ArrowPad press={manual.press} release={manual.release} />
-            <span className="font-mono text-[10px] uppercase tracking-wider text-text-3">Keys / hold</span>
-          </div>
-        </>
-      )}
+      {/* the cluster — gear · speed · power. The number is the hero. */}
+      <div className="flex min-w-0 flex-1 items-center justify-center gap-x-9">
+        <WithHint show={hints} glyph={<><PadGlyph k="circle" /><PadGlyph k="cross" /><PadGlyph k="triangle" /></>}>
+          <BareSeg size="lg" options={['R', 'N', 'F']} value={tele.gear} onChange={setGear} />
+        </WithHint>
 
-      <Divider />
-
-      <div className="flex items-center">
-        <GroupLabel>Ignition</GroupLabel>
-        <ToggleChip label={tele.ignition ? 'On' : 'Off'} icon={<IgnitionIcon width={15} height={15} />} state={st(tele.ignition)} tone="accent" onClick={toggleIgnition} />
-      </div>
-
-      {remoteMode && tele.ignition && (
-        <div className="flex items-center" title={preflight.checks.map((c) => `${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`).join('\n') || 'Self-test pending'}>
-          <GroupLabel>Self-test</GroupLabel>
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-chip px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider ${
-              !preflight.ran
-                ? 'bg-warning-weak text-warning'
-                : preflight.pass
-                  ? 'bg-success-weak text-success'
-                  : 'bg-critical-weak text-critical'
-            }`}
+        <WithHint show={hints} glyph={<><PadGlyph k="r2" /><PadGlyph k="l2" /></>}>
+          <div
+            className="flex flex-col items-center gap-1"
+            title={selfTest && preflight.ran ? preflight.checks.map((c) => `${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`).join('\n') : undefined}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${!preflight.ran ? 'bg-warning argus-blink' : preflight.pass ? 'bg-success' : 'bg-critical argus-blink'}`} />
-            {!preflight.ran ? 'Running' : preflight.pass ? `Pass ${preflight.checks.length}/${preflight.checks.length}` : `Fail ${preflight.checks.filter((c) => !c.ok).length}`}
-          </span>
-        </div>
-      )}
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-[clamp(30px,4.6vh,40px)] font-light leading-none tabular-nums ${remoteMode ? 'text-text' : 'text-text-2'}`}>
+                {tele.speedKmh.toFixed(0)}
+              </span>
+              <span className="text-[12px] font-medium text-text-3">km/h</span>
+            </div>
+            <div className="flex items-center gap-2 whitespace-nowrap font-mono text-[9.5px] uppercase tracking-[0.16em] text-text-3">
+              <span className={tele.ignition ? 'text-text-2' : ''}>{tele.ignition ? 'IGN ON' : 'IGN OFF'}</span>
+              {selfTest && (
+                <>
+                  <span className="opacity-40">·</span>
+                  <span className={`inline-flex items-center gap-1.5 ${selfTest.cls}`}>
+                    <span className={`h-1 w-1 rounded-full ${selfTest.dot}`} />
+                    {selfTest.label}
+                  </span>
+                </>
+              )}
+              <span className="opacity-40">·</span>
+              <span className={latched ? 'text-critical' : driving ? 'text-success' : ''}>{tele.safetyState}</span>
+            </div>
+          </div>
+        </WithHint>
 
-      <Divider />
-
-      <WithHint show={hints} glyph={<><PadGlyph k="circle" /><PadGlyph k="cross" /><PadGlyph k="triangle" /></>}>
-        <div className="flex items-center">
-          <GroupLabel>Gear</GroupLabel>
-          <Segmented options={['R', 'N', 'F']} value={tele.gear} onChange={setGear} />
-        </div>
-      </WithHint>
-
-      <WithHint show={hints} glyph={<><PadGlyph k="r2" /><PadGlyph k="l2" /></>}>
-        <div className="flex items-baseline">
-          <GroupLabel>Speed</GroupLabel>
-          {remoteMode ? (
-            <span className="font-mono text-[clamp(20px,2.6vh,26px)] font-bold leading-none tabular-nums text-text">
-              {tele.speedKmh.toFixed(1)}<span className="ml-1 text-[12px] font-medium text-text-3">km/h</span>
-            </span>
-          ) : (
-            <span className="font-mono text-[clamp(20px,2.6vh,26px)] font-bold leading-none tabular-nums text-text-3">N/A</span>
-          )}
-        </div>
-      </WithHint>
-
-      <Divider />
-
-      <div className="flex items-center">
-        <GroupLabel>Mode</GroupLabel>
-        <Segmented options={['MANUAL', 'AUTO']} value={tele.mode} onChange={setMode} disabled={['AUTO']} />
+        <button
+          type="button"
+          onClick={toggleIgnition}
+          aria-pressed={tele.ignition}
+          title={tele.ignition ? 'Ignition on — tap to switch off' : 'Ignition off — tap to start'}
+          className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition-all duration-300 ${
+            tele.ignition
+              ? 'bg-accent-weak text-accent shadow-[0_0_20px_rgba(46,143,255,0.28)]'
+              : 'bg-surface-3 text-text-3 hover:text-text-2'
+          }`}
+        >
+          <IgnitionIcon width={19} height={19} />
+        </button>
       </div>
 
-      <Divider />
-
-      <div className="flex items-center gap-1.5">
+      {/* auxiliaries — quiet, icon-only, lit when active */}
+      <div className="flex items-center gap-1">
+        <BareSeg options={['MANUAL', 'AUTO']} value={tele.mode} onChange={setMode} disabled={['AUTO']} />
+        <span className="mx-3 h-8 w-px bg-line-strong" aria-hidden />
         <WithHint show={hints} glyph={<PadGlyph k="square" />}>
-          <ToggleChip label="Lights" icon={<LightsIcon width={15} height={15} />} state={st(tele.lights.headlights)} onClick={toggleHeadlights} />
+          <AuxButton title="Headlights" on={tele.lights.headlights} onClick={toggleHeadlights} icon={<LightsIcon width={17} height={17} />} />
         </WithHint>
         <WithHint show={hints} glyph={<PadGlyph k="dleft" />}>
-          <ToggleChip label="Left" icon={<BlinkerIcon width={15} height={15} className="scale-x-[-1]" />} state={st(blinker === 'left' || blinker === 'hazard')} tone="accent" onClick={() => setBlinker(blinker === 'left' ? 'off' : 'left')} />
+          <AuxButton title="Left blinker" on={blinker === 'left' || blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'left' ? 'off' : 'left')} icon={<BlinkerIcon width={17} height={17} className="scale-x-[-1]" />} />
         </WithHint>
         <WithHint show={hints} glyph={<PadGlyph k="dright" />}>
-          <ToggleChip label="Right" icon={<BlinkerIcon width={15} height={15} />} state={st(blinker === 'right' || blinker === 'hazard')} tone="accent" onClick={() => setBlinker(blinker === 'right' ? 'off' : 'right')} />
+          <AuxButton title="Right blinker" on={blinker === 'right' || blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'right' ? 'off' : 'right')} icon={<BlinkerIcon width={17} height={17} />} />
         </WithHint>
         <WithHint show={hints} glyph={<PadGlyph k="dup" />}>
-          <ToggleChip label="Hazards" icon={<HazardIcon width={15} height={15} />} state={st(blinker === 'hazard')} tone="accent" onClick={() => setBlinker(blinker === 'hazard' ? 'off' : 'hazard')} />
+          <AuxButton title="Hazards" on={blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'hazard' ? 'off' : 'hazard')} icon={<HazardIcon width={17} height={17} />} />
         </WithHint>
         <WithHint show={hints} glyph={<PadGlyph k="r1" />}>
-          <ToggleChip label="Horn" icon={<HornIcon width={15} height={15} />} state={st(tele.lights.horn)} onClick={toggleHorn} />
+          <AuxButton title="Horn" on={tele.lights.horn} onClick={toggleHorn} icon={<HornIcon width={17} height={17} />} />
         </WithHint>
       </div>
-      </div>
 
-      {/* ARM / E-STOP — pinned right behind a hairline, the one loud element */}
       <Divider />
-      <div className="flex shrink-0 items-center gap-2">
+
+      {/* safety — the one loud element */}
+      <div className="flex shrink-0 items-center gap-2.5">
         {!driving && (
           <WithHint show={hints} glyph={<PadGlyph k="l1r1" />}>
-            <Button variant="primary" onClick={arm} className="h-[clamp(40px,5.2vh,44px)] px-6 text-[15px] font-bold tracking-wide">
+            <Button variant="primary" onClick={arm} className="h-[clamp(42px,5.4vh,48px)] px-6 text-[14px] font-semibold tracking-wide">
               ARM
             </Button>
           </WithHint>
         )}
         <WithHint show={hints} glyph={<PadGlyph k="options" />}>
-          <Button variant="danger" onClick={estop} className="h-[clamp(40px,5.2vh,44px)] px-7 text-[15px] font-bold tracking-wide shadow-[0_0_0_3px_rgba(255,77,77,0.18)]">
+          <Button variant="danger" onClick={estop} className="h-[clamp(42px,5.4vh,48px)] px-7 text-[14px] font-semibold tracking-[0.06em]">
             E-STOP
           </Button>
         </WithHint>

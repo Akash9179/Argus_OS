@@ -1,4 +1,4 @@
-# ARGUS DRIVE — the vehicle-side product
+# ARGUS DRIVE - the vehicle-side product
 
 Everything in this folder ships to a vehicle. Nothing else in this repository does.
 
@@ -10,7 +10,7 @@ Everything in this folder ships to a vehicle. Nothing else in this repository do
 | `bridge/` | The vehicle daemon: WebRTC video + control/telemetry, serial link to the MCU, watchdog failsafe. Today: the test bridge and mock vehicle; the real daemon grows here. | Jetson |
 | `cockpit/` | The operator's driving UI (manual mode). | Operator laptop, NOT the Jetson |
 | `brain/` | The LLM layer: judgment, narration, intent. Sits above the control loop. | Jetson or server (TBD) |
-| `docs/` | Teleop design spec and Drive design notes. | Nowhere — reference |
+| `docs/` | Teleop design spec and Drive design notes. | Nowhere - reference |
 
 ## Installing on the Jetson
 

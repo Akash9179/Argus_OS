@@ -1,4 +1,4 @@
-# Body: ugv-01 — Jeep-chassis ground vehicle
+# Body: ugv-01 - Jeep-chassis ground vehicle
 
 The first steel. Jetson AGX Orin 64GB onboard; ZED X planned as primary
 sensor. This folder holds everything body-specific: hardware notes, the MCU

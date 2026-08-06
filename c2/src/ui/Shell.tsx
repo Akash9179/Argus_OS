@@ -20,7 +20,7 @@ const DRIVE_URL_KEY = 'argus.driveUrl'
 export function driveUrl(): string {
   return (
     window.localStorage.getItem(DRIVE_URL_KEY) ??
-    'http://localhost:5174/?bridge=localhost:8090'
+    'http://localhost:5174/?bridge=localhost:8090&key=demo'
   )
 }
 
@@ -53,7 +53,7 @@ export function Wallpaper() {
         <rect width="1600" height="1000" fill="url(#wp-sky)" />
         <rect width="1600" height="1000" fill="url(#wp-aurora)" />
         <rect width="1600" height="1000" fill="url(#wp-teal)" />
-        <g stroke="var(--wall-line)" strokeWidth="1.2" fill="none">
+        <g stroke="var(--wall-line)" strokeWidth="1.4" fill="none" opacity="0.9">
           <path d="M-50,700 Q300,640 640,700 T1650,660" />
           <path d="M-50,760 Q300,700 640,760 T1650,720" />
           <path d="M-50,820 Q300,762 640,822 T1650,782" />
@@ -62,17 +62,6 @@ export function Wallpaper() {
           <path d="M-50,240 Q380,170 760,240 T1650,190" />
         </g>
         <path d="M-50,470 Q400,540 820,455 T1650,500" stroke="var(--wall-road)" strokeWidth="46" fill="none" opacity="0.85" />
-        <g stroke="var(--wall-grid)" strokeWidth="1">
-          <line x1="0" y1="200" x2="1600" y2="200" />
-          <line x1="0" y1="400" x2="1600" y2="400" />
-          <line x1="0" y1="600" x2="1600" y2="600" />
-          <line x1="0" y1="800" x2="1600" y2="800" />
-          <line x1="266" y1="0" x2="266" y2="1000" />
-          <line x1="533" y1="0" x2="533" y2="1000" />
-          <line x1="800" y1="0" x2="800" y2="1000" />
-          <line x1="1066" y1="0" x2="1066" y2="1000" />
-          <line x1="1333" y1="0" x2="1333" y2="1000" />
-        </g>
         <rect width="1600" height="1000" fill="url(#wp-ember)" />
       </svg>
     </div>

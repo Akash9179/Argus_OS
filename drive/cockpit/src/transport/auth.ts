@@ -7,6 +7,15 @@
  */
 const KEY = 'argus.driveKey'
 
+// Testing convenience: ?key=<password> in the URL pre-fills the drive key so
+// the OS shell can open the cockpit without a prompt. TESTING PERIOD ONLY —
+// a key in a URL is not an acceptable pattern past the bench, remove this
+// before anything reachable from outside the bench exists.
+if (typeof window !== 'undefined') {
+  const urlKey = new URLSearchParams(window.location.search).get('key')
+  if (urlKey) window.sessionStorage.setItem(KEY, urlKey)
+}
+
 export function isDriveMode(): boolean {
   if (typeof window === 'undefined') return false
   const q = new URLSearchParams(window.location.search)

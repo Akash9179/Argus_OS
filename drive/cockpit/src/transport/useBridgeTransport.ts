@@ -54,6 +54,7 @@ export function useBridgeTransport(password: string | null, live: boolean, hz = 
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
     t.onAuthFail = () => setAuthFailed(true)
     t.onTelemetry = (tel) => store.getState().applyRemoteTelemetry(tel)
+    t.onPreflight = (p) => store.getState().applyPreflight(p)
     t.connect()
 
     const framesPerBeat = Math.max(1, Math.round(hz / 5))

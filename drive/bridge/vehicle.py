@@ -31,6 +31,13 @@ class VehicleAdapter(abc.ABC):
         """Bring the vehicle to a safe state immediately: zero throttle,
         neutral steer. Must be idempotent and must not depend on the link."""
 
+    @abc.abstractmethod
+    def self_test(self) -> list[dict]:
+        """Pre-arm checks, run when ignition comes on. Each check is
+        {"name": str, "ok": bool, "detail": str}. The daemon refuses to
+        arm until every check passes. Must be safe to run repeatedly and
+        must never move the vehicle."""
+
 
 class MockVehicle(VehicleAdapter):
     """Toy physics, honest state machine.
@@ -86,6 +93,20 @@ class MockVehicle(VehicleAdapter):
             if self._speed > 0.05:
                 sign = 1.0 if c.gear == "F" else -1.0
                 self._heading = (self._heading + sign * c.steer * 40.0 * dt) % 360.0
+
+    def self_test(self) -> list[dict]:
+        with self._lock:
+            battery = self._battery
+        def check(name, ok, detail):
+            return {"name": name, "ok": bool(ok), "detail": detail}
+        return [
+            check("mcu_link", True, "serial echo ok (mock)"),
+            check("battery", battery > 10.0, f"{battery:.0f}%"),
+            check("steering", True, "sweep ok (mock)"),
+            check("throttle", True, "zero verified (mock)"),
+            check("estop_circuit", True, "loop closed (mock)"),
+            check("watchdog", True, "armed"),
+        ]
 
     def read(self) -> Telemetry:
         with self._lock:

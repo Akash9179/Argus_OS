@@ -4,10 +4,12 @@ import {
   clampSigned,
   clampUnit,
   neutralCommand,
+  noPreflight,
   type Blinker,
   type Command,
   type DriveMode,
   type Gear,
+  type PreflightState,
   type Telemetry,
 } from '../contract'
 import {
@@ -33,6 +35,8 @@ interface VehicleStore {
   arm: () => void
   estop: () => void
   remote: boolean
+  preflight: PreflightState
+  applyPreflight: (p: PreflightState) => void
   setRemote: (on: boolean) => void
   applyRemoteTelemetry: (t: Telemetry) => void
   tick: (dtSec: number) => void
@@ -48,6 +52,7 @@ function makeInitial() {
 export const useVehicleStore = create<VehicleStore>((set) => ({
   ...makeInitial(),
   remote: false,
+  preflight: noPreflight(),
 
   setStick: (steer, throttle) =>
     set((s) => ({
@@ -75,6 +80,8 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
   // While a bridge link is live, the vehicle's own telemetry is the truth;
   // the local sim keeps ticking (it feeds nothing) but must not fight it.
   applyRemoteTelemetry: (t) => set({ telemetry: t }),
+
+  applyPreflight: (p) => set({ preflight: p }),
 
   toggleHeadlights: () =>
     set((s) => ({

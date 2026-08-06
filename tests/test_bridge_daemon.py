@@ -235,3 +235,50 @@ def test_driver_silence_latches_the_vehicle(daemon):
             break
     assert state == "LATCHED"
     c.close()
+
+
+# ----------------------------------------------------------------- preflight
+def test_mock_self_test_passes_when_healthy():
+    checks = MockVehicle().self_test()
+    assert len(checks) >= 4
+    assert all(c["ok"] for c in checks)
+    assert {"name", "ok", "detail"} <= set(checks[0].keys())
+
+
+def test_arm_refused_until_ignition_runs_preflight(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+
+    # arm WITHOUT ignition: no preflight has run, so the daemon must not arm
+    cmd = Command(gear="F", arm=True, ignition=False).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    tel = c.recv_until("telemetry")
+    assert tel["safetyState"] == "STOPPED"
+    assert d.preflight["ran"] is False
+
+    # ignition on: preflight runs and is broadcast, green light
+    cmd = Command(gear="F", ignition=True).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    pf = c.recv_until("preflight")
+    assert pf["ran"] is True and pf["pass"] is True
+    assert all(ch["ok"] for ch in pf["checks"])
+
+    # now arming works
+    cmd = Command(gear="F", ignition=True, arm=True).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    deadline = time.monotonic() + 2
+    state = None
+    while time.monotonic() < deadline:
+        state = c.recv_until("telemetry")["safetyState"]
+        if state == "DRIVING":
+            break
+    assert state == "DRIVING"
+
+    # ignition off invalidates the green light
+    cmd = Command(gear="F", ignition=False).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    pf = c.recv_until("preflight")
+    assert pf["ran"] is False and pf["pass"] is False
+    c.close()

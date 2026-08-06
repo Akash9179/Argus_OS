@@ -461,6 +461,8 @@ function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints,
   const arm = useVehicleStore((s) => s.arm)
 
   const driving = tele.safetyState === 'DRIVING'
+  const preflight = useVehicleStore((s) => s.preflight)
+  const remoteMode = useVehicleStore((s) => s.remote)
   const blinker = tele.lights.blinker
   const st = (on: boolean): ToggleState => (on ? 'confirmed' : 'off')
 
@@ -503,6 +505,24 @@ function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints,
         <ToggleChip label={tele.ignition ? 'On' : 'Off'} icon={<IgnitionIcon width={15} height={15} />} state={st(tele.ignition)} tone="accent" onClick={toggleIgnition} />
       </div>
 
+      {remoteMode && tele.ignition && (
+        <div className="flex items-center" title={preflight.checks.map((c) => `${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`).join('\n') || 'Self-test pending'}>
+          <GroupLabel>Self-test</GroupLabel>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-chip px-2 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider ${
+              !preflight.ran
+                ? 'bg-warning-weak text-warning'
+                : preflight.pass
+                  ? 'bg-success-weak text-success'
+                  : 'bg-critical-weak text-critical'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${!preflight.ran ? 'bg-warning argus-blink' : preflight.pass ? 'bg-success' : 'bg-critical argus-blink'}`} />
+            {!preflight.ran ? 'Running' : preflight.pass ? `Pass ${preflight.checks.length}/${preflight.checks.length}` : `Fail ${preflight.checks.filter((c) => !c.ok).length}`}
+          </span>
+        </div>
+      )}
+
       <Divider />
 
       <WithHint show={hints} glyph={<><PadGlyph k="circle" /><PadGlyph k="cross" /><PadGlyph k="triangle" /></>}>
@@ -515,8 +535,13 @@ function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints,
       <WithHint show={hints} glyph={<><PadGlyph k="r2" /><PadGlyph k="l2" /></>}>
         <div className="flex items-baseline">
           <GroupLabel>Speed</GroupLabel>
-          {/* no real speed sensor yet — N/A until wired */}
-          <span className="font-mono text-[clamp(20px,2.6vh,26px)] font-bold leading-none tabular-nums text-text-3">N/A</span>
+          {remoteMode ? (
+            <span className="font-mono text-[clamp(20px,2.6vh,26px)] font-bold leading-none tabular-nums text-text">
+              {tele.speedKmh.toFixed(1)}<span className="ml-1 text-[12px] font-medium text-text-3">km/h</span>
+            </span>
+          ) : (
+            <span className="font-mono text-[clamp(20px,2.6vh,26px)] font-bold leading-none tabular-nums text-text-3">N/A</span>
+          )}
         </div>
       </WithHint>
 
@@ -590,6 +615,7 @@ export function CockpitScreen() {
   // keyboard arrows + on-screen pad drive only when no gamepad and cockpit is shown
   const manual = useManualDrive(!pad.connected && !showConnect)
   const tele = useTelemetry()
+  const remoteMode = useVehicleStore((s) => s.remote)
   const setStick = useVehicleStore((s) => s.setStick)
   const toggleRecord = useVehicleStore((s) => s.toggleRecord)
 
@@ -599,6 +625,7 @@ export function CockpitScreen() {
   const [controllerOpen, setControllerOpen] = useState(false)
   const [hints, setHints] = useState(false)
   const [assist, setAssist] = useState(false)
+  const [voiceOpen, setVoiceOpen] = useState(false)
 
   // Brain-issued bounded drive. Safety model:
   //  - only asserts while "assist" is on and the assert-loop is running;
@@ -701,12 +728,26 @@ export function CockpitScreen() {
         <span className="h-5 w-px bg-line-strong" />
         {/* Unconnected telemetry shows N/A until wired to the real vehicle.
             Steer is real (it's the commanded steering). */}
-        <Metric label="Link" value="N/A" valueClass="text-text-3" />
-        <Metric label="Battery" value="N/A" valueClass="text-text-3" />
-        <Metric label="HDG" value="N/A" valueClass="text-text-3" />
+        <Metric label="Link" value={remoteMode ? 'LIVE' : 'N/A'} valueClass={remoteMode ? 'text-success' : 'text-text-3'} />
+        <Metric label="Battery" value={remoteMode ? `${tele.battery.percent}%` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
+        <Metric label="HDG" value={remoteMode ? `${tele.headingDeg}\u00B0` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
         <Metric label="Steer" value={steerLabel(steer)} valueClass={Math.abs(steer) > 0.02 ? 'text-accent' : 'text-text'} />
-        <Metric label="Temp" value="N/A" valueClass="text-text-3" />
+        <Metric label="Temp" value={remoteMode ? `${tele.tempC}\u00B0C` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setVoiceOpen((v) => !v)}
+            title={voiceOpen ? 'Close the Argus voice panel' : 'Talk to Argus — voice, vision, pre-flight'}
+            aria-pressed={voiceOpen}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-control border px-2.5 font-mono text-[12px] font-semibold uppercase tracking-wider transition-colors ${
+              voiceOpen
+                ? 'border-accent/40 bg-accent-weak text-accent'
+                : 'border-line bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-2'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${voiceOpen ? 'bg-accent' : 'bg-text-3'}`} />
+            Argus
+          </button>
           <button
             type="button"
             onClick={() => setAssist((v) => !v)}
@@ -787,10 +828,12 @@ export function CockpitScreen() {
 
       <ControllerPanel open={controllerOpen} onClose={() => setControllerOpen(false)} />
 
-      {/* Argus voice/brain HUD — provisional top-right placement (refined in M5/design pass) */}
-      <div className="pointer-events-auto fixed right-4 top-20 z-[900] w-[min(340px,calc(100vw-2rem))]">
-        <BrainPanel assistEnabled={assist} onDriveIntent={handleDriveIntent} />
-      </div>
+      {/* Argus voice/brain HUD — opened from the header, closed by default */}
+      {voiceOpen && (
+        <div className="pointer-events-auto fixed right-4 top-24 z-[900] w-[min(340px,calc(100vw-2rem))]">
+          <BrainPanel assistEnabled={assist} onDriveIntent={handleDriveIntent} />
+        </div>
+      )}
 
       <RemoLinkBadge link={link} />
       {showConnect && (

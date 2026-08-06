@@ -1,4 +1,4 @@
-import type { Command, Telemetry } from '../contract'
+import type { Command, PreflightState, Telemetry } from '../contract'
 import type { LinkStatus } from './remoTransport'
 
 /**
@@ -27,6 +27,7 @@ export class BridgeTransport {
   onRole?: (role: string) => void
   onAuthFail?: () => void
   onTelemetry?: (t: Telemetry) => void
+  onPreflight?: (p: PreflightState) => void
 
   constructor(url: string, password = '') {
     this.url = url
@@ -67,6 +68,8 @@ export class BridgeTransport {
         this.onRole?.(msg.role)
       } else if (msg.t === 'telemetry') {
         this.onTelemetry?.(msg as unknown as Telemetry)
+      } else if (msg.t === 'preflight') {
+        this.onPreflight?.(msg as unknown as PreflightState)
       }
     }
     ws.onclose = () => {

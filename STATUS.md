@@ -21,7 +21,7 @@ progress · [!] blocked · [ ] planned.
     - [!] Perception - ZED X; blocked on Stereolabs answers + steel
   - [~] Manual mode
     - [~] Cockpit - UI v0 + bridge-protocol transport (?bridge=host), ignition control, live vehicle telemetry in HUD. Pending: video pane
-    - [x] Watchdog - in the bridge daemon: silence/link-loss latches stop, explicit re-arm (mock-tested; hardware validation pending)
+    - [x] Watchdog + self-test - ignition triggers pre-arm checks (green light gates arming); silence/link-loss latches stop, explicit re-arm (mock-tested; hardware validation pending)
     - [~] Bridge - daemon v1 built: cockpit contract over WS, auth, single-driver lock, mock vehicle, 15 tests. Pending: video, real ugv-01 adapter (post-survey)
   - [~] Brain - v0.1 prototype (direct SDK; must move behind gateway)
 

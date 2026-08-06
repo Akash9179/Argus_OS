@@ -41,3 +41,17 @@ export function neutralCommand(): Command {
     safety: { arm: false, estop: false },
   }
 }
+
+export interface PreflightCheck {
+  name: string
+  ok: boolean
+  detail: string
+}
+
+export interface PreflightState {
+  ran: boolean
+  pass: boolean
+  checks: PreflightCheck[]
+}
+
+export const noPreflight = (): PreflightState => ({ ran: false, pass: false, checks: [] })

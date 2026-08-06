@@ -61,6 +61,8 @@ class BridgeDaemon:
         self.host = host
         self.port = port
         self.watchdog = Watchdog(timeout_s=watchdog_timeout_s)
+        self.preflight: dict = {"ran": False, "pass": False, "checks": []}
+        self._ignition_was_on = False
         self._clients: list[_Client] = []
         self._driver: _Client | None = None
         self._lock = threading.Lock()
@@ -139,11 +141,22 @@ class BridgeDaemon:
             if client is self._driver:
                 self.watchdog.feed()
             return
+        if t == "preflight" and client is self._driver:
+            self._run_preflight()
+            return
         if t != "cmd" or client is not self._driver:
             return
         cmd = Command.from_wire(msg)
-        may_drive = self.watchdog.command(cmd.arm, cmd.estop, cmd.throttle)
-        if self.watchdog.state == "DRIVING" and not cmd.arm:
+        if cmd.ignition and not self._ignition_was_on:
+            self._run_preflight()          # ignition just came on
+        elif not cmd.ignition and self._ignition_was_on:
+            self.preflight = {"ran": False, "pass": False, "checks": []}
+            self._broadcast_preflight()    # ignition off invalidates the green light
+        self._ignition_was_on = cmd.ignition
+        # the green light gates arming; nothing arms on a failed or absent self-test
+        effective_arm = cmd.arm and self.preflight["pass"]
+        may_drive = self.watchdog.command(effective_arm, cmd.estop, cmd.throttle)
+        if self.watchdog.state == "DRIVING" and not effective_arm:
             self.watchdog.disarm()
             may_drive = False
         if not may_drive:
@@ -189,6 +202,22 @@ class BridgeDaemon:
             if n % telemetry_every == 0:
                 self._broadcast_telemetry()
             time.sleep(dt)
+
+    def _run_preflight(self) -> None:
+        checks = self.vehicle.self_test()
+        self.preflight = {
+            "ran": True,
+            "pass": all(c["ok"] for c in checks),
+            "checks": checks,
+        }
+        self._broadcast_preflight()
+
+    def _broadcast_preflight(self) -> None:
+        msg = {"t": "preflight", **self.preflight}
+        with self._lock:
+            clients = list(self._clients)
+        for c in clients:
+            c.send(msg)
 
     def _broadcast_telemetry(self) -> None:
         tel = self.vehicle.read()

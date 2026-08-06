@@ -22,7 +22,7 @@ ARGUS-OS-PLAN.md is the single source of truth. Read it before any non-trivial w
 - Model escalation protocol (plan section 11): after two failed serious attempts, stop and recommend a model switch; do not iterate further.
 - After any substantive code change, run the law-auditor agent before presenting work.
 - The simulated vehicle's full task loop must pass before any commit to TRACK or link/.
-- The edge runtime's five Stage 3A criteria must pass before any commit to pilot/ or track/.
+- The edge runtime's five Stage 3A criteria must pass before any commit to drive/pilot/ or track/.
 - No model or provider name may appear outside gateway/adapters/. There is a test for it.
 - Voice executes nothing without a readback confirmation. No exceptions, and no confidence threshold that skips it.
 - Unknown enum values are preserved and passed through, never dropped.
@@ -31,7 +31,10 @@ ARGUS-OS-PLAN.md is the single source of truth. Read it before any non-trivial w
 ## Layout (grows as built)
 - link/: ontology + message protos. Cleanly separable; no imports from anything else in this repo.
 - track/: world model server (FastAPI, Redis, SQLite).
-- pilot/: edge runtime (ROS2). HAL under pilot/hal/. Runs containerized; ROS2 Humble has no native macOS path. Machine differences live in pilot/manifests/*.yaml and behind the three driver interfaces, never above them.
+- drive/: the vehicle-side product (ARGUS DRIVE). drive/pilot/ is the edge runtime (ROS2), with HAL under drive/pilot/hal/. Runs containerized; ROS2 Humble has no native macOS path. Machine differences live in drive/pilot/manifests/*.yaml and behind the three driver interfaces, never above them.
+- drive/cockpit/: the teleop driving UI (runs on the operator laptop). drive/bridge/: the vehicle daemon (WebRTC + serial + watchdog; test bridge and mock today). drive/brain/: the LLM layer prototype.
+- bodies/: per-body hardware truth (MCU protocol, wiring, manifest). bodies/ugv-01/ is the first steel; its integration notes are OUTDATED pending a hardware survey.
+- STATUS.md at the root mirrors the visual system map: one line per node, updated in every PR that changes a node's state.
 - c2/: operator application (React, Vite, Leaflet).
 - sim/: simulated vehicle. Permanent test fixture; runs in CI.
 - gateway/: the AI gateway. The ONLY package allowed to name a model or a provider (law 3). Adapters under gateway/adapters/; policy profiles in gateway/data/policy_profiles.yaml. `deployed` refuses cloud, enforced at the point of use and covered by a test.
@@ -80,15 +83,15 @@ Known gap: the local language adapter is written and configured but has never an
 Two CI gates now: the fast in-process one above, and a containerized one that needs ROS2. Both must pass.
 
 - Run the edge runtime's five Stage 3A criteria (part of `pytest -q`): `.venv/bin/python -m pytest tests/test_pilot_loop.py -v`
-- Run one machine with no ROS2 in the path: `.venv/bin/python -m pilot.main --manifest pilot/manifests/ugv-reference.yaml`
+- Run one machine with no ROS2 in the path: `.venv/bin/python -m pilot.main --manifest drive/pilot/manifests/ugv-reference.yaml`
 - Ask a running machine what it is made of: `curl -s localhost:8200/registry` (also `/registry/drivers`, `/devices`, `/health`, `/configuration`)
 - Ask the world model the same thing, mirrored through the contract: `curl -s -H "Authorization: Bearer $TOKEN" localhost:8100/v1/assets/<id>/registry`
 
 Container (needs Docker running; ROS2 Humble has no supported native macOS path):
-- Build: `docker build -f pilot/docker/Dockerfile -t argus-pilot:dev .`
+- Build: `docker build -f drive/pilot/docker/Dockerfile -t argus-pilot:dev .`
 - Bridge and Nav2 route tests (~50s): `docker run --rm -e ROS_DOMAIN_ID=42 argus-pilot:dev bash /opt/argus/pilot/docker/run_nav2_tests.sh pilot/ros/tests -q`
-- Nav2 plus a machine driving through it: `docker compose -f pilot/docker/compose.yaml up nav2 pilot`
-- When a machine will not arrive and you need to see why: `python3 pilot/docker/diagnose_nav2.py` inside the container, with Nav2 already up.
+- Nav2 plus a machine driving through it: `docker compose -f drive/pilot/docker/compose.yaml up nav2 pilot`
+- When a machine will not arrive and you need to see why: `python3 drive/pilot/docker/diagnose_nav2.py` inside the container, with Nav2 already up.
 
-Two traps worth not rediscovering. Nav2's costmaps will not activate until the locomotion bridge is publishing `base_link` against `odom`, so anything that waits for Nav2 before starting the machine deadlocks. And `rclpy` is initialised once per session in `pilot/ros/tests/conftest.py`: a module that shuts it down leaves the next module unable to bring it back, and the symptom looks like a Nav2 fault.
+Two traps worth not rediscovering. Nav2's costmaps will not activate until the locomotion bridge is publishing `base_link` against `odom`, so anything that waits for Nav2 before starting the machine deadlocks. And `rclpy` is initialised once per session in `drive/pilot/ros/tests/conftest.py`: a module that shuts it down leaves the next module unable to bring it back, and the symptom looks like a Nav2 fault.
 

@@ -2,14 +2,14 @@
 #
 # Three ways in:
 #
-#   docker compose -f pilot/docker/compose.yaml run --rm ros-tests
+#   docker compose -f drive/pilot/docker/compose.yaml run --rm ros-tests
 #       The ROS2 tests: the bridge against a real ROS2 graph.
 #
-#   docker compose -f pilot/docker/compose.yaml up nav2 pilot
+#   docker compose -f drive/pilot/docker/compose.yaml up nav2 pilot
 #       Nav2 and a machine driving through it, reporting to a world model
 #       running on the host at 8100.
 #
-#   docker compose -f pilot/docker/compose.yaml run --rm shell
+#   docker compose -f drive/pilot/docker/compose.yaml run --rm shell
 #       A shell in the same environment, for when something needs looking at.
 #
 # The broker and the world model are expected on the host rather than run
@@ -22,7 +22,7 @@ services:
   ros-tests:
     build:
       context: ../..
-      dockerfile: pilot/docker/Dockerfile
+      dockerfile: drive/pilot/docker/Dockerfile
     image: argus-pilot:dev
     environment:
       # ROS2 Humble ships pytest plugins written against hook signatures
@@ -35,7 +35,7 @@ services:
     image: argus-pilot:dev
     build:
       context: ../..
-      dockerfile: pilot/docker/Dockerfile
+      dockerfile: drive/pilot/docker/Dockerfile
     network_mode: host
     environment:
       ROS_DOMAIN_ID: "42"

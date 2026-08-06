@@ -42,12 +42,12 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY link /tmp/link
 RUN pip3 install --no-cache-dir /tmp/link && rm -rf /tmp/link
 
-COPY pilot /opt/argus/pilot
+COPY drive/pilot /opt/argus/pilot
 
 # The ROS2 tests run in here too. ROS2 ships a `launch_testing` pytest
 # plugin written against an older hook signature, so it is disabled for
 # our tests rather than pinning pytest back to match it.
-COPY pilot/docker/pytest.ini /opt/argus/pytest.ini
+COPY drive/pilot/docker/pytest.ini /opt/argus/pytest.ini
 
 ENV PYTHONPATH=/opt/argus
 ENV ROS_DOMAIN_ID=42
@@ -55,7 +55,7 @@ ENV ROS_DOMAIN_ID=42
 # Nav2 talks to the machine through the locomotion driver and nothing else.
 # The entrypoint sources ROS then hands over, so anything run in this
 # container has the same environment the runtime has.
-COPY pilot/docker/entrypoint.sh /entrypoint.sh
+COPY drive/pilot/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python3", "-m", "pilot.main", "--manifest", "/opt/argus/pilot/manifests/ugv-reference.yaml"]

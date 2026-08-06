@@ -375,7 +375,7 @@ GPU when Stage 3B needs it.
 
 ```bash
 cd argus
-docker build -f pilot/docker/Dockerfile -t argus-pilot:dev .
+docker build -f drive/pilot/docker/Dockerfile -t argus-pilot:dev .
 ```
 
 This takes several minutes: it installs ROS2 Humble and Nav2.
@@ -403,7 +403,7 @@ Expected: `Scout 1`
 edit it:
 
 ```bash
-cp pilot/manifests/ugv-reference.yaml /etc/argus/manifest.yaml
+cp drive/pilot/manifests/ugv-reference.yaml /etc/argus/manifest.yaml
 ```
 
 What you must change:
@@ -439,7 +439,7 @@ docker run --rm --network host -v /etc/argus:/etc/argus argus-pilot:dev \
 With Nav2 doing the navigating:
 
 ```bash
-docker compose -f pilot/docker/compose.yaml up nav2 pilot
+docker compose -f drive/pilot/docker/compose.yaml up nav2 pilot
 ```
 
 **Verify from the machine:**

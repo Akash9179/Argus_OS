@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the runtime image
-        run: docker build -f pilot/docker/Dockerfile -t argus-pilot:ci .
+        run: docker build -f drive/pilot/docker/Dockerfile -t argus-pilot:ci .
       # The bridge and the Nav2 route are the parts that cannot be proven
       # without ROS2 running, so they run here rather than in the fast loop
       # above. A machine that navigates only in a unit test is not a

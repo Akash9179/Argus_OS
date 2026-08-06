@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ARGUS design tokens — mirror of DESIGN.md §2. CSS-var source of truth;
+   Tailwind theme references the same hex values. */
+:root {
+  --bg: #0B0C0E;
+  --surface-1: #121417;
+  --surface-2: #16181C;
+  --surface-3: #1C1F24;
+  --surface-inset: #0E0F12;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --text: #F5F7FA;
+  --text-2: #A4ABB4;
+  --text-3: #6B727B;
+  --accent: #2E8FFF;
+  --accent-strong: #1E73E6;
+  --accent-weak: rgba(46, 143, 255, 0.14);
+  --accent-ring: rgba(46, 143, 255, 0.45);
+  --critical: #FF4D4D;
+  --critical-weak: rgba(255, 77, 77, 0.12);
+  --warning: #F5A623;
+  --warning-weak: rgba(245, 166, 35, 0.14);
+  --info: #3B9EFF;
+  --info-weak: rgba(59, 158, 255, 0.14);
+  --success: #22C55E;
+  --success-weak: rgba(34, 197, 94, 0.14);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Geist, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Leaflet dark-theme overrides */
+.leaflet-container {
+  background: var(--surface-inset);
+  font-family: inherit;
+}
+.leaflet-control-attribution {
+  background: rgba(10, 12, 15, 0.7) !important;
+  color: var(--text-3) !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a {
+  color: var(--text-2) !important;
+}
+.argus-tip {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  box-shadow: none;
+}
+.argus-tip::before {
+  display: none;
+}
+
+/* Uppercase micro-label helper (DESIGN.md type scale: label) */
+.label {
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* REC blink (~1s) and alert pulse — calm, status-only motion */
+@keyframes argus-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.argus-blink { animation: argus-blink 1s steps(1, end) infinite; }
+
+@keyframes argus-pulse {
+  0% { transform: scale(1); opacity: 0.55; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.argus-pulse { animation: argus-pulse 2s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .argus-blink, .argus-pulse { animation: none; }
+}

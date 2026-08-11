@@ -19,6 +19,26 @@ a relay to ignition, gear, brake or lights. Second headline: **no sensors are
 attached at all** - no camera, no GNSS, no IMU - so autonomy is off the table
 for the demo and manual teleop is the honest one.
 
+> ### Before anyone drives this vehicle again
+>
+> The steering feedback sensor is **disconnected**, and that sensor is what
+> stops the steering actuator over-travelling. R13/R14 are two **polarity legs
+> of one actuator**, not independent relays. So on the console that exists
+> today, **every press-and-hold of a steering button runs the actuator into its
+> mechanical stop with nothing telling it to stop.** Reconnecting that sensor is
+> the highest-value hardware fix on the vehicle.
+>
+> Also true today, and none of it flagged in the UI: there is **no brake**
+> (both brake relays disconnected), **no ignition relay**, and **no E-stop
+> relay** — while the console shows a 16-level brake slider and a latching
+> E-stop button that report success and do nothing. Drive is the
+> **de-energized default**, so all-relays-off means in gear.
+>
+> These come from the team via `MCU-PROTOCOL.md` and are **UNVERIFIED against
+> hardware** — no firmware has been read, no port opened. Verify the map before
+> relying on it, starting with "R5 is neutral", because that is what any
+> failsafe would be built on. Details: `FINDINGS.md` sections 9 and 10.
+
 **Running Claude Code on the Jetson? Open `SURVEY.md` in this folder and
 follow it.** It is the whole brief: what to record, in what order, and the
 safety rules (rule zero: nothing that actuates).

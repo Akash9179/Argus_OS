@@ -1,5 +1,5 @@
-// ugv-01 MCU firmware v3: link-loss failsafe, without breaking anything that
-// works today.
+// ugv-01 MCU firmware v4: link-loss failsafe and break-before-make, without
+// breaking anything that works today.
 //
 // THE PROBLEM THIS FIXES
 // ----------------------
@@ -43,6 +43,25 @@
 //    gear still work, because those are not how you get hurt.
 // 4. See the reset warning below.
 //
+// v4 CHANGES
+// ----------
+// 5. BREAK BEFORE MAKE ON BOTH REVERSING PAIRS. Energising both legs of a
+//    reversing-polarity actuator shorts its driver. There are TWO such pairs
+//    on this vehicle: steering on R13/R14, and the brake actuator on R9/R10.
+//    Nothing anywhere prevented `R131` followed by `R141`. This guard cannot
+//    live in the host: the firmware is the last line of defence and must not
+//    assume a smarter layer exists above it. Energising either leg now
+//    releases its partner first, with a short dead time between.
+//
+// A NOTE ON WHAT "UNCHANGED FOR OLD HOSTS" NOW MEANS
+// ---------------------------------------------------
+// A host that never sends "H" still sees byte-identical behaviour, because
+// the watchdog never arms. But a host that sends "H" MUST also implement "C",
+// because a latched failsafe has no other way out. Half-updating a host, so
+// it keepalives but cannot clear, leaves a vehicle that stops and stays
+// stopped. That is the safe direction to fail, and it is still a trap worth
+// knowing about.
+//
 // THE RESET WINDOW IS NOT SAFE, EVEN THOUGH THE POWER-ON STATE IS
 // ---------------------------------------------------------------
 // After setup() runs, all relays are released and PWM is at rest. But DURING
@@ -84,7 +103,7 @@
 // Added, all optional and harmless to ignore:
 //     H = keepalive    V = version    C = clear a latched failsafe
 
-#define FIRMWARE_VERSION "ugv01-mcu v3 watchdog"
+#define FIRMWARE_VERSION "ugv01-mcu v4 watchdog"
 
 // Set to 1 ONLY after the bench session has confirmed relay 5 is neutral.
 #define ENGAGE_NEUTRAL_ON_FAILSAFE 0
@@ -99,6 +118,9 @@ const byte pwmPin = 9;
 const int RELAY_NEUTRAL     = 5;    // team's map, UNVERIFIED
 const int RELAY_STEER_RIGHT = 13;   // team's map, UNVERIFIED
 const int RELAY_STEER_LEFT  = 14;   // team's map, UNVERIFIED
+const int RELAY_BRAKE_A     = 9;    // brake actuator, one polarity. UNVERIFIED
+const int RELAY_BRAKE_B     = 10;   // brake actuator, other polarity. UNVERIFIED
+const unsigned long DEAD_TIME_MS = 5;   // between releasing one leg and closing the other
 const unsigned long LINK_TIMEOUT_MS = 600;   // 3 missed 200ms keepalives
 const int THROTTLE_REST = 42;       // this firmware's rest value, not 0
 
@@ -113,6 +135,20 @@ void feed() {                  // ONLY recognised commands may call this
 void setRelay(int relay, bool on) {
   if (relay < 1 || relay > 14) return;
   digitalWrite(relayPins[relay - 1], on ? LOW : HIGH);   // relays are active LOW
+}
+
+// Releasing the opposite leg of a reversing pair before closing this one.
+// Mechanical relays get this free from contact transfer time; solid state
+// relays do not, so the dead time is explicit rather than assumed.
+void releasePartner(int relay) {
+  int partner = 0;
+  if (relay == RELAY_STEER_LEFT)  partner = RELAY_STEER_RIGHT;
+  if (relay == RELAY_STEER_RIGHT) partner = RELAY_STEER_LEFT;
+  if (relay == RELAY_BRAKE_A)     partner = RELAY_BRAKE_B;
+  if (relay == RELAY_BRAKE_B)     partner = RELAY_BRAKE_A;
+  if (partner == 0) return;
+  setRelay(partner, false);
+  delay(DEAD_TIME_MS);
 }
 
 void enterFailsafe() {
@@ -208,6 +244,7 @@ void loop() {
       // While latched, refuse to energise steering. Brake, lights, horn and
       // gear still pass: those are not how the vehicle hurts anyone.
       if (!(failsafeActive && state && steering)) {
+        if (state) releasePartner(relay);   // break before make
         digitalWrite(
           relayPins[relay - 1],
           state ? LOW : HIGH

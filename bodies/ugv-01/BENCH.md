@@ -63,7 +63,19 @@ firmware transmits nothing, and record that silence as a result. If the board
 has been reflashed with v3 it will answer `V` with a version string, but do
 not send anything until step 1 has established that commanding is safe.
 
-### 1. Verify R5 is neutral. First, alone, and before anything else.
+### 0b. Prove the link with a light, before touching the drivetrain
+
+Before any drivetrain relay, send `R11` (ring light) or `R61` (high beam) and
+have the human confirm it lit, then release it. This costs one minute and it
+confirms three things with zero consequence: that commands reach the hardware
+at all, that the `R<n><0|1>` framing is right, and that the relay board is
+responding. If R1 does not light, you learn that with the drivetrain
+untouched rather than while commanding gear.
+
+The first drivetrain command should be sent by someone who already knows the
+link works.
+
+### 1. Verify R5 is neutral. First, alone, and after the light.
 
 The entire failsafe design rests on relay 5 being neutral. It is the one that
 must not be wrong. Energise `R51`, have the human confirm what physically
@@ -123,7 +135,14 @@ warning only for the rows that have actually been verified.
 
 - Photographs of the MCU board and the relay board with its wiring loom, if
   not already taken.
-- Are the brakes reconnected yet? What does each of R9 and R10 do?
+- **Is the brake actuator physically connected to R9/R10 RIGHT NOW?** Yes or
+  no, today, on this vehicle. The team has described what it IS (one actuator
+  on reversing polarity, sixteen levels of position) and separately said the
+  brake relays were DISCONNECTED. Both can be true at once. Only the wiring
+  answer decides whether this vehicle can decelerate under command.
+- **Is the steering potentiometer wired to the Nano right now, and to which
+  pin?** Same distinction: a described sensor is not a connected one. Neither
+  sketch reads any analog input.
 - The steering limit contradiction: this firmware reads no sensor at all, so
   the feedback sensor cannot be what stops over-travel. Is the limit
   mechanical, or is there another firmware?

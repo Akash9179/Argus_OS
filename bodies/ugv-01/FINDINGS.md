@@ -820,6 +820,149 @@ somewhere before anything else happens to it.
 
 ---
 
+## 9. The relay map, supplied by the team - and cross-checked against this disk
+
+**Provenance, stated plainly: this map did NOT come from anything on this
+machine.** It was supplied by Akash's team during the survey session and
+relayed to me by the laptop-side session, which recorded it in
+`MCU-PROTOCOL.md` marked UNVERIFIED. **No firmware has been read and no port
+has been opened, so nothing below is confirmed against the hardware.** What I
+*can* do — and did — is check it against the three artifacts on this disk.
+
+| Relay | Supplied function |
+|---|---|
+| R1 | ring light |
+| R2 | right indicator |
+| R3 | left indicator |
+| R4 | reverse |
+| R5 | **neutral** |
+| R6 | high beam |
+| R7 | low beam |
+| R8 | horn |
+| R9 | brake — **DISCONNECTED** |
+| R10 | brake — **DISCONNECTED** |
+| R11 | speed 1 |
+| R12 | speed 3 |
+| R13 | steering right |
+| R14 | steering left |
+| PWM | throttle `P<42..214>` |
+
+### 9a. The relay UI corroborates nothing — it has no semantics at all
+
+`Desktop/Remote/public/index.html` cannot agree or disagree with the map,
+because its fourteen buttons are **loop-generated, not authored**:
+
+```js
+for(let i=1;i<=14;i++){
+  card.innerHTML = `<h3>Relay ${i}</h3>
+    <button class="on"  onclick="send('R${i}1')">ON</button>
+    <button class="off" onclick="send('R${i}0')">OFF</button>`;
+}
+```
+
+Every card is literally "Relay 1".."Relay 14". No labels, no grouping, no
+tooltips, no aria-labels, no comments, no commented-out blocks. That absence is
+itself informative: whoever built this today was **exercising channels, not
+driving a vehicle**. Its one corroboration is `<h2>PWM Control (D9)</h2>` with
+`min="42" max="214"` — confirming throttle is PWM on pin D9 across that band.
+
+### 9b. `commands.js` corroborates the map strongly — 12 of 14 relays match
+
+| Relay | `commands.js` token | |
+|---|---|---|
+| R1 ring light | `LIGHT:RING:ON/OFF` | agree |
+| R2 / R3 indicators | `IND:R` / `IND:L` | agree |
+| R4 reverse | `GEAR:R` | agree |
+| R5 neutral | `GEAR:N` | agree |
+| R6 / R7 beams | `BEAM:HIGH` / `BEAM:LOW` | agree |
+| R8 horn | `HORN:ON/OFF` | agree |
+| R11 / R12 speed 1,3 | `SPEED:1` / `SPEED:3` | agree |
+| R13 / R14 steering | `STEER:R` / `STEER:L` | agree |
+| PWM 42..214 | `ACCEL:0..172` | agree, via the +42 offset |
+| R9/R10 brake **disconnected** | `BRAKE:0..15` | **conflict** |
+| *(no relay)* | `SPEED:2` | **conflict** |
+| *(no relay)* | `GEAR:D` | **conflict** |
+| *(no relay)* | `PARK:ON/OFF` | **conflict** |
+| *(no relay)* | `ESTOP` | **conflict** |
+
+Twelve of fourteen is not coincidence. **"Ring light" is an unusual thing to
+name**, and it appears independently in the team's map and in a file written
+2026-08-03 by someone who had not seen that map. Reading: `commands.js` was
+written by someone who **did** know the real hardware inventory, and its
+"mnemonic placeholders" caveat refers to the exact token **spelling**, not to
+the functional list. The inventory is corroborated; the wire format is not.
+**The placeholder warning in section 8c stands unchanged.**
+
+**The 42-offset hypothesis gains a second, independent witness.**
+`ControlPanel.jsx` renders `<Group title="Acceleration · 0–172">` with
+`<FillButton min={0} max={172}>`, beside a hardware PWM band of 42–214 whose
+width is exactly 172. Still a hypothesis; now a well-supported one.
+
+### 9c. The console exposes three controls this hardware cannot perform
+
+And **nothing in the code warns about any of them.** I grepped `ControlPanel.jsx`,
+`AutonomyTab.jsx` and `commands.js` for disconnect / not-wired / no-relay /
+TODO / FIXME / does-nothing. The only `PLACEHOLDER` comments cover the autonomy
+NAV/AUTO tokens and the OSRM routing demo — nothing flags brake, estop or park.
+
+1. **Brake.** A 16-level slider, `Group title="Brake · 0–15"`, styled with the
+   stop hue. Both brake relays are disconnected. An operator drags a prominent
+   red brake control and the vehicle does not slow. **The most dangerous of the
+   three, because it looks the most functional.**
+2. **E-stop.** `const engageEstop = () => { setEstop(true); send(CMD.estop); };`
+   It latches the UI to "stopped" and emits a token no relay implements. **A
+   latching E-stop that reports success and does nothing is worse than no
+   button at all**, because it gets trusted at the exact moment it matters.
+3. **Park.** Toggles, and doubles as hazards (both indicators lit). The hazard
+   half is achievable via R2+R3; the park half has no relay.
+
+Plus `SPEED:2` and `GEAR:D`, offered in segmented controls with no relay behind
+them.
+
+### 9d. Steering is bang-bang — three independent artifacts agree
+
+Section 4 recorded this as unanswerable. It is now answered, and the answer is
+the unwelcome one. `ControlPanel.jsx` does not use a slider for steering:
+
+```jsx
+<HoldButton label="Left"  onPress={() => send(CMD.steer.left)}  onRelease={() => send(CMD.steer.center)} />
+<HoldButton label="Right" onPress={() => send(CMD.steer.right)} onRelease={() => send(CMD.steer.center)} />
+```
+
+Press-to-energize, release-to-centre **is** relay behaviour. The author of that
+console already knew steering was not proportional. The old Remo UI did the
+same with `L1/L0` and `R1/R0`. Three artifacts, one answer.
+
+### 9e. No program asserts a safe state, ever — and drive is the default
+
+Nothing in any of the three programs writes to the serial port unsolicited:
+
+- `bridge.py` `main()` opens the port, starts the reader, serves HTTP. It never
+  writes unprompted; on `ConnectionClosed` it discards the client and nothing more.
+- `main.go` is the same shape — on disconnect it deletes the client, no serial write.
+- `cmd_node.py` publishes a `SERIAL_LINK` **critical alert** on link loss — an
+  alert to a human, not a command to the vehicle.
+- The relay UI's PWM slider has `value="42"` in the DOM but only sends on
+  `oninput`, so **loading the page sends nothing** and the MCU keeps whatever
+  throttle it was holding.
+
+Combined with the supplied map, the picture for this body is:
+
+> **Drive is the de-energized default** (relays exist for reverse and neutral,
+> none for drive, so `GEAR:D` can only mean "energize neither"). **There is no
+> brake. There is no ignition relay and no E-stop relay.** No host program
+> implements a watchdog or failsafe, and **no component asserts neutral at any
+> point in any lifecycle.** After a crashed browser, the vehicle's motion state
+> is whatever it was before the crash. This body has **no passive safe state**.
+
+**The actionable qualification, and the single most useful line in this
+document:** a safe state *is* reachable — **R5 is neutral**. It is simply never
+commanded. Any real adapter should **assert neutral on startup, on client
+disconnect, on watchdog trip, and on self-test failure.** That is one relay
+write, and it is the difference between this body having a failsafe and not.
+
+---
+
 ## What this changes
 
 > **Revised by section 8.** The addendum sharpens decision 1 (there are now

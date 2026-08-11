@@ -1,39 +1,57 @@
-// ugv-01 MCU firmware, with a link-loss failsafe.
+// ugv-01 MCU firmware v2: adds a link-loss failsafe WITHOUT breaking anything
+// that works today.
 //
-// WHAT CHANGED, and why it matters
-// --------------------------------
-// The firmware currently on the vehicle has no timeout of any kind. Its loop
-// does nothing unless a serial byte is waiting. So if the USB cable falls out
-// at throttle 150, the vehicle stays at throttle 150 indefinitely, until
-// someone removes power. Nothing in software can stop it, because the stop
-// command cannot be delivered over the cable that just failed.
+// THE PROBLEM THIS FIXES
+// ----------------------
+// The firmware on the vehicle has no timeout of any kind. Its loop does
+// nothing unless a serial byte is waiting. If the USB cable falls out at
+// throttle 150, the vehicle stays at throttle 150 indefinitely, until someone
+// removes power. No software anywhere can stop it, because the stop command
+// cannot be delivered over the cable that just failed.
 //
-// This version adds that missing timeout. If no command arrives for
-// LINK_TIMEOUT_MS, the board puts itself into a safe state on its own:
-// throttle to rest, steering released, neutral engaged. Lights are left
-// alone deliberately, because going dark is its own hazard.
+// THE DESIGN RULE HERE: NOTHING THAT WORKS TODAY MAY STOP WORKING
+// ---------------------------------------------------------------
+// The existing web console only transmits when an operator moves a control.
+// Holding a steady throttle sends nothing. So a naive watchdog would trip
+// mid-drive and would be worse than no watchdog at all.
 //
-// READ THIS BEFORE FLASHING
-// -------------------------
-// 1. THIS BREAKS THE EXISTING WEB CONSOLE unless the console is updated.
-//    That console only sends when the operator moves a control, so holding a
-//    steady throttle sends nothing and the failsafe would trip mid-drive.
-//    The host MUST send a keepalive. This sketch accepts "H" for that: it
-//    resets the timer and does nothing else. Send it every 200 ms.
-//    One line in the browser console does it:
-//        setInterval(() => send('H'), 200);
+// So the watchdog DISARMS ITSELF until it has proof the host can keep it fed.
+// It stays asleep until it receives its first "H" keepalive. Until then this
+// firmware behaves EXACTLY like the current one, byte for byte.
 //
-// 2. THE RELAY NUMBERS BELOW ARE UNVERIFIED. They come from the team's map,
-//    not from anything anyone has watched happen. If RELAY_NEUTRAL is wrong,
-//    the failsafe energises the wrong thing at the worst moment. Verify on
-//    the bench, wheels off the ground, before trusting this.
+//   Old console, never sends H  ->  watchdog never arms, behaviour unchanged
+//   Updated host, sends H       ->  watchdog arms and protects, automatically
 //
-// 3. Flash and test with the wheels off the ground or the drive power
-//    isolated, and a person at the vehicle. Test the failsafe deliberately:
-//    command a throttle, then unplug the USB cable, and confirm the vehicle
-//    goes to rest and out of gear.
+// No flag to remember, no way to get it wrong, and the protection switches on
+// the moment the host is ready for it. Send "H" every 200 ms. In a browser:
+//     setInterval(() => send('H'), 200);
 //
-// The command protocol is otherwise unchanged: R<n><0|1> and P<42..214>.
+// WHAT THE FAILSAFE DOES, AND WHAT IT DELIBERATELY DOES NOT DO
+// ------------------------------------------------------------
+// On timeout it does only things that are unambiguously "stop doing
+// something": throttle to rest, both steering legs released. It does NOT
+// energise any relay by default.
+//
+// That is deliberate. Engaging neutral would be better, but neutral is relay 5
+// only according to a verbal map that nobody has watched happen. Energising an
+// unverified relay during a link failure would be introducing a new failure
+// mode while fixing one. Once the bench session confirms relay 5 really is
+// neutral, set ENGAGE_NEUTRAL_ON_FAILSAFE to 1 below and reflash. That is the
+// version worth running long term.
+//
+// BEFORE FLASHING
+// ---------------
+// Wheels off the ground or drive power isolated, and a person at the vehicle.
+// Then test the failsafe on purpose: send H for a few seconds, command a
+// throttle, pull the USB cable, and confirm the vehicle drops to rest.
+//
+// Protocol is otherwise unchanged: R<n><0|1> and P<42..214>.
+// New, both optional and harmless to ignore:  H = keepalive,  V = version.
+
+#define FIRMWARE_VERSION "ugv01-mcu v2 watchdog"
+
+// Set to 1 ONLY after the bench session has confirmed relay 5 is neutral.
+#define ENGAGE_NEUTRAL_ON_FAILSAFE 0
 
 const byte relayPins[14] = {
   2,3,4,5,6,7,8,10,11,12,A0,A1,A2,A3
@@ -41,14 +59,15 @@ const byte relayPins[14] = {
 
 const byte pwmPin = 9;
 
-// ---- failsafe configuration: VERIFY THESE AGAINST THE VEHICLE ----
-const int RELAY_NEUTRAL     = 5;    // team's map: 5 = neutral
-const int RELAY_STEER_RIGHT = 13;   // team's map: 13 = steering right
-const int RELAY_STEER_LEFT  = 14;   // team's map: 14 = steering left
+// ---- failsafe configuration ----
+const int RELAY_NEUTRAL     = 5;    // team's map, UNVERIFIED
+const int RELAY_STEER_RIGHT = 13;   // team's map, UNVERIFIED
+const int RELAY_STEER_LEFT  = 14;   // team's map, UNVERIFIED
 const unsigned long LINK_TIMEOUT_MS = 600;   // 3 missed 200ms keepalives
-const int THROTTLE_REST = 42;       // firmware's own rest value, not 0
+const int THROTTLE_REST = 42;       // this firmware's rest value, not 0
 
 unsigned long lastCommandMs = 0;
+bool watchdogArmed  = false;   // stays false until the first "H" ever seen
 bool failsafeActive = false;
 
 void setRelay(int relay, bool on) {
@@ -60,15 +79,17 @@ void enterFailsafe() {
   analogWrite(pwmPin, THROTTLE_REST);
   setRelay(RELAY_STEER_RIGHT, false);
   setRelay(RELAY_STEER_LEFT, false);
+#if ENGAGE_NEUTRAL_ON_FAILSAFE
   setRelay(RELAY_NEUTRAL, true);
+#endif
   failsafeActive = true;
-  Serial.println("FAILSAFE");   // the board's first ever transmission
+  Serial.println("FAILSAFE");
 }
 
 void setup() {
 
   Serial.begin(115200);
-  Serial.setTimeout(50);   // so a partial line cannot block the failsafe check
+  Serial.setTimeout(100);   // so a partial line cannot stall the failsafe check
 
   for (int i = 0; i < 14; i++) {
     pinMode(relayPins[i], OUTPUT);
@@ -86,8 +107,9 @@ void setup() {
 
 void loop() {
 
-  // the whole point of this version
-  if (!failsafeActive && (millis() - lastCommandMs) > LINK_TIMEOUT_MS) {
+  // Only ever runs for a host that has proven it sends keepalives.
+  if (watchdogArmed && !failsafeActive &&
+      (millis() - lastCommandMs) > LINK_TIMEOUT_MS) {
     enterFailsafe();
   }
 
@@ -102,7 +124,15 @@ void loop() {
   lastCommandMs = millis();
   failsafeActive = false;
 
-  if (cmd == "H") return;   // keepalive, nothing else
+  if (cmd == "H") {         // keepalive. First one ever seen arms the watchdog.
+    watchdogArmed = true;
+    return;
+  }
+
+  if (cmd == "V") {         // so a host can tell which firmware is flashed
+    Serial.println(FIRMWARE_VERSION);
+    return;
+  }
 
   if (cmd.startsWith("P")) {
 

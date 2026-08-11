@@ -618,8 +618,13 @@ candidate. `CONNECT.md` should be updated once the real address is confirmed.
   It binds `0.0.0.0:8090` as documented and stays up. It logs nothing on
   startup and nothing on an incoming connection.
 
-- **Cockpit on the laptop reached it:** **no — not during this session.** No
-  peer ever appeared against port 8090 (`ss -tnp | grep 8090` stayed empty).
+- **Cockpit on the laptop reached it:** **not on the first attempt; YES on the
+  second.** See section 10b — the LAN path is blocked by AP client isolation,
+  but the cockpit reached the bridge over Tailscale and a full 30-second drive
+  test was completed. The first-attempt notes below are left as written.
+
+  No peer appeared against port 8090 during the first attempt
+  (`ss -tnp | grep 8090` stayed empty).
   This is a *negative result on the laptop side only*, not a bridge fault:
   the laptop never became reachable from the Jetson at all (section 6 —
   192.168.1.164 does not answer and has no ARP entry).
@@ -960,6 +965,111 @@ document:** a safe state *is* reachable — **R5 is neutral**. It is simply neve
 commanded. Any real adapter should **assert neutral on startup, on client
 disconnect, on watchdog trip, and on self-test failure.** That is one relay
 write, and it is the difference between this body having a failsafe and not.
+
+---
+
+## 10. Late findings: steering internals, and the bridge under a bad link
+
+### 10a. STEERING: the part that limits travel is the part that is unplugged
+
+Supplied by the team, same provenance caveat as section 9 — **unverified against
+hardware, no port opened.** Four facts about R13/R14:
+
+1. Steering **angle sensing exists, but is DISCONNECTED right now.**
+2. The actuator is driven on/off with **REVERSING POLARITY** — R13 and R14 are
+   the **two polarity legs of one actuator**, not two independent relays.
+3. **No PWM speed control** on steering.
+4. What stops the actuator over-travelling is **the steering feedback sensor**.
+
+**Read 1 and 4 together: the component that prevents over-travel is the
+component that is currently unplugged.** Every long press on the console today
+runs the actuator into its mechanical stop with nothing telling it to stop —
+stalled actuator, burnt motor, damaged linkage, or a blown fuse.
+
+This is worse than "steering is bang-bang" (section 9d). Bang-bang steering
+with a working limit sensor is crude but safe. Bang-bang steering with the
+limit sensor unplugged is a **damage mechanism that triggers on ordinary
+operator input**, and the current console — with its press-and-hold steering
+buttons — invites exactly that input.
+
+**Two rules that must be enforced in the adapter, not left to the operator:**
+
+- **Steering pulses must be open-loop and TIME LIMITED.** No continuous hold,
+  ever, until that sensor is reconnected.
+- **R13 and R14 must be mutually exclusive IN CODE.** They are two polarity
+  legs of one actuator: energizing both is undefined at best, and a short
+  across the driver at worst. This cannot be left to UI discipline — the old
+  Remo UI and the ROS console both let a fast operator overlap presses.
+
+**Reconnecting that sensor is the highest-value hardware fix on this vehicle.**
+It restores over-travel protection *and* it makes proportional steering
+achievable in software on the existing relays — pulse a leg, read the angle,
+stop at target. Same hardware, real steering. It also converts the `steer`
+field that `parseTelemetry()` already looks for (section 8c) from dead code
+into a live signal.
+
+### 10b. The mock bridge under a 271 ms relayed link: it holds
+
+The cockpit drove this bridge from the MacBook over Tailscale for 30 seconds at
+15 Hz, mock adapter, on the real relayed path. Cockpit-side numbers, measured
+by the laptop session:
+
+```
+tcp connect                       594 ms
+auth to role                      303 ms, role DRIVER
+preflight                         ran, pass true (mcu_link, battery, steering all ok)
+commands sent                     443, at 15 Hz over 30 s
+telemetry frames                  329, against ~330 expected at 10 Hz
+gap ms  min/mean/median/p95/max    0 / 100 / 0 / 277 / 311
+gaps over 700 ms                  0
+safety state                      STOPPED -> DRIVING
+LATCHED events                    0
+errors                            none
+```
+
+Jetson-side, measured here:
+
+```
+$ ps -p 35020 -o etime,%cpu,%mem,rss,nlwp
+   ELAPSED  %CPU %MEM   RSS  NLWP
+     09:29   0.4  0.0  16032    3
+
+load average: 0.17, 0.27, 0.35        cpu-thermal 48.4 C
+```
+
+**The 700 ms watchdog survives a 271 ms relayed link with zero latches and
+effectively no frame loss**, at 0.4% of one CPU and 16 MB RSS. Teleop *control*
+over a bad link is de-risked — that is a real result.
+
+But note the **shape**: median gap 0 ms, p95 277 ms. Frames arrive **clumped,
+not evenly spaced** — DERP relay batching. Control tolerates clumping because
+each frame carries absolute state. **Video will not**, and video is the thing
+that actually dies on this path. So the network fix (section 6 — AP client
+isolation is blocking the direct LAN path) stays a hard demo requirement even
+though control passed.
+
+### 10c. The bridge daemon is completely silent — no audit trail exists
+
+Worth recording separately, because I went looking for drops and could not
+answer the question:
+
+```
+$ wc -c < <bridge stdout+stderr capture>
+0
+$ grep -rnE "print\(|logging\.|logger|log\(" drive/bridge/daemon.py
+(no output)
+```
+
+Across that entire session — a client connecting, authenticating, being granted
+the **DRIVER** role, running a preflight self-test, sending **443 commands** and
+receiving **329 telemetry frames** — the daemon wrote **zero bytes**.
+`daemon.py` contains no logging calls of any kind.
+
+I therefore **cannot report on dropped connections from this side**, because
+nothing records them. That is the honest answer, and the absence is the finding:
+a vehicle control daemon with no audit trail cannot answer "who was driving,
+when, and what did they command" after an incident. For a machine that moves,
+that should be fixed before the real adapter lands, not after.
 
 ---
 

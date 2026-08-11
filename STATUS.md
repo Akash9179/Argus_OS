@@ -22,7 +22,7 @@ progress · [!] blocked · [ ] planned.
   - [~] Manual mode
     - [~] Cockpit - UI v0 + bridge-protocol transport (?bridge=host), ignition control, live vehicle telemetry in HUD. Pending: video pane
     - [x] Watchdog + self-test - ignition triggers pre-arm checks (green light gates arming); silence/link-loss latches stop, explicit re-arm (mock-tested; hardware validation pending)
-    - [~] Bridge - daemon v1 + LINK reporter (--report): the driven vehicle registers in TRACK and moves on the Operate map, 20 tests. Pending: video, real ugv-01 adapter (post-survey)
+    - [~] Bridge - daemon v1 + LINK reporter (--report): the driven vehicle registers in TRACK and moves on the Operate map, 20 tests. Proven over a 271ms relayed link: 30s at 15Hz, zero watchdog latches, no frame loss, 0.4% CPU on the Orin. GAP: the daemon has no logging of any kind, so no session can be reconstructed after an incident; fix before the real adapter. Pending: video, real ugv-01 adapter (bodies/ugv-01/MCU-PROTOCOL.md, unverified)
   - [~] Brain - v0.1 prototype (direct SDK; must move behind gateway)
 
 ## Bodies

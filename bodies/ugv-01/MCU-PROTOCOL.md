@@ -200,6 +200,120 @@ adapter is "assert neutral", and it must run on startup, on client
 disconnect, on watchdog trip, and on self-test failure. Nothing does that
 today.
 
+## THE FIRMWARE, read 2026-08-11
+
+The team supplied the sketch (`bodies/ugv-01/firmware/ugv01_mcu.ino`) and
+confirmed they had just driven the vehicle with it: throttle, lights and
+steering all responding from a laptop. It corroborates the wire protocol we
+had reconstructed independently. Treat it as the running firmware.
+
+It is 70 lines. Reading it settles most of this document and changes two
+things we believed.
+
+### 1. There is no failsafe. On link loss the vehicle holds throttle forever.
+
+```cpp
+void loop() {
+  if(!Serial.available()) return;
+  ...
+}
+```
+
+That is the entire loop. It acts only when a byte arrives. There is no
+`millis()`, no timeout, no watchdog, no heartbeat, nowhere in the sketch.
+
+So if the USB cable falls out at throttle 150, the PWM stays at 150 and the
+relays stay latched **indefinitely**. Not until a timeout. Not degrading.
+Forever, until something removes power.
+
+This is the most important fact about this vehicle, and it invalidates an
+assumption in our own design. The bridge watchdog can command a safe stop on
+OPERATOR silence, because the link is still up. It can do nothing about LINK
+LOSS, because the safe stop it wants to send is exactly what cannot be
+delivered. On this body, in that failure mode, there is no software anywhere
+that can stop the vehicle.
+
+**The fix is about ten lines of firmware** and it is now writable, because we
+have the source: record `millis()` on every accepted command, and in `loop()`
+when the gap exceeds a timeout, `analogWrite(pwmPin,42)` and either release
+every relay or assert the neutral relay. That single change gives this vehicle
+a passive safe state for the first time.
+
+### 2. The MCU never transmits. There is no telemetry at all.
+
+`Serial.begin(115200)` is called and `Serial.print` is never called, anywhere.
+The board is receive-only in practice. Consequences:
+
+- **Reconnecting the steering angle sensor changes nothing on its own.** This
+  firmware reads no analog input and reports no angle. The sensor can be
+  perfectly wired and the software will never see it. Earlier notes in this
+  repo said reconnecting the sensor would give us feedback for proportional
+  steering; that was wrong as written. It requires the sensor **and** a
+  firmware change to read it and emit it.
+- **"The steering feedback sensor limits travel" cannot be true in this
+  firmware.** Nothing reads any sensor. If over-travel is limited, it is
+  limited mechanically or electrically, not in code. Ask the team again,
+  because one of the two statements does not hold.
+- `parseTelemetry()` in the ros2 console parses a stream that does not exist.
+- No battery, no gear state, no speed, no acknowledgement of any command. The
+  bridge cannot confirm that anything it sent was applied.
+
+Note also that A0 through A3 are used as relay **outputs** here, so the free
+analog inputs for a future angle sensor are A4 and A5.
+
+### 3. Relays are active LOW
+
+```cpp
+digitalWrite(relayPins[i],HIGH);          // setup: HIGH means OFF
+digitalWrite(relayPins[relay-1], state ? LOW : HIGH);
+```
+
+The wire protocol is unchanged (`R51` energizes relay 5), but on the board a
+de-energized relay reads HIGH. Anyone metering the board should know that
+before concluding a relay is stuck on.
+
+### 4. Power-on state is now known, and it makes the bench session safer
+
+`setup()` drives all fourteen relays OFF and writes PWM 42. So a reset, whether
+from power-up or from the FTDI DTR pulse when a port is opened, produces:
+throttle at rest, every relay released, steering legs released.
+
+Read against the team's map, all relays released also means **not in neutral**,
+because neutral is an energized relay. So a reset leaves the vehicle in drive
+at idle.
+
+The practical consequence is good news for the bench: opening the serial port
+at standstill causes a reset that drops throttle to rest and releases
+everything. That is close to a stop, not a lurch. It remains true that this
+must be done with drive power isolated or wheels up, because "close to a stop"
+is not a guarantee and the gear outcome is drive.
+
+### 5. The board is an ATmega328P class Arduino
+
+Pins 2 to 12 plus A0 to A3, PWM on pin 9 with `TCCR1B` reprogrammed, pin 13
+left free. That is an Uno or a Nano. The Timer1 prescaler is set to 1, giving
+roughly 31 kHz PWM on pin 9, which is above audible and typical for driving a
+motor controller.
+
+This also tells us the toolchain (`arduino-cli` or the Arduino IDE with an
+AVR core), and that flashing is over the same USB serial port, via the
+bootloader. No programmer is required.
+
+### 6. Parsing is fragile, but it fails toward idle
+
+`toInt()` returns 0 for anything non-numeric, so a corrupted `P` command
+becomes `constrain(0,42,214)` which is 42, that is rest. A corrupted `R`
+command usually resolves to relay 0 or state 0 and is either ignored or turns
+a relay off. There is no checksum and no acknowledgement, so corruption is
+silent, but its bias is toward off rather than toward on. That is luck rather
+than design, and it should not be relied on.
+
+### 7. Confirmed absent in firmware
+
+No ignition, no e-stop, no brake logic, no gear interlock, no speed limiting,
+no sequencing between relays. The console's E-stop button provably does
+nothing: there is no code path for it.
+
 ## Verify this document before anything relies on it
 
 Everything above came from the team verbally, relayed through two sessions,

@@ -651,7 +651,182 @@ candidate. `CONNECT.md` should be updated once the real address is confirmed.
 
 ---
 
+## 8. ADDENDUM - a second pass found things the first pass missed
+
+Added later the same session, after a deeper hunt for the firmware. **Two of
+these correct errors in the sections above.** The originals are left standing
+rather than quietly edited, so the mistakes are visible.
+
+### 8a. CORRECTION: the `dialout` interlock does not exist
+
+In section 2 I reported that `tessy_01` is **not** in the `dialout` group, and
+in decision 1 I recommended keeping that as a safety interlock. **That was
+wrong.**
+
+```
+$ getent group dialout
+dialout:x:20:tessy_01                      # the user IS in dialout
+
+$ tail -1 ~/.bash_history
+! sudo usermod -aG dialout $USER           # run today, via Claude Code's ! prefix
+```
+
+I read the group list from `id` in my own shell, and that shell was started
+*before* the `usermod` ran, so it reported stale membership. `getent` reads the
+real database. **Any process started from a new login as `tessy_01` can open
+`/dev/ttyUSB0` with no sudo.** There is no interlock between a mistake and the
+drive controller. Restoring one (`gpasswd -d`, or a udev rule) is a deliberate
+decision for the human, not something this survey should do silently.
+
+### 8b. CORRECTION: there is an entire ROS 2 workspace I missed
+
+**`/home/tessy_01/Desktop/ros2_new/`** — a real git repository, **31 commits**,
+last commit **2026-08-03**, already built (13 packages in `build/`). My first
+pass missed it because I searched for `*remo*`, `*.ino` and `firmware*`
+patterns, and this directory matches none of them.
+
+```
+$ ls /home/tessy_01/Desktop/ros2_new/src
+bms_monitor  phone_gps  serial_control  status_check
+system_terminal  web_server  zed_bringup  zed-ros2-wrapper
+
+$ ls /home/tessy_01/Desktop/ros2_new/build
+bms_monitor  phone_gps  serial_control  status_check  status_interfaces
+system_terminal  web_server  zed_bringup  zed_components  zed_ros2  zed_wrapper
+
+$ git -C /home/tessy_01/Desktop/ros2_new remote -v
+(empty - NO remote. 31 commits exist only on this machine.)
+```
+
+**This corrects two claims in section 3 and section 5.** The ZED ROS wrapper is
+**not** absent — `src/zed-ros2-wrapper` is checked out from upstream Stereolabs
+and `zed_wrapper`, `zed_components`, `zed_ros2` and `zed_bringup` are all
+built. It is absent from `/opt/ros/humble`, which is what I actually checked.
+
+### 8c. A second, competing command vocabulary — and it is explicitly fake
+
+`src/web_server/frontend/src/config/commands.js` (2026-08-03) defines a full
+named protocol. **Read its header before using any of it:**
+
+```js
+/*
+ * Vehicle command vocabulary + telemetry parsing.
+ *
+ * `cmd_node` (serial_control) writes every /cmd message VERBATIM to the
+ * serial device, so the exact tokens below are the firmware's protocol —
+ * not anything ROS interprets. These are mnemonic placeholders. When you
+ * know the real firmware tokens, this is the ONE file to edit; the UI reads
+ * everything from here.
+ */
+
+export const CMD = {
+  steer: { left: 'STEER:L', right: 'STEER:R', center: 'STEER:C' },
+  ring: { on: 'LIGHT:RING:ON', off: 'LIGHT:RING:OFF' },
+  beam: { high: 'BEAM:HIGH', low: 'BEAM:LOW', off: 'BEAM:OFF' },
+  horn: { on: 'HORN:ON', off: 'HORN:OFF' },
+  park: { on: 'PARK:ON', off: 'PARK:OFF' },
+  indicator: { left: 'IND:L', right: 'IND:R', off: 'IND:OFF' },
+  gear: { D: 'GEAR:D', R: 'GEAR:R', N: 'GEAR:N' },
+  mode: { manual: 'MODE:MANUAL', auto: 'MODE:AUTO' },
+  speed: { 1: 'SPEED:1', 2: 'SPEED:2', 3: 'SPEED:3' },
+  brake: (level) => `BRAKE:${level}`,   // 0..15
+  accel: (level) => `ACCEL:${level}`,   // 0..172
+  estop: 'ESTOP',
+  nav: { start/end (lat,lon), go: 'NAV:GO', abort: 'NAV:ABORT' },   // PLACEHOLDER
+  auto: { maxSpeed, roadDetect, objClass },                          // PLACEHOLDER
+};
+```
+
+**These tokens are mnemonic placeholders by the author's own statement — a
+wish list, not an observed protocol.** They must not be used to write an
+adapter. Doing so is precisely the "guessing the protocol from something that
+looks authoritative" failure this survey exists to prevent.
+
+**Which vocabulary is actually current? The dates favour the crude one:**
+
+| Artifact | Date | Protocol |
+|---|---|---|
+| `ros2_new` `commands.js` | 2026-08-03 18:17 | named tokens, self-declared placeholders |
+| `ros2_new` last commit | 2026-08-03 19:31 | — |
+| `Desktop/Remote/bridge.py` + `index.html` | **2026-08-11 13:11** | `R<n><0|1>` relays + `P<42..214>` |
+
+The newest artifact on the machine, by eight days, is the **14-relay tester**,
+not the named vocabulary. That is what someone builds while *discovering* a
+protocol, not after they have one.
+
+**One numeric link between the two, offered as a hypothesis and not a finding:**
+`ACCEL` is documented `0..172`; the relay UI's PWM slider runs `42..214`.
+**214 − 42 = 172, exactly.** That is consistent with `ACCEL:<n>` being emitted
+as PWM duty `42+n` — a 42-count idle floor with 172 counts of travel. If it
+holds, it independently confirms **42 = idle and 0 is NOT "no throttle"**.
+Test at the bench before trusting it.
+
+`serial_control/serial_link.py` and `cmd_node.py` are pure transport
+(reconnect loop, thread-safe write, alerts on `ERR`/`FAULT`/`ALERT` substrings)
+and know no vehicle function. `serial_link.py` still hardcodes
+`DEFAULT_DEVICE = '/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0'` — the
+**CH340 path that no longer exists**, same stale assumption as the Go program.
+
+### 8d. Firmware hunt: a much stronger negative
+
+The firmware is not on this disk, and this is now more than "find came up empty":
+
+- **No `~/Arduino`, `~/.arduino15`, `~/.platformio`, `~/snap/arduino`.** The
+  Arduino/PlatformIO toolchain has *never been installed here* — so the
+  firmware was never built or flashed from this Jetson.
+- **`~/.bash_history` (874 bytes, read in full)** contains no `avrdude`,
+  `arduino-cli`, `esptool`, `pio`, `stty`, `screen`, `minicom` or `picocom`.
+  Nothing has ever opened that port from a shell on this machine.
+- **The Remo / RemoV1 / Remote folders are not git repos at all**, so there is
+  no deleted-file history to recover from them.
+- **`ros2_new` is a git repo, and across all 31 commits** `git log --all
+  --pretty=format: --name-only` contains no `.ino`, `firmware`, `sketch` or
+  `.hex`. It was never committed and later deleted.
+- No firmware-shaped `.hex`/`.bin` anywhere outside NVIDIA/Firefox/Thunderbird
+  noise.
+
+### 8e. Where this code came from — and what has no backup
+
+No Dropbox, Syncthing, or Drive client is installed. But the directory names
+give it away: `/all-folders/Remo-20260731T115814Z-1-001` and the matching
+`~/Downloads/*.zip` use **Google Drive's export naming** (`TIMESTAMP-N-NNN`).
+The Remo code arrived as **Google Drive zip downloads on 2026-07-31**.
+
+So **the machine holding the firmware is whoever owns that Google Drive** —
+that is the lead worth chasing, not more searching here.
+
+**Flagging a risk that is not about the vehicle at all:** `ros2_new` has **no
+git remote**. Thirty-one commits of real work — the console, the BMS monitor,
+the GPS node, the serial bridge — exist **only on this Jetson's disk**, on a
+machine that gets powered off between sessions. That should be pushed
+somewhere before anything else happens to it.
+
+### 8f. What this adds to the sensor picture
+
+- **There IS a position source, and it is a phone.** `phone_gps/gps_node.py`
+  takes browser geolocation from a phone over the console's authenticated
+  WebSocket and republishes it as `sensor_msgs/NavSatFix` on `~/fix`, with
+  compass heading on `~/heading`. So section 5's "no source of position,
+  heading or attitude whatsoever" is right about *onboard* hardware but wrong
+  in effect: a working phone-as-GNSS path is already written and built. Its
+  docstring notes `fix_topic` can be repointed at ZED's GNSS-fused output with
+  no frontend change.
+- **The battery pack is specified, and it is not on the MCU link.**
+  `bms_monitor` carries a full edge-triggered alert engine with real limits:
+  pack **39.0–54.6 V**, cell **2800–4250 mV**, imbalance **150 mV**, current
+  **50 A**, temperature **−10 to 50 °C**, SOC warning below **15%**. A
+  39–54.6 V pack is a **48 V nominal, 13S lithium pack**. It is read over
+  **BLE**, separately from the MCU serial link.
+
+---
+
 ## What this changes
+
+> **Revised by section 8.** The addendum sharpens decision 1 (there are now
+> *two* candidate protocols, and the more official-looking one is explicitly
+> fake), softens decision 2 (a phone-based GNSS path already exists and is
+> built), and advances decision 3 (the ZED ROS wrapper is present and built,
+> not absent). Read section 8 alongside each decision below.
 
 ### 1. The real VehicleAdapter — **no, not yet, and the blocker is specific**
 

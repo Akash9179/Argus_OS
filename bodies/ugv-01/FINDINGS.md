@@ -1075,6 +1075,15 @@ that should be fixed before the real adapter lands, not after.
 
 ## What this changes
 
+> **STALE IN PLACES. Read sections 9 and 10 first.** This block was written
+> before the team supplied the relay map and before the steering internals
+> arrived. Specifically: decision 1's "the relay map is missing" is now
+> answered by section 9 (unverified, but no longer absent), its "is steering
+> proportional" is answered by section 10a (no, bang-bang, three artifacts
+> agree), and its recommendation to preserve the `dialout` interlock is wrong
+> because section 8a shows that interlock was already gone. The synthesis of
+> record is `bodies/ugv-01/MCU-PROTOCOL.md`.
+>
 > **Revised by section 8.** The addendum sharpens decision 1 (there are now
 > *two* candidate protocols, and the more official-looking one is explicitly
 > fake), softens decision 2 (a phone-based GNSS path already exists and is

@@ -1,4 +1,4 @@
-# Connecting to ugv-01 — what to bring to the Jetson
+# Connecting to ugv-01 - what to bring to the Jetson
 
 Written 2026-08-11 from repo state `1f3a4f4`. This is the card you carry to
 the vehicle: what is actually installable today, the exact commands, and every
@@ -9,8 +9,8 @@ address, port and secret needed to make a link.
 | Piece | State on the Jetson today |
 |---|---|
 | **Survey brief** (`SURVEY.md`) | **Ready.** Read-only; run it first. |
-| **Bridge daemon** (`drive/bridge`) | **Installable, mock only.** Pure stdlib, runs on stock python3. `--vehicle` accepts `mock` and nothing else — there is no adapter that can talk to this vehicle's MCU yet. Good for proving network + cockpit link. **It cannot drive the UGV.** |
-| **PILOT** (`drive/pilot`) | Installable in a container, but the Dockerfile is `ros:humble-ros-base` — no CUDA, no TensorRT. Simulated drivers only (Stage 3A). Don't expect real sensors or real locomotion. |
+| **Bridge daemon** (`drive/bridge`) | **Installable, mock only.** Pure stdlib, runs on stock python3. `--vehicle` accepts `mock` and nothing else - there is no adapter that can talk to this vehicle's MCU yet. Good for proving network + cockpit link. **It cannot drive the UGV.** |
+| **PILOT** (`drive/pilot`) | Installable in a container, but the Dockerfile is `ros:humble-ros-base` - no CUDA, no TensorRT. Simulated drivers only (Stage 3A). Don't expect real sensors or real locomotion. |
 | **Cockpit** | Runs on the operator laptop, never on the Jetson. |
 
 **The real vehicle adapter is written from the survey, not before it.** That
@@ -28,7 +28,7 @@ cd argus
 git sparse-checkout set link drive/pilot drive/bridge bodies/ugv-01
 ```
 
-`bodies/ugv-01` is included on purpose — the survey brief and this file live
+`bodies/ugv-01` is included on purpose - the survey brief and this file live
 there, and the findings get committed back from the Jetson.
 
 If the Jetson has no network at all: clone on the laptop, copy over USB, and
@@ -36,10 +36,19 @@ plan to commit locally and carry the branch back.
 
 ## 2. Session one: the survey (read-only, do this first)
 
-On the Jetson: `claude` in the `argus` directory, then point it at
-`bodies/ugv-01/SURVEY.md`. Rule zero is in that file — nothing that actuates.
-Findings append to SURVEY.md, checklist fills in README.md, commit on branch
-`survey/ugv-01` and push.
+On the Jetson, run `claude` from inside the `argus` directory and paste this:
+
+```
+Read bodies/ugv-01/SURVEY.md and do the hardware survey it describes.
+Rule zero applies: this machine can move, so run nothing that could
+actuate. Write your findings into bodies/ugv-01/FINDINGS.md, tick the
+checklist in bodies/ugv-01/README.md, then commit on branch survey/ugv-01
+and push. The ZED camera is not connected right now, so record what IS
+here instead. Do not build or install anything this session.
+```
+
+Findings go in `FINDINGS.md` (skeleton already there, one section per survey
+step), checklist in `README.md`, branch `survey/ugv-01`.
 
 The one thing that matters most: **the MCU firmware source and its serial
 command set.** If it is not on the Jetson, say so loudly rather than guessing
@@ -78,13 +87,13 @@ pulling the network latches the vehicle stopped until you explicitly re-arm.
 | Cockpit dev server | laptop `:5174`, param `?bridge=host:port&key=...` |
 | C2 shell dev server | laptop `:5180` (proxies `/v1`) |
 | TRACK | laptop `:8100` |
-| MQTT broker | laptop `:1883` (mosquitto) — only for `--report`/PILOT |
+| MQTT broker | laptop `:1883` (mosquitto) - only for `--report`/PILOT |
 | PILOT registry | `localhost:8200/registry` on the machine |
-| Operator laptop LAN IP | `192.168.1.164` (verify — DHCP) |
+| Operator laptop LAN IP | `192.168.1.164` (verify - DHCP) |
 | Repo | `https://github.com/Akash9179/Argus_OS.git`, branch `main`, **private** |
 
 **Network:** Jetson and laptop on the same LAN is the simple path. Tailscale is
-installed on the laptop but currently stopped — start it on both ends if the
+installed on the laptop but currently stopped - start it on both ends if the
 vehicle is off-LAN. Cloudflared quick tunnels are laptop-side only and are not
 wired for the Drive bridge yet.
 
@@ -93,7 +102,7 @@ the Jetson's ufw rules for 8090 before suspecting the code.
 
 ## 5. What comes back from the vehicle
 
-1. Branch `survey/ugv-01` with SURVEY.md findings + README.md checklist filled.
+1. Branch `survey/ugv-01` with `FINDINGS.md` written and the `README.md` checklist ticked.
 2. The MCU serial protocol, in full, or a clear statement of where it lives.
 3. A yes/no on whether the mock-bridge bench test linked over the real network.
 

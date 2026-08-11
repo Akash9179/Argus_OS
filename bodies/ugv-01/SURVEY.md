@@ -24,11 +24,32 @@ upgraded and must not be trusted.
 
 ## What to produce
 
-Append your findings to this file under "Findings" below: raw command
-output first, one short plain-language summary per section after. Then
-fill in the checklist in README.md in this folder. Commit on a branch
-named survey/ugv-01 and push if this machine has network; if it is
-offline, commit locally and tell the human the branch name.
+**Write everything into `bodies/ugv-01/FINDINGS.md`**, which already exists in
+this folder as a skeleton with one section per survey step. Fill each section
+in place: raw command output first inside a fenced block, then one short
+plain-language paragraph saying what it means. Do not edit this brief. Then
+tick the checklist in `README.md` in this folder.
+
+An unanswered section is a finding too. Write "NOT FOUND on this machine" or
+"could not determine, because ..." rather than leaving a heading empty or
+filling it from the old notes. Honesty law: never claim more certainty than
+you hold.
+
+### Handing it back
+
+```bash
+git checkout -b survey/ugv-01
+git add bodies/ugv-01/FINDINGS.md bodies/ugv-01/README.md
+git commit -m "Hardware survey of ugv-01"
+git push -u origin survey/ugv-01
+```
+
+Set an identity first if git complains: `git config user.name` and
+`git config user.email`. The repo is private, so the push needs credentials
+(`gh auth login` device flow is easiest). If this machine is offline or the
+push is refused, commit locally anyway and tell the human the branch name and
+that it needs carrying back by hand. A survey that exists only in a chat
+transcript is a survey that gets lost.
 
 ## The survey, in order
 
@@ -87,9 +108,30 @@ dmesg | grep -iE 'camera|imu|gps|gnss|tty' | tail -30
 Record every sensor physically present: model, interface, and whether a
 driver or SDK for it is already installed.
 
+**The ZED X is NOT connected right now** (founder, 2026-08-11). Do not hunt
+for it and do not treat its absence as a fault. What matters instead: whether
+the ZED SDK is installed on this machine anyway, and what cameras ARE present
+today (a USB webcam is enough for the cockpit video pane). Record both.
+
 ### 6. Network reality
 Record how this Jetson reaches the world today: wifi, ethernet, tailscale
 (`tailscale status`), cellular. The teleop and LINK designs depend on it.
+
+### 7. Optional, only with the human present: the mock bridge
+
+This is safe. The bridge has exactly one vehicle adapter, `mock`, which is
+software with toy physics: it opens no serial port and cannot reach the MCU.
+Running it proves the network path and the cockpit link with the vehicle
+untouched.
+
+```bash
+ARGUS_PASSWORD='Argus@2026' python3 -m drive.bridge     # listens 0.0.0.0:8090
+```
+
+Pure stdlib, no venv needed. Do not pass `--report` here; it needs paho-mqtt
+and a broker on the laptop. Record in FINDINGS.md whether it started, whether
+the laptop cockpit reached it at `ws://<jetson-ip>:8090`, and the Jetson's IP
+and any firewall rule you had to notice. Then stop it with Ctrl-C.
 
 ## After the survey
 

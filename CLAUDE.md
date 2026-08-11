@@ -1,5 +1,21 @@
 # ARGUS OS: repository memory
 
+## Rule zero: are you running on a vehicle?
+If this checkout is on a Jetson inside a body (ugv-01 or any other steel), you
+are on a machine that can move, and that outranks every command below.
+
+- Run NOTHING that could actuate: no writes to serial ports, no motor tests,
+  no `drive.bridge` against a real adapter, no `pilot.main` with real
+  locomotion drivers, unless the human confirms the wheels are off the ground
+  and says go. Opening a serial port even read-only can reset an MCU.
+- Do NOT follow the install or dev commands in this file or in INSTALL.md by
+  default. They assume a laptop. On a vehicle, read `bodies/<body-id>/SURVEY.md`
+  first and do only what it says.
+- The mock bridge (`python3 -m drive.bridge`, mock is the only adapter that
+  exists) never touches a serial port and is safe. Anything else that reaches
+  hardware is not, yet.
+
+
 ## Source of truth
 ARGUS-OS-PLAN.md is the single source of truth. Read it before any non-trivial work. Where anything conflicts with it, the plan wins. Amendments to the plan happen only on the founder's explicit instruction, never silently.
 

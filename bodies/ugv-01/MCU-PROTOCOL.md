@@ -314,6 +314,56 @@ No ignition, no e-stop, no brake logic, no gear interlock, no speed limiting,
 no sequencing between relays. The console's E-stop button provably does
 nothing: there is no code path for it.
 
+## Answers from the developer, 2026-08-11
+
+- **The board is an Arduino Nano.** Confirms the ATmega328P reading from the
+  pin map. Flashing is over the same USB cable, bootloader, no programmer.
+- **R9 and R10 are one brake actuator, driven by polarity reversal.** One
+  relay drives it forward, the other reverses it. Identical pattern to the
+  steering legs on R13/R14. The console's sixteen "brake levels" were brake
+  POSITION, not sixteen relay states, which resolves the arithmetic problem
+  recorded above.
+- **The emergency stop is the ignition key.** A physical key, turned by a
+  person at the vehicle. There is no remote kill and there never was.
+- **On cable loss the MCU keeps doing the last command.** The developer
+  confirms this independently of our reading of the source. Both agree.
+- **Steering feedback exists and is already being read somewhere.** Reported
+  as 0 at centre, negative to the right and positive to the left, with about
+  ten positions per side and a least count near 3 degrees. Exact range needs
+  confirming: the description gives both "up to 5" and "10 positions each
+  side", which cannot both be counts of the same thing.
+- **The developer offers to emit telemetry in any format we specify.** That is
+  an invitation to design the uplink properly rather than inherit one.
+
+### What follows from the brake being a polarity-reversal actuator
+
+Brake is bang-bang exactly like steering, so the same two rules apply to it:
+R9 and R10 must be mutually exclusive in code, and brake pulses must be
+time-limited unless position is being read back. It also means braking is
+positional rather than proportional-by-command: the host asks for a position
+and something has to drive the actuator until it arrives.
+
+### Travel limits belong in the firmware, not the host
+
+Both steering and brake are actuators with end stops and no software limit
+today. Enforcing those limits from the host is wrong for the same reason the
+failsafe had to move into firmware: the host link can drop mid-pulse, and an
+actuator driving into its stop with nobody watching is exactly the damage
+mechanism we already identified. The MCU reads the position, so the MCU should
+refuse to drive past the limit regardless of what it is told.
+
+### The uplink format we asked for
+
+Line-based ASCII, newline terminated, key=value pairs separated by spaces, at
+about 10 Hz. Raw counts only, never pre-converted degrees, with the scale
+declared once so the host does the conversion and can be corrected without a
+reflash. Unknown keys must be ignored by consumers rather than treated as
+errors, which is the same open-vocabulary rule the LINK contract uses.
+
+This format is deliberately compatible with `parseTelemetry()` in the existing
+ros2 console, which already scans for `steer=`. That console starts showing a
+live steering angle the moment the firmware emits one, with no changes.
+
 ## Verify this document before anything relies on it
 
 Everything above came from the team verbally, relayed through two sessions,

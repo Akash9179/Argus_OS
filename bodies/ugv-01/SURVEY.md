@@ -1,5 +1,14 @@
 # Hardware survey brief - ugv-01
 
+> **THIS SURVEY IS COMPLETE (2026-08-11). DO NOT RUN IT AGAIN.**
+> Its results are in `FINDINGS.md` and the synthesis is in `MCU-PROTOCOL.md`.
+> The firmware was later supplied by the team and is in `firmware/`.
+>
+> **If you are an agent starting a session on the Jetson, open `BENCH.md`.**
+> That is the current brief. This file is kept as the record of how the
+> survey was run.
+
+
 ## If you are an agent running on the Jetson, start here
 
 You are Claude Code running on the Jetson AGX Orin inside ugv-01, the

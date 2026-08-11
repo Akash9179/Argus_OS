@@ -1073,6 +1073,102 @@ that should be fixed before the real adapter lands, not after.
 
 ---
 
+## 11. The firmware arrived - what it confirms, and what I got wrong
+
+The team supplied the sketch late in the session; it is now in
+`bodies/ugv-01/firmware/ugv01_mcu.ino`, with the full analysis in
+`MCU-PROTOCOL.md`. **It has not been read back off the chip**, so it is the
+source we were handed, not verified silicon — but it corroborates the wire
+protocol reconstructed independently here (115200, `R<n><0|1>`, `P<42..214>`),
+which is strong evidence it is the right sketch. I read it directly rather than
+relying on the analysis.
+
+**Section 4's table is now largely answerable from `MCU-PROTOCOL.md`.** Rather
+than duplicate it, this section records only what changes *my* conclusions.
+
+### 11a. CORRECTION: the `R<n><0|1>` ambiguity I flagged is not real
+
+Section 4 listed the grammar as ambiguous — `R10` as "relay 1 off" versus a
+truncated "relay 10". **The firmware resolves it cleanly and I was wrong:**
+
+```c
+int state = cmd.substring(len-1).toInt();      // last char is always the state
+int relay = cmd.substring(1, len-1).toInt();   // everything between is the index
+```
+
+Positional and unambiguous: `R101` → relay 10 on, `R10` → relay 1 off. **Treat
+that hazard as withdrawn.** A phantom risk competing for attention with the
+real ones is worse than no note at all.
+
+### 11b. Confirmed: no failsafe, and no telemetry at all
+
+The entire loop guard is `if(!Serial.available()) return;` — no `millis()`, no
+timeout. **If the cable falls out at throttle 150, the vehicle holds throttle
+150 until someone removes power.** Section 4 recorded this as "unknown, assume
+hold"; it is now confirmed as hold, in the strongest form.
+
+`Serial.begin()` is called and `Serial.print`/`println` **never are**. So the
+MCU transmits nothing, ever. Two consequences:
+
+- Section 4's telemetry row resolves to **there is none** — not "not captured".
+- **Reconnecting the steering angle sensor does nothing on its own.** There is
+  no `analogRead` anywhere in the sketch. The team's claim that the feedback
+  sensor limits steering travel (section 10a) **cannot be true of this
+  firmware**, and that needs putting back to them.
+
+There is also a **pinout constraint** on fixing it. `relayPins[] = {2,3,4,5,6,
+7,8,10,11,12,A0,A1,A2,A3}` means relays 11–14 occupy A0–A3 — so **R13 (steer
+right) is A2 and R14 (steer left) is A3**, and the four analog pins most
+obviously available for a steering potentiometer are consumed as digital relay
+outputs. On an Uno/Nano that leaves A4/A5 (also the I2C pins), or A6/A7 on a
+Nano. So "reconnect the sensor" is really: reconnect it, free or choose an ADC
+pin, add the read and the emission, and reflash. Worth knowing which board it
+is — Uno, Nano and Pro Mini differ in exactly the pins that matter.
+
+### 11c. Power-on state is known; the RESET WINDOW is not
+
+`setup()` drives all 14 relay pins HIGH and writes PWM 42, and the command path
+is `state ? LOW : HIGH`, so **relays are active-LOW and HIGH is released**.
+Steady state after boot: everything released, throttle at rest. Good.
+
+**But that is the state AFTER `setup()` runs, and it is not the state during a
+reset.** On DTR reset the MCU reboots, and before `setup()` executes every pin
+is an **INPUT — high impedance**. On a stock Uno/Nano bootloader that window is
+roughly **1–2 seconds**, not microseconds. Throughout it, the relay board's
+inputs float, and what the relays do is decided by that board's pull resistors
+and opto bias — hardware **nobody has characterised**. Pin 9 floats too, so the
+throttle driver sees an undriven input rather than a commanded 42.
+
+**So: the commanded state after reset is safe and known; the state during the
+1–2 second reset window is not.** That is a smaller risk than "unknown power-on
+behaviour", and a real one — and it is precisely the window `listen.py` opens
+when it touches DTR. It argues for **wheels off the ground**, not merely drive
+power isolated, on the first run.
+
+The caution in section 4 was not wasted: it was cheap, and it was correct.
+
+### 11d. Two integration defects found by reading the firmware against the console
+
+Both matter for whoever writes the adapter, and neither is visible from either
+file alone:
+
+1. **A failsafe would raise no alert.** The proposed v2 firmware emits
+   `Serial.println("FAILSAFE")`, but `cmd_node.py` matches alerts on
+   `alert_patterns = ['ERR', 'FAULT', 'ALERT']` by substring. **"FAILSAFE"
+   contains none of them**, so the single most important thing the vehicle can
+   ever say arrives as ordinary chatter and the alert rail stays quiet.
+   Cheapest fix is firmware-side: emit `ALERT:FAILSAFE`, which matches the
+   existing list with no ROS change and nothing to remember per deployment.
+2. **A noise-fed watchdog may not fire.** v2 resets its timer on *any*
+   non-empty line. A cleanly yanked cable is caught, but a **marginal or
+   partly-unseated connector on a vibrating vehicle produces spurious bytes**,
+   and each junk line convinces the watchdog the link is healthy. The failure
+   mode most likely to occur is the one most likely to suppress the guard. Feed
+   the timer only from recognised input — `H`, `V`, and successfully parsed `P`
+   and `R` commands.
+
+---
+
 ## What this changes
 
 > **STALE IN PLACES. Read sections 9 and 10 first.** This block was written

@@ -57,9 +57,26 @@ discrete, and the cockpit must not present a continuous steering input that
 the vehicle cannot honour (waterline law: do not show the operator a control
 that lies).
 
-**There is no brake.** Both brake relays are disconnected. The only way to
-slow this vehicle remotely is to drop throttle to 42 and coast. Any safety
-argument that assumes remote braking is false.
+**There is no brake TODAY, and the reason is benign.** Both brake relays are
+disconnected because the team is working on that subsystem (founder,
+2026-08-11). So this is a temporary state, not a design limitation, and the
+brakes are expected back. Until they are, the only way to slow this vehicle
+remotely is to drop throttle to 42 and coast, and any safety argument that
+assumes remote braking is false.
+
+Two things follow. First, ask when they are reconnected, because the answer
+changes `safe_stop()` from "coast and hope" into a real deceleration path, and
+it softens the no-passive-safe-state problem considerably. Second, brake
+presence belongs in this body's capability manifest as a declared capability,
+not as an assumption in the adapter. The adapter must run correctly on a
+vehicle whose brake is absent, because that is the vehicle we have this week.
+
+**The brake numbers do not add up yet.** The ros2 console offers `BRAKE:<0..15>`,
+sixteen levels, but only two relays are allocated to braking. Two relays encode
+four states, not sixteen. So either braking has a PWM channel nobody has found,
+or one relay is brake-apply and the other is something else, or the sixteen
+levels are aspirational like the rest of that console. Resolve this at the
+bench, and ask the team directly what R9 and R10 each do once reconnected.
 
 **There is no ignition relay and no e-stop relay.** Ignition appears to be
 physical. There is no remote emergency stop in hardware at all. The cockpit's

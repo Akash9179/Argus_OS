@@ -183,6 +183,37 @@ adapter is "assert neutral", and it must run on startup, on client
 disconnect, on watchdog trip, and on self-test failure. Nothing does that
 today.
 
+## Verify this document before anything relies on it
+
+Everything above came from the team verbally, relayed through two sessions,
+then cross-checked against code. No firmware has been read. No serial port has
+been opened. No relay has been observed firing. The cross-checking raises
+confidence in the inventory, but it cannot turn a verbal description into an
+observation, and this file now reads with more authority than its provenance
+earns.
+
+The first bench session, drive power isolated and wheels off the ground,
+verifies the map before any of it reaches a driver. Order matters:
+
+1. **R5 really is neutral.** Verify this first and alone. The whole failsafe
+   design rests on it, so it is the one that must not be wrong. If R5 is not
+   neutral, `safe_stop()` as designed makes things worse rather than better.
+2. Reverse on R4, and what gear the vehicle is in with every relay released.
+   That confirms or kills the de-energized-drive reading.
+3. Each remaining relay, one at a time, with a human watching and listening.
+   That also settles what Speed 2 is.
+4. Throttle at P42 versus above it, to test the +42 offset arithmetic.
+5. Steering legs last, briefly, and never both.
+
+## A consumer for steering angle already exists
+
+Reconnecting the angle sensor is cheaper than it sounds because the software
+side is already written and running against nothing. `parseTelemetry()` in
+`commands.js` scans every incoming serial line for `steer=`, `steering=` or
+`angle=` and publishes a `steer` field that the console renders in degrees.
+So the work is a hardware reconnection plus firmware emitting the field. It is
+not a software project.
+
 ## Still unknown
 
 - What the MCU does on serial silence: failsafe or hold last command

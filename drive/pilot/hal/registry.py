@@ -67,15 +67,22 @@ class Registry:
         entries = []
         for driver in self._drivers:
             info = driver.info()
-            entries.append(
-                {
-                    "name": info.name,
-                    "kind": info.kind,
-                    "version": info.version,
-                    "device": info.device,
-                    "settings": dict(info.settings),
-                }
-            )
+            entry = {
+                "name": info.name,
+                "kind": info.kind,
+                "version": info.version,
+                "device": info.device,
+                "settings": dict(info.settings),
+            }
+            # A sensor's stream kinds are capabilities, and capabilities
+            # are queryable data (law 10): "can this machine's sensors
+            # feed a costmap or a localization fusion" is answered here,
+            # not by reading driver code.
+            if info.kind == "sensor":
+                from pilot.hal.perception import stream_kinds
+
+                entry["streams"] = stream_kinds(driver)
+            entries.append(entry)
         return entries
 
     def health(self) -> list[dict[str, Any]]:

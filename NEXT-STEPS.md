@@ -72,23 +72,25 @@ debts that keep them honest. All CI-provable on the Mac. Keep behavior
 identical while the seams move; the sim loop and pilot criteria stay green
 throughout.
 
-1. **Perception stream interfaces (ADR-0003).**
-   - [ ] Typed stream interfaces beside the existing seam; `poll()` becomes
-         a compatibility shim over a DetectionStream.
-   - [ ] SimulatedCamera reworked as a stream provider; manifest declares
-         per-sensor capabilities.
-   - [ ] A second simulated provider (e.g. depth or GNSS) proving a sensor
-         that is not a camera fits the same seam.
-   - Acceptance: all existing tests pass unmodified where they consume
-     detections; a new test proves a stream consumer (costmap-shaped or
-     recorder-shaped) receives non-Detection data through the HAL; the
-     replace-camera acceptance test passes with two providers.
-2. **LocalizationProvider (ADR-0004).**
-   - [ ] `PoseEstimate` type with covariance, health, confidence, sources.
-   - [ ] Provider interface plus a dead-reckoning provider wrapping today's
-         behavior; `LocomotionDriver.pose()` delegated, then deprecated.
-   - Acceptance: Nav2 bridge and autonomy core read pose only from the
-     provider; a manifest can swap providers with no code change.
+1. **Perception stream interfaces (ADR-0003). DONE 18 Aug 2026.**
+   - [x] Typed stream seam (`drive/pilot/hal/perception.py`) beside the old
+         one; `poll()` survives as a compatibility shim via `streams_of()`.
+   - [x] SimulatedCamera declares its detections stream; the registry
+         reports every sensor's stream kinds (law 10).
+   - [x] SimulatedGnss proves a non-camera, non-Detection sensor through
+         the same seam (a GnssSample crosses the HAL, CI-tested).
+   - Residual: point cloud/semantic/occupancy sample types are additive
+     when a consumer exists; the ROS path into costmaps lands with real
+     sensor bring-up.
+2. **LocalizationProvider (ADR-0004). DONE 18 Aug 2026.**
+   - [x] `PoseEstimate` with uncertainty, source, and health; unknown
+         uncertainty stays None rather than an invented number.
+   - [x] Fourth driver kind (`drive/pilot/hal/localization.py`); every
+         machine gets dead reckoning by default; a manifest swaps the
+         provider with no code change (CI-proven); the autonomy core and
+         DirectNavigator read position only from the provider.
+   - Residual: the ROS locomotion bridge and Nav2Navigator still read
+     `pose()`; they migrate during the Jetson bring-up.
 3. **Persistent local store (ADR-0005).**
    - [ ] `var/argus_local.db` (SQLite WAL) plus append-only journal;
          WorldSlice reads/writes through it.

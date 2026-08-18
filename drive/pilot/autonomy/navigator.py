@@ -66,14 +66,25 @@ class Navigator(Protocol):
 
 
 class DirectNavigator:
-    """Follows a route by pointing the machine at each waypoint in turn."""
+    """Follows a route by pointing the machine at each waypoint in turn.
 
-    def __init__(self, locomotion: LocomotionDriver):
+    Position comes from the localization provider (ADR-0004), commands go
+    to the locomotion driver. Given no provider it falls back to wrapping
+    the driver's own odometry, which is the same behavior it always had.
+    """
+
+    def __init__(self, locomotion: LocomotionDriver, localization=None):
+        from pilot.hal.localization import DeadReckoningLocalization
+
         self._locomotion = locomotion
+        self._localization = localization or DeadReckoningLocalization(locomotion)
         self._route: list[Waypoint] = []
         self._index = 0
         self._total_m = 0.0
         self._done_m = 0.0
+
+    def _where(self):
+        return self._localization.estimate()
 
     def follow(self, route: list[Waypoint]) -> None:
         self._route = list(route)
@@ -92,13 +103,13 @@ class DirectNavigator:
         if not self._route or self._index >= len(self._route):
             return
 
-        before = self._locomotion.pose()
+        before = self._where()
         # A driver that dead-reckons needs its clock advanced; one attached
         # to real hardware moves on its own and has no tick.
         tick = getattr(self._locomotion, "tick", None)
         if tick is not None:
             tick(dt)
-        after = self._locomotion.pose()
+        after = self._where()
 
         self._done_m += geo.distance_m(
             before.latitude_deg, before.longitude_deg, after.latitude_deg, after.longitude_deg
@@ -140,9 +151,9 @@ class DirectNavigator:
     def _length(self, route: list[Waypoint]) -> float:
         if not route:
             return 0.0
-        pose = self._locomotion.pose()
+        here = self._where()
         total = 0.0
-        lat, lon = pose.latitude_deg, pose.longitude_deg
+        lat, lon = here.latitude_deg, here.longitude_deg
         for waypoint in route:
             total += geo.distance_m(lat, lon, waypoint.latitude_deg, waypoint.longitude_deg)
             lat, lon = waypoint.latitude_deg, waypoint.longitude_deg

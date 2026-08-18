@@ -5,17 +5,17 @@
 risks:
   - id: R-1
     title: The HAL abstracts detections, not sensing
-    severity: high
+    severity: low
     affects: [edge.hal.sensor_interface, edge.navigator, core.localization_provider]
-    summary: poll() returns finished Detections; no images, depth, point clouds, IMU or GNSS cross the HAL. Detector lives inside each camera driver, costmaps are unreachable, localization fusion has no inputs. Cheap to fix now, expensive after three real drivers exist.
-    mitigation: ADR-0003 perception stream interfaces; phase 2 of the roadmap, before any real sensor driver is written.
+    summary: poll() returned finished Detections only; no images, depth, point clouds, IMU or GNSS could cross the HAL, leaving costmaps unreachable and localization fusion without inputs.
+    mitigation: CLOSED AT THE SEAM 18 Aug 2026, before any real sensor driver was written (ADR-0003, drive/pilot/hal/perception.py, CI-proven with a GNSS sample crossing the HAL). Residual, tracked on core.perception_interface, no ROS path into costmaps until real sensor bring-up.
 
   - id: R-2
     title: Localization welded to locomotion
-    severity: high
+    severity: low
     affects: [edge.hal.locomotion_interface, core.localization_provider]
-    summary: pose() on the locomotion driver means "where am I" is answered by the thing that turns wheels. The open provider choice (D-1) will be distorted by which option fits the wrong seam.
-    mitigation: ADR-0004 LocalizationProvider; phase 2, before the D-1 bench comparison.
+    summary: pose() on the locomotion driver meant "where am I" was answered by the thing that turns wheels, and the open provider choice (D-1) would have been distorted by the wrong seam.
+    mitigation: CLOSED AT THE SEAM 18 Aug 2026, before the D-1 bench comparison (ADR-0004, drive/pilot/hal/localization.py; manifest-swappable, CI-proven). Residual, tracked on core.localization_provider, the ROS bridge and Nav2 still read pose() until the Jetson bring-up.
 
   - id: R-3
     title: Two parallel vehicle stacks accreting independently

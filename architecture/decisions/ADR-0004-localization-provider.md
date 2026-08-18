@@ -1,6 +1,6 @@
 # ADR-0004: Localization as a first-class provider
 
-**Status:** accepted-direction (not yet implemented). **Date:** 2026-08-18.
+**Status:** accepted, seam implemented 2026-08-18 (ROS bridge migration and real providers pending hardware). **Date:** 2026-08-18.
 **Affected:** `edge.hal.locomotion_interface` (loses `pose()`),
 `core.localization_provider`. Closes risk R-2.
 

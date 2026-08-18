@@ -16,6 +16,7 @@ import logging
 from typing import Any, Callable
 
 from pilot.hal.interfaces import CommsDriver, Driver, LocomotionDriver, SensorDriver
+from pilot.hal.localization import DeadReckoningLocalization, LocalizationProvider
 from pilot.hal.manifest import Manifest
 from pilot.hal.registry import Registry
 
@@ -47,14 +48,17 @@ class DriverSet:
         comms: CommsDriver,
         sensors: list[SensorDriver],
         registry: Registry,
+        localization: LocalizationProvider,
     ):
         self.locomotion = locomotion
         self.comms = comms
         self.sensors = sensors
         self.registry = registry
+        self.localization = localization
 
     def start(self) -> None:
         self.locomotion.start()
+        self.localization.start()
         for sensor in self.sensors:
             sensor.start()
         self.comms.start()
@@ -62,6 +66,7 @@ class DriverSet:
     def stop(self) -> None:
         for sensor in self.sensors:
             sensor.stop()
+        self.localization.stop()
         self.locomotion.stop()
         self.comms.stop()
 
@@ -90,8 +95,35 @@ def build_drivers(manifest: Manifest, **overrides: Any) -> DriverSet:
         for spec in manifest.sensors():
             sensors.append(_build(spec.driver, manifest, spec.settings))
 
+    # Localization is the fourth driver kind (ADR-0004). A manifest that
+    # declares one gets it; a manifest that declares nothing gets honest
+    # dead reckoning wrapped around its own locomotion, which is exactly
+    # the behavior every machine had before the seam existed. Declared
+    # factories receive the locomotion driver too, because providers that
+    # fuse wheel odometry need it and the ones that do not ignore it.
+    localization = overrides.get("localization")
+    if localization is None:
+        localization_spec = manifest.driver_for("localization")
+        if localization_spec is None:
+            localization = DeadReckoningLocalization(locomotion)
+        else:
+            # "locomotion" is a reserved settings key: it carries the
+            # injected driver instance, and a manifest that names it would
+            # silently replace real hardware with whatever YAML said.
+            if "locomotion" in localization_spec.settings:
+                raise DriverNotAvailable(
+                    f"{manifest.name}'s localization driver settings use the reserved key "
+                    "'locomotion', which the runtime supplies itself"
+                )
+            localization = _build(
+                localization_spec.driver,
+                manifest,
+                {"locomotion": locomotion, **localization_spec.settings},
+            )
+
     registry = Registry(manifest)
     registry.register(locomotion)
+    registry.register(localization)
     registry.register(comms)
     for sensor in sensors:
         registry.register(sensor)
@@ -102,7 +134,13 @@ def build_drivers(manifest: Manifest, **overrides: Any) -> DriverSet:
         len(registry.drivers()),
         ", ".join(entry["name"] for entry in registry.drivers()),
     )
-    return DriverSet(locomotion=locomotion, comms=comms, sensors=sensors, registry=registry)
+    return DriverSet(
+        locomotion=locomotion,
+        comms=comms,
+        sensors=sensors,
+        registry=registry,
+        localization=localization,
+    )
 
 
 def _build(name: str, manifest: Manifest, settings: dict[str, Any]) -> Any:

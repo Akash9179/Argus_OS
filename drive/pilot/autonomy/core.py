@@ -35,6 +35,7 @@ from pilot.autonomy.worldslice import WorldSlice
 from pilot.hal.interfaces import Waypoint
 from pilot.hal.loader import DriverSet
 from pilot.hal.manifest import Manifest
+from pilot.hal.perception import streams_of
 from pilot.link_client import LinkClient, timestamp_now
 
 log = logging.getLogger(__name__)
@@ -96,8 +97,11 @@ class AutonomyCore:
 
     def run(self, duration_s: float | None = None) -> None:
         started = time.monotonic()
-        pose = self.drivers.locomotion.pose()
-        self.world.home = (pose.latitude_deg, pose.longitude_deg)
+        # Home is where the localization provider says the machine woke
+        # up, which is the position everything else will be reported
+        # against (ADR-0004).
+        estimate = self.drivers.localization.estimate()
+        self.world.home = (estimate.latitude_deg, estimate.longitude_deg)
 
         last_heartbeat = 0.0
         last_telemetry = 0.0
@@ -128,7 +132,7 @@ class AutonomyCore:
                 last_heartbeat = now
                 self._send_heartbeat()
 
-            moving = self.drivers.locomotion.pose().speed_mps > 0.0
+            moving = self.drivers.localization.estimate().speed_mps > 0.0
             period = 1.0 / self.cfg.telemetry_hz if moving else 1.0
             if now - last_telemetry >= period:
                 last_telemetry = now
@@ -325,10 +329,18 @@ class AutonomyCore:
         position turns it into a coordinate. A sensor driver that had to
         know where it was would be a sensor driver that broke when the
         machine moved.
+
+        Sensors are read through the stream seam (ADR-0003). The core
+        consumes the detections stream; other streams (GNSS, frames,
+        depth) exist for the consumers built beside it, localization and
+        recording, and the core neither reads nor blocks them.
         """
-        pose = self.drivers.locomotion.pose()
+        pose = self.drivers.localization.estimate()
         for sensor in self.drivers.sensors:
-            for detection in sensor.poll():
+            detections = streams_of(sensor).get("detections")
+            if detections is None:
+                continue
+            for detection in detections.read():
                 lat, lon = geo.offset(
                     pose.latitude_deg,
                     pose.longitude_deg,
@@ -353,8 +365,8 @@ class AutonomyCore:
     # -- reporting ---------------------------------------------------------
 
     def _position(self) -> Position:
-        pose = self.drivers.locomotion.pose()
-        return Position(latitude_deg=pose.latitude_deg, longitude_deg=pose.longitude_deg)
+        estimate = self.drivers.localization.estimate()
+        return Position(latitude_deg=estimate.latitude_deg, longitude_deg=estimate.longitude_deg)
 
     def _send_heartbeat(self) -> None:
         task = self.world.current_task
@@ -367,11 +379,13 @@ class AutonomyCore:
         )
 
     def _send_telemetry(self) -> None:
-        pose = self.drivers.locomotion.pose()
+        estimate = self.drivers.localization.estimate()
         self.link.telemetry(
-            position=Position(latitude_deg=pose.latitude_deg, longitude_deg=pose.longitude_deg),
-            heading_deg=pose.heading_deg,
-            speed_mps=pose.speed_mps,
+            position=Position(
+                latitude_deg=estimate.latitude_deg, longitude_deg=estimate.longitude_deg
+            ),
+            heading_deg=estimate.heading_deg,
+            speed_mps=estimate.speed_mps,
         )
 
 

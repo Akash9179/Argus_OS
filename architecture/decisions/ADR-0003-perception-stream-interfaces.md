@@ -1,6 +1,6 @@
 # ADR-0003: Perception stream interfaces
 
-**Status:** accepted-direction (not yet implemented). **Date:** 2026-08-18.
+**Status:** accepted, seam implemented 2026-08-18 (real providers pending hardware). **Date:** 2026-08-18.
 **Affected:** `edge.hal.sensor_interface` (superseded),
 `core.perception_interface`, `perception.zed`, `perception.detector`,
 `edge.navigator`. Closes risk R-1, the audit's highest architectural risk.

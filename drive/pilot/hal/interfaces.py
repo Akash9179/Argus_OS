@@ -1,13 +1,15 @@
 """The hardware abstraction layer's driver interfaces.
 
-Three interfaces and nothing else: locomotion, sensing, comms. Everything
-above this file is written once and runs on every machine; everything
-machine-specific lives in an implementation of one of these protocols.
+Four driver kinds: locomotion, sensing, comms, and localization (the
+fourth, added by ADR-0004; its provider interface lives in
+localization.py, and the richer sensing seam lives in perception.py).
+Everything above this file is written once and runs on every machine;
+everything machine-specific lives in an implementation of one of these
+protocols.
 
-The HAL law is the reason this file is small. If a new body type needs a
-fourth interface, or if code above the HAL has to ask what kind of machine
-it is running on, the design has failed and the fix belongs here rather
-than in a branch upstream.
+The HAL law is the reason this file is small. If code above the HAL has to
+ask what kind of machine it is running on, the design has failed and the
+fix belongs here rather than in a branch upstream.
 
 Each driver also reports itself to the registry (see registry.py), because
 the registry law requires that everything the HAL knows is queryable
@@ -32,7 +34,7 @@ class DriverInfo:
     """
 
     name: str
-    kind: str  # "locomotion", "sensor", or "comms"
+    kind: str  # "locomotion", "sensor", "comms", or "localization"
     version: str
     # What physical thing this driver speaks to, for example "simulated",
     # "zed_x", "ublox_f9p". OPEN vocabulary, like the contract's own.
@@ -142,23 +144,32 @@ class LocomotionDriver(Driver, Protocol):
     def stop_moving(self) -> None: ...
 
     def pose(self) -> Pose:
-        """Where the machine believes it is.
+        """The driver's own odometry: where counting its actuators says
+        the machine is.
 
-        In version 1 this is the localization output the driver has access
-        to. Which localization becomes the source of truth is an open
-        decision settled in Stage 3B; keeping it behind this call means
-        settling it is a driver change.
+        MIGRATING SEAM (ADR-0004). "Where am I" now belongs to the
+        LocalizationProvider in localization.py, and everything above the
+        HAL reads estimates from it, never poses from here. Four callers
+        remain, and only these: the dead-reckoning provider that wraps
+        this call, the ROS bridge that publishes it as /odom,
+        Nav2Navigator's route-length arithmetic, and the container
+        diagnostic tool (docker/diagnose_nav2.py). All migrate to the
+        provider with the Jetson bring-up. Do not add new callers.
         """
         ...
 
 
 @runtime_checkable
 class SensorDriver(Driver, Protocol):
-    """Perceiving the world.
+    """Perceiving the world, original narrow form.
 
-    The interface is deliberately narrow: hand back whatever has been
-    detected since the last call. Standardized outputs only, so that
-    perception above the HAL never learns a camera model.
+    MIGRATING SEAM (ADR-0003). Detections are one stream among several
+    now: new sensor drivers implement `streams()` from perception.py and
+    declare what their hardware actually provides (detections, GNSS
+    fixes, frames, depth, IMU). A driver that only implements `poll()`
+    keeps working through the shim in `perception.streams_of`, which
+    presents it as a single detections stream. Do not write new drivers
+    against poll().
     """
 
     def poll(self) -> list[Detection]: ...

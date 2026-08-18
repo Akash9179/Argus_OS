@@ -346,7 +346,15 @@ async def test_the_registry_is_queryable_and_reaches_the_world_model(client, wor
     local = machine.registry.snapshot()
     assert local["registry_version"] == 1
     names = {d["name"] for d in local["drivers"]}
-    assert names == {"simulated_locomotion", "direct_comms", "simulated_camera"}
+    # Four kinds since ADR-0004: a machine that declares no localization
+    # still carries an honest dead-reckoning provider, and the registry
+    # reports it like any other driver.
+    assert names == {
+        "simulated_locomotion",
+        "dead_reckoning_localization",
+        "direct_comms",
+        "simulated_camera",
+    }
     assert all("version" in d for d in local["drivers"])
     assert {d["identifier"] for d in local["devices"]} >= {"motor-controller-0", "camera-0"}
     assert local["configuration"]["asset_class"] == "ugv"

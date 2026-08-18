@@ -53,8 +53,8 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | Argus Cognitive Runtime (`core.cognitive_runtime`) | planned | new | - |
 | Local World Model (`core.local_world_model`) | planned | new | - |
-| Perception stream interfaces (`core.perception_interface`) | planned | new | - |
-| LocalizationProvider (`core.localization_provider`) | planned | new | - |
+| Perception stream interfaces (`core.perception_interface`) | software_verified | new | 2 known gaps |
+| LocalizationProvider (`core.localization_provider`) | software_verified | new | 2 known gaps |
 | Memory manager (`core.memory`) | planned | new | - |
 | ActionVerifier (`core.action_verifier`) | planned | new | - |
 | Safety governor (`core.safety_governor`) | planned | new | - |

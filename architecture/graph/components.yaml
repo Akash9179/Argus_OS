@@ -114,25 +114,25 @@ components:
     type: Interface
     path: drive/pilot/hal/interfaces.py
     plane: edge
-    role: poll() returning finished Detections; no images, depth, point clouds, IMU or GNSS cross the HAL
+    role: poll() returning finished Detections; now a compatibility shim over the stream seam
     status: simulated
     disposition: replace
     superseded_by: core.perception_interface
     known_gaps:
-      - Highest architectural risk in the audit; detector forced inside each camera driver, costmaps unreachable, localization fusion has no inputs
-    notes: Kept as a compatibility shim while the richer stream interfaces migrate in (phase 2).
+      - Old-style poll()-only drivers still legal through the shim; the protocol is removed once no driver speaks it
+    notes: Defanged 18 Aug 2026. The successor seam is live; streams_of() presents any poll()-only driver as a detections stream, and the autonomy core reads streams, not poll(). Risk R-1 is closed at the seam; the remaining work is real providers.
 
   - id: edge.hal.locomotion_interface
     name: LocomotionDriver interface
     type: Interface
     path: drive/pilot/hal/interfaces.py
     plane: edge
-    role: set_velocity, goto, stop_moving, and (wrongly) pose
+    role: set_velocity, goto, stop_moving; pose() remains only as wrapped odometry
     status: simulated
     disposition: refactor
     known_gaps:
-      - pose() welds localization to locomotion; a GNSS+IMU+VSLAM fusion has no home on this seam
-    notes: pose() ownership moves to core.localization_provider (phase 2); motion commands stay here.
+      - pose() is deprecated but still read by the ROS locomotion bridge, Nav2Navigator, and the container tests; those migrate with the Jetson bring-up
+    notes: Ownership of "where am I" moved to core.localization_provider on 18 Aug 2026; the interface docstring forbids new pose() callers.
 
   - id: edge.hal.comms_interface
     name: CommsDriver interface
@@ -158,7 +158,7 @@ components:
     type: Driver
     path: drive/pilot/hal/drivers/simulated.py
     plane: edge
-    role: Simulated locomotion and camera; scripted sightings from the manifest
+    role: Simulated locomotion, camera, and satellite receiver; scripted sightings and fixes from the manifest
     status: simulated
     disposition: keep
     known_gaps:
@@ -302,22 +302,30 @@ components:
   - id: core.perception_interface
     name: Perception stream interfaces
     type: Interface
-    path: null
+    path: drive/pilot/hal/perception.py
     plane: core
-    role: Typed streams (frames, depth, point clouds, IMU, GNSS, detections, occupancy) with discoverable per-sensor capabilities
-    status: planned
+    role: Typed streams with discoverable per-sensor capabilities; open stream-kind vocabulary
+    status: software_verified
     disposition: new
-    notes: Replaces the Detection-only sensor seam (ADR-0003). Highest-priority refactor. High-rate data stays on a local sensor bus, never in LINK by default.
+    tests: [tests/test_perception_streams.py]
+    known_gaps:
+      - Sample types shipped for detections, gnss, imu, frames, depth; point cloud, semantic, and occupancy types are additive when a consumer exists
+      - No ROS path from streams into Nav2 costmaps yet; that lands with the real sensor bring-up
+    notes: Built 18 Aug 2026 (ADR-0003). The old poll() seam lives on as a compatibility shim through streams_of(); registry reports each sensor's stream kinds (law 10). High-rate data stays local, never in LINK.
 
   - id: core.localization_provider
     name: LocalizationProvider
     type: Interface
-    path: null
+    path: drive/pilot/hal/localization.py
     plane: core
-    role: First-class pose; GNSS, IMU, VSLAM, wheel odometry fuse behind one PoseEstimate with covariance and health
-    status: planned
+    role: First-class pose; PoseEstimate with uncertainty, source, and health; the fourth HAL driver kind
+    status: software_verified
     disposition: new
-    notes: Takes pose() ownership from the locomotion interface (ADR-0004). ZED-native today, cuVSLAM or fusion tomorrow, without the rest of Argus caring.
+    tests: [tests/test_localization_provider.py]
+    known_gaps:
+      - The ROS locomotion bridge and Nav2Navigator still read LocomotionDriver.pose(); they migrate to the provider with the Jetson bring-up
+      - Only the dead-reckoning provider exists; GNSS and visual providers arrive with the hardware
+    notes: Built 18 Aug 2026 (ADR-0004). Every machine gets an honest dead-reckoning provider by default; a manifest swaps providers with no code change (CI-proven). Dead reckoning reports its uncertainty as unknown rather than inventing a number.
 
   - id: core.memory
     name: Memory manager

@@ -31,6 +31,13 @@ from pilot.hal.interfaces import (
 from pilot.hal.language import say
 from pilot.hal.loader import register_driver
 from pilot.hal.manifest import Manifest
+from pilot.hal.perception import (
+    GNSS_FIX_HOLDING_VALUES,
+    GnssSample,
+    ListStream,
+    SensorStream,
+    _PolledDetections,
+)
 from pilot.hal.registry import Device
 
 log = logging.getLogger(__name__)
@@ -309,6 +316,113 @@ class SimulatedCamera:
             sighting.next_at = elapsed + (sighting.repeat_every_seconds or 1e9)
         return found
 
+    def streams(self) -> dict[str, SensorStream]:
+        """The stream seam (ADR-0003). This camera detects things and
+        nothing else, so it declares exactly one stream, backed by the
+        same scripted sightings poll() reports."""
+        return {"detections": _PolledDetections(self)}
+
+
+class SimulatedGnss:
+    """A satellite receiver that always has a fix on a scripted position.
+
+    The first sensor whose data is not a Detection, which is the whole
+    reason the stream seam exists: a fix crosses the HAL as a GnssSample,
+    and the old interface had no way to carry one at all. The real
+    receiver driver replaces this one behind the same stream.
+    """
+
+    def __init__(
+        self,
+        manifest: Manifest,
+        latitude_deg: float = 0.0,
+        longitude_deg: float = 0.0,
+        altitude_m: float | None = None,
+        horizontal_accuracy_m: float | None = None,
+        fix: str = "3d",
+        satellites: int = 12,
+        **_ignored: Any,
+    ):
+        self._lat = float(latitude_deg)
+        self._lon = float(longitude_deg)
+        self._alt = altitude_m if altitude_m is None else float(altitude_m)
+        self._accuracy = (
+            horizontal_accuracy_m if horizontal_accuracy_m is None else float(horizontal_accuracy_m)
+        )
+        self._fix = str(fix)
+        self._satellites = int(satellites)
+        self._running = False
+        self._stream = ListStream("gnss")
+
+    def info(self) -> DriverInfo:
+        return DriverInfo(
+            name="simulated_gnss",
+            kind="sensor",
+            version=DRIVER_VERSION,
+            device="simulated",
+            settings={"fix": self._fix},
+        )
+
+    def health(self) -> DriverHealth:
+        if not self._running:
+            return DriverHealth(False, say("gnss_stopped"))
+        # The words track the fix state, and only values known to hold a
+        # fix may claim one. `fix` is open vocabulary, so an unrecognized
+        # value is reported as stated rather than judged either way:
+        # claiming a fix would overclaim, and "no fix" would deny a state
+        # the driver never asserted (law 7 in both directions).
+        if self._fix == "none":
+            return DriverHealth(True, say("gnss_no_fix"))
+        if self._fix in GNSS_FIX_HOLDING_VALUES:
+            return DriverHealth(True, say("gnss_running", satellites=self._satellites))
+        return DriverHealth(True, say("gnss_fix_state", fix=self._fix))
+
+    def scan(self) -> list[Device]:
+        return [
+            Device(
+                bus="simulated",
+                identifier="gnss-0",
+                description="simulated satellite receiver",
+                present=True,
+            )
+        ]
+
+    def start(self) -> None:
+        self._running = True
+
+    def stop(self) -> None:
+        self._running = False
+
+    def streams(self) -> dict[str, SensorStream]:
+        return {"gnss": _GnssFeed(self)}
+
+
+class _GnssFeed:
+    """A stopped receiver reports nothing; a running one reports its
+    current fix each time it is read, the way real receivers emit at a
+    cadence rather than holding one stale answer."""
+
+    kind = "gnss"
+
+    def __init__(self, gnss: SimulatedGnss):
+        self._gnss = gnss
+
+    def read(self) -> list[GnssSample]:
+        g = self._gnss
+        if not g._running:
+            return []
+        return [
+            GnssSample(
+                timestamp_s=time.time(),
+                latitude_deg=g._lat,
+                longitude_deg=g._lon,
+                altitude_m=g._alt,
+                horizontal_accuracy_m=g._accuracy,
+                fix=g._fix,
+                satellites=g._satellites,
+            )
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Comms
@@ -427,5 +541,6 @@ def _sin_deg(deg: float) -> float:
 
 register_driver("simulated_locomotion", SimulatedLocomotion)
 register_driver("simulated_camera", SimulatedCamera)
+register_driver("simulated_gnss", SimulatedGnss)
 register_driver("simulated_comms", SimulatedComms)
 register_driver("direct_comms", DirectComms)

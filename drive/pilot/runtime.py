@@ -90,7 +90,7 @@ def boot(
     core = AutonomyCore(
         manifest=manifest,
         drivers=drivers,
-        navigator=navigator or DirectNavigator(drivers.locomotion),
+        navigator=navigator or DirectNavigator(drivers.locomotion, localization=drivers.localization),
         link=link,
         config=cfg,
     )

@@ -20,6 +20,14 @@ health:
   camera_stopped: "The camera is not running."
   camera_running: "The camera is running."
 
+  gnss_stopped: "The satellite receiver is not running."
+  gnss_running: "The satellite receiver has a fix, tracking {satellites} satellites."
+  gnss_no_fix: "The satellite receiver is running but has no fix yet."
+  gnss_fix_state: "The satellite receiver is running and reports its fix state as {fix}."
+
+  localization_stopped: "Localization is not running."
+  localization_dead_reckoning: "Position is dead reckoned from the machine's own movement, and the error grows with distance until a better source corrects it."
+
   link_up: "The link is up."
   link_up_to: "Connected to {host}."
   link_down: "The link is down and the machine is working alone."

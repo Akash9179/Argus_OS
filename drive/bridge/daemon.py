@@ -1,14 +1,22 @@
 """The bridge daemon: cockpit WebSocket in, VehicleAdapter out.
 
 Session rules (inherited from the relay that preceded this daemon):
-  - AUTH FIRST: the first frame must be {"t":"auth","password":...}.
-    Wrong or absent: the connection drops before anything else happens.
+  - AUTH FIRST: the first frame must be {"t":"auth", ...} carrying a
+    per-operator token (under "token", or "password" for the cockpit's
+    older frame shape). An unknown or absent token: the connection drops
+    before anything else happens, and the failure is logged without the
+    secret that failed.
   - SINGLE DRIVER: one authenticated client is the DRIVER; its commands
     reach the vehicle. Everyone else is a SPECTATOR receiving telemetry.
     When the driver leaves, the watchdog trips (if driving), the vehicle
     safe-stops, and the oldest spectator is promoted.
   - WATCHDOG: operator silence beyond the timeout while driving latches
     the vehicle stopped. Re-arm is explicit (arm=true, throttle=0).
+
+Every safety-relevant transition lands in the session log as it happens
+(ADR-0009): who connected, ignition, preflight verdicts, armed, latched
+and why, re-armed, who left. An incident review reads the log, not the
+operators' memories.
 
 Threads: one accept loop, one reader per client, one tick loop
 (vehicle physics + watchdog poll + telemetry broadcast).
@@ -19,8 +27,11 @@ import json
 import socket
 import threading
 import time
+import uuid
 
 from .contract import Command
+from .identity import Operator, OperatorDirectory
+from .session_log import SessionLog
 from .vehicle import VehicleAdapter
 from .watchdog import Watchdog
 from . import wsproto
@@ -30,9 +41,11 @@ TELEMETRY_HZ = 10
 
 
 class _Client:
-    def __init__(self, conn: socket.socket, addr) -> None:
+    def __init__(self, conn: socket.socket, addr, operator: Operator) -> None:
         self.conn = conn
         self.addr = addr
+        self.operator = operator
+        self.session = uuid.uuid4().hex[:12]
         self.joined = time.monotonic()
         self.send_lock = threading.Lock()
 
@@ -49,18 +62,27 @@ class BridgeDaemon:
     def __init__(
         self,
         vehicle: VehicleAdapter,
-        password: str,
+        operators: OperatorDirectory,
         host: str = "0.0.0.0",
         port: int = 8090,
         watchdog_timeout_s: float = 0.7,
+        log_path=None,
     ) -> None:
-        if not password:
-            raise ValueError("a password is required; set ARGUS_PASSWORD")
+        if len(operators) == 0:
+            raise ValueError(
+                "at least one operator token is required; see the operators file"
+            )
         self.vehicle = vehicle
-        self.password = password
+        self.operators = operators
         self.host = host
         self.port = port
+        self.log = SessionLog(log_path)
         self.watchdog = Watchdog(timeout_s=watchdog_timeout_s)
+        # Serializes watchdog transitions against their log lines: without
+        # it the tick thread can trip the dog between a reader thread's
+        # before-read and its command, and the log would then miss a
+        # re-arm that really happened. The log must never understate.
+        self._wd_lock = threading.Lock()
         self.preflight: dict = {"ran": False, "pass": False, "checks": []}
         self._ignition_was_on = False
         self._clients: list[_Client] = []
@@ -72,6 +94,7 @@ class BridgeDaemon:
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
         self._server = socket.create_server((self.host, self.port))
+        self.log.event("daemon_start", vehicle=type(self.vehicle).__name__)
         threading.Thread(target=self._accept_loop, daemon=True).start()
         threading.Thread(target=self._tick_loop, daemon=True).start()
 
@@ -80,6 +103,8 @@ class BridgeDaemon:
         self.vehicle.safe_stop()
         if self._server:
             self._server.close()
+        self.log.event("daemon_stop")
+        self.log.close()
 
     # ------------------------------------------------------------ accept/read
     def _accept_loop(self) -> None:
@@ -99,7 +124,14 @@ class BridgeDaemon:
                 return
             first = wsproto.read_text(conn)
             msg = _parse(first)
-            if not msg or msg.get("t") != "auth" or msg.get("password") != self.password:
+            # The cockpit's frame carries the secret under "password";
+            # "token" is the same thing said plainly. Either way the value
+            # is a per-operator token, and the shared password is gone.
+            token = (msg or {}).get("token") or (msg or {}).get("password") or ""
+            operator = self.operators.lookup(token) if msg and msg.get("t") == "auth" else None
+            if operator is None:
+                # The fact of the failure is logged; the secret never is.
+                self.log.event("auth_failed", addr=str(addr[0]))
                 try:
                     wsproto.send_text(conn, json.dumps({"t": "error", "reason": "auth"}))
                 finally:
@@ -110,12 +142,17 @@ class BridgeDaemon:
             conn.close()
             return
 
-        client = _Client(conn, addr)
+        client = _Client(conn, addr, operator)
         with self._lock:
             self._clients.append(client)
             if self._driver is None:
                 self._driver = client
-        client.send({"t": "role", "role": self._role_of(client)})
+        role = self._role_of(client)
+        self.log.event(
+            "session_open", session=client.session,
+            operator_id=operator.operator_id, addr=str(addr[0]), role=role,
+        )
+        client.send({"t": "role", "role": role})
 
         try:
             while not self._stop.is_set():
@@ -142,23 +179,28 @@ class BridgeDaemon:
                 self.watchdog.feed()
             return
         if t == "preflight" and client is self._driver:
-            self._run_preflight()
+            self._run_preflight(client)
             return
         if t != "cmd" or client is not self._driver:
             return
         cmd = Command.from_wire(msg)
         if cmd.ignition and not self._ignition_was_on:
-            self._run_preflight()          # ignition just came on
+            self.log.event("ignition", session=client.session, on=True)
+            self._run_preflight(client)    # ignition just came on
         elif not cmd.ignition and self._ignition_was_on:
+            self.log.event("ignition", session=client.session, on=False)
             self.preflight = {"ran": False, "pass": False, "checks": []}
             self._broadcast_preflight()    # ignition off invalidates the green light
         self._ignition_was_on = cmd.ignition
         # the green light gates arming; nothing arms on a failed or absent self-test
         effective_arm = cmd.arm and self.preflight["pass"]
-        may_drive = self.watchdog.command(effective_arm, cmd.estop, cmd.throttle)
-        if self.watchdog.state == "DRIVING" and not effective_arm:
-            self.watchdog.disarm()
-            may_drive = False
+        with self._wd_lock:
+            before = self.watchdog.state
+            may_drive = self.watchdog.command(effective_arm, cmd.estop, cmd.throttle)
+            if self.watchdog.state == "DRIVING" and not effective_arm:
+                self.watchdog.disarm()
+                may_drive = False
+            self._log_transition(client, before, self.watchdog.state, cmd.estop)
         if not may_drive:
             # state controls (ignition, lights, gear) still apply; motion does not
             cmd = Command(
@@ -169,22 +211,48 @@ class BridgeDaemon:
             )
         self.vehicle.apply(cmd)
 
+    def _log_transition(self, client: _Client, before: str, after: str, estop: bool) -> None:
+        """One watchdog transition, one line, with the reason stated."""
+        if before == after:
+            return
+        if after == "DRIVING":
+            event = "rearmed" if before == "LATCHED" else "armed"
+            self.log.event(event, session=client.session)
+        elif after == "LATCHED":
+            self.log.event(
+                "latched", session=client.session,
+                reason="estop" if estop else "operator_silence",
+            )
+        elif after == "STOPPED":
+            self.log.event("disarmed", session=client.session)
+
     def _drop(self, client: _Client) -> None:
         with self._lock:
-            if client in self._clients:
-                self._clients.remove(client)
+            if client not in self._clients:
+                return  # already dropped once; a send failure races the reader
+            self._clients.remove(client)
             if client is self._driver:
-                if self.watchdog.link_lost():
+                with self._wd_lock:
+                    tripped = self.watchdog.link_lost()
+                    if tripped:
+                        self.log.event("latched", session=client.session, reason="link_lost")
+                if tripped:
                     self.vehicle.safe_stop()
                 self._driver = min(self._clients, key=lambda c: c.joined) if self._clients else None
                 promoted = self._driver
             else:
                 promoted = None
+        self.log.event(
+            "session_close", session=client.session,
+            duration_s=round(time.monotonic() - client.joined, 3),
+        )
         try:
             client.conn.close()
         except OSError:
             pass
         if promoted:
+            self.log.event("role_promoted", session=promoted.session,
+                           operator_id=promoted.operator.operator_id)
             promoted.send({"t": "role", "role": "DRIVER"})
 
     # ----------------------------------------------------------------- tick
@@ -196,20 +264,33 @@ class BridgeDaemon:
             tick = getattr(self.vehicle, "tick", None)
             if tick:
                 tick(dt)
-            if self.watchdog.check():
+            with self._wd_lock:
+                tripped = self.watchdog.check()
+                if tripped:
+                    driver = self._driver
+                    self.log.event(
+                        "latched", session=driver.session if driver else None,
+                        reason="operator_silence",
+                    )
+            if tripped:
                 self.vehicle.safe_stop()
             n += 1
             if n % telemetry_every == 0:
                 self._broadcast_telemetry()
             time.sleep(dt)
 
-    def _run_preflight(self) -> None:
+    def _run_preflight(self, client: _Client) -> None:
         checks = self.vehicle.self_test()
         self.preflight = {
             "ran": True,
             "pass": all(c["ok"] for c in checks),
             "checks": checks,
         }
+        self.log.event(
+            "preflight", session=client.session,
+            **{"pass": self.preflight["pass"]},
+            failed=[c["name"] for c in checks if not c["ok"]],
+        )
         self._broadcast_preflight()
 
     def _broadcast_preflight(self) -> None:

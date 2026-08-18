@@ -40,7 +40,7 @@ verdict: keep / refactor / replace / archive / new.
 | Navigator (Direct and Nav2) (`edge.navigator`) | simulated | keep | 3 known gaps |
 | WorldSlice (`edge.worldslice`) | software_verified | keep | - |
 | Edge LINK client (`edge.link_client`) | software_verified | keep | - |
-| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 3 known gaps |
+| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 2 known gaps |
 | Bridge relay (`teleop.relay`) | hardware_integrated | refactor | 1 known gap |
 | Teleop watchdog (`teleop.watchdog`) | software_verified | keep | 1 known gap |
 | Brain prototype (`drive.brain`) | scaffolded | archive | 1 known gap; succeeded by `core.cognitive_runtime` |

@@ -103,11 +103,20 @@ throughout.
      state recovered, no motion command without a fresh order).
    - Residual on `core.local_world_model`: no journal consumer yet (sync,
      learning); heavy recordings and journal format finalization are OD-16.
-4. **Teleop parity debts (ADR-0009, the parts that need no hardware).**
-   - [ ] Structured session logging in the bridge daemon (it has none).
-   - [ ] Per-operator identity replacing the single static password.
-   - Acceptance: a bridge session can be reconstructed from its log in a
-     test; auth tests cover per-operator tokens.
+4. **Teleop parity debts (ADR-0009, the parts that need no hardware). DONE 18 Aug 2026.**
+   - [x] Structured session logging in the bridge daemon
+         (`drive/bridge/session_log.py`, append-only JSONL of transitions:
+         who connected, ignition, preflight verdicts, armed, latched and
+         why, re-armed, who left).
+   - [x] Per-operator identity replacing the single static password
+         (`drive/bridge/identity.py`, token file mirroring TRACK's
+         directory; the cockpit's auth frame works unchanged).
+   - Acceptance met: `tests/test_bridge_daemon.py` reconstructs a full
+     scripted session from the log alone and covers per-operator tokens,
+     unknown-token refusal (logged without the secret), and the
+     empty-directory refusal.
+   - Residual on R-8: no auth rate limiting; the legacy relay keeps the
+     old password until convergence retires it; C2 token in localStorage.
 5. **Housekeeping that keeps the above honest.**
    - [ ] Sim capabilities derive from its manifest (closes the
          reverse-modeling gap; behavior changes with no code change).

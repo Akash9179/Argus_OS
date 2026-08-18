@@ -62,15 +62,18 @@ Proves the network path and the cockpit link with the wheels never involved
 On the Jetson:
 ```bash
 cd argus
-ARGUS_PASSWORD='Argus@2026' python3 -m drive.bridge          # listens 0.0.0.0:8090
+python3 -m drive.bridge                                      # listens 0.0.0.0:8090
 ```
-Add `--port N` / `--watchdog-ms N` if needed. Do **not** pass `--report` on the
+First run creates `var/bridge_operators.json` with one starter operator;
+read the token out of that file (or add a line per person). The old
+`ARGUS_PASSWORD` shared secret is gone (ADR-0009). Sessions log to
+`var/bridge_sessions.jsonl`. Add `--port N` / `--watchdog-ms N` if needed. Do **not** pass `--report` on the
 Jetson: it needs paho-mqtt and a reachable broker, which is a laptop-side
 concern.
 
 On the laptop, cockpit dev server on :5174:
 ```
-http://localhost:5174/?bridge=<jetson-ip>:8090&key=Argus@2026
+http://localhost:5174/?bridge=<jetson-ip>:8090&key=<your-operator-token>
 ```
 Or through the C2 shell's Drive app if the shell is running on :5180.
 
@@ -82,8 +85,8 @@ pulling the network latches the vehicle stopped until you explicitly re-arm.
 
 | Thing | Value |
 |---|---|
-| Bridge WebSocket | `ws://<jetson-ip>:8090` (auth-first frame: `{"t":"auth","password":...}`) |
-| Bridge password | `ARGUS_PASSWORD=Argus@2026` (testing password, everywhere) |
+| Bridge WebSocket | `ws://<jetson-ip>:8090` (auth-first frame: `{"t":"auth","token":...}`; `password` key also accepted for the cockpit) |
+| Bridge operators | `var/bridge_operators.json` on the machine, one token per person (18 Aug 2026: replaced the shared `ARGUS_PASSWORD`) |
 | Cockpit dev server | laptop `:5174`, param `?bridge=host:port&key=...` |
 | C2 shell dev server | laptop `:5180` (proxies `/v1`) |
 | TRACK | laptop `:8100` |

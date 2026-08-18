@@ -11,6 +11,8 @@ import time
 import pytest
 
 from bridge.contract import Command, Telemetry
+from bridge.identity import Operator, OperatorDirectory
+from bridge.session_log import read_events
 from bridge.vehicle import MockVehicle
 from bridge.watchdog import Watchdog
 from bridge.daemon import BridgeDaemon
@@ -172,10 +174,21 @@ class WsClient:
         self.sock.close()
 
 
+def two_operators() -> OperatorDirectory:
+    """The fixture crew. "pw" stays a valid token so the wire idiom the
+    older tests use (the cockpit's auth frame, secret under "password")
+    keeps proving it still works."""
+    return OperatorDirectory({
+        "pw": Operator(operator_id="op-akash", display_name="Akash"),
+        "pw2": Operator(operator_id="op-guest", display_name="Guest"),
+    })
+
+
 @pytest.fixture
-def daemon():
-    d = BridgeDaemon(MockVehicle(), password="pw", host="127.0.0.1", port=0,
-                     watchdog_timeout_s=0.3)
+def daemon(tmp_path):
+    d = BridgeDaemon(MockVehicle(), operators=two_operators(),
+                     host="127.0.0.1", port=0, watchdog_timeout_s=0.3,
+                     log_path=tmp_path / "sessions.jsonl")
     d.start()
     port = d._server.getsockname()[1]
     yield d, port
@@ -368,3 +381,158 @@ def test_reporter_standby_when_not_driving():
     hb_raw = [p for t, p in r._link.published if t.endswith("heartbeat")][0]
     hb = Heartbeat(); hb.ParseFromString(hb_raw)
     assert hb.status == ASSET_STATUS_STANDBY
+
+
+# ------------------------------------- identity and the session log (ADR-0009)
+def drive_frame(**changes) -> dict:
+    kwargs = {"gear": "F", "ignition": True, "arm": True}
+    kwargs.update(changes)
+    cmd = Command(**kwargs).to_wire()
+    cmd["t"] = "cmd"
+    return cmd
+
+
+def test_each_operator_is_who_their_token_says(daemon):
+    """Two people, two tokens, two identities; the wire key stays "password"
+    for the cockpit and "token" also works."""
+    d, port = daemon
+    a, b = WsClient(port), WsClient(port)
+    a.send({"t": "auth", "password": "pw"})
+    assert a.recv_until("role")["role"] == "DRIVER"
+    b.send({"t": "auth", "token": "pw2"})
+    assert b.recv_until("role")["role"] == "SPECTATOR"
+    a.close()
+    b.close()
+
+    events = read_events(d.log.path)
+    opened = [e for e in events if e["event"] == "session_open"]
+    assert [(e["operator_id"], e["role"]) for e in opened] == [
+        ("op-akash", "DRIVER"),
+        ("op-guest", "SPECTATOR"),
+    ]
+
+
+def test_a_token_nobody_holds_is_refused_and_recorded(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "token": "not-a-token"})
+    assert c.recv().get("reason") == "auth"
+
+    events = read_events(d.log.path)
+    assert any(e["event"] == "auth_failed" for e in events)
+    # A secret that failed must not end up written down.
+    assert "not-a-token" not in (d.log.path.read_text())
+
+
+def test_a_directory_with_no_operators_refuses_to_start():
+    with pytest.raises(ValueError):
+        BridgeDaemon(MockVehicle(), operators=OperatorDirectory({}),
+                     host="127.0.0.1", port=0)
+
+
+def test_a_session_can_be_reconstructed_from_its_log(daemon, tmp_path):
+    """The ADR-0009 acceptance: an incident review can replay who did what.
+
+    One scripted session: connect, ignition on (preflight), arm, estop,
+    re-arm, disconnect. The log alone must tell that story, in order,
+    attributed to the operator.
+    """
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+
+    c.send(drive_frame(arm=False))            # ignition on, not yet armed
+    c.recv_until("preflight")
+    c.send(drive_frame())                     # arm
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    c.send(drive_frame(estop=True))           # emergency stop, latches
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "LATCHED":
+        assert time.monotonic() < deadline
+    c.send(drive_frame(throttle=0.0))         # explicit re-arm
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    c.close()
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        events = read_events(d.log.path)
+        if any(e["event"] == "session_close" for e in events):
+            break
+        time.sleep(0.05)
+
+    mine = [e for e in events if e.get("session")]
+    session = mine[0]["session"]
+    assert all(e["session"] == session for e in mine), "one session, one id"
+
+    story = [e["event"] for e in mine]
+    assert story == [
+        "session_open", "ignition", "preflight", "armed",
+        "latched", "rearmed", "latched", "session_close",
+    ]
+    opened = mine[0]
+    assert opened["operator_id"] == "op-akash"
+    assert opened["role"] == "DRIVER"
+    assert mine[story.index("preflight")]["pass"] is True
+    latches = [e for e in mine if e["event"] == "latched"]
+    assert latches[0]["reason"] == "estop"
+    # Closing the socket while DRIVING is a lost link, and the log says so.
+    assert latches[1]["reason"] == "link_lost"
+    assert all(e["ts"] <= later["ts"] for e, later in zip(mine, mine[1:]))
+
+
+def test_silence_while_driving_is_latched_in_the_log(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+    c.send(drive_frame(arm=False))
+    c.recv_until("preflight")
+    c.send(drive_frame())
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    # then say nothing; the 300ms dog trips
+    deadline = time.monotonic() + 3
+    while c.recv_until("telemetry", timeout=3)["safetyState"] != "LATCHED":
+        assert time.monotonic() < deadline
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        latched = [e for e in read_events(d.log.path) if e["event"] == "latched"]
+        if latched:
+            break
+        time.sleep(0.05)
+    assert latched and latched[0]["reason"] == "operator_silence"
+    c.close()
+
+
+def test_operator_directory_round_trips_through_its_file(tmp_path):
+    from bridge.identity import OperatorDirectory
+
+    path = tmp_path / "operators.json"
+    first = OperatorDirectory.from_file(path)   # creates a starter crew
+    assert len(first) > 0
+    again = OperatorDirectory.from_file(path)   # loads the same file
+    assert len(again) == len(first)
+    text = path.read_text()
+    assert "operator" in text
+
+
+def test_an_empty_token_is_refused_at_load_not_at_the_door(tmp_path):
+    """A missing auth field reads as ""; an operator whose token was ""
+    would authenticate anyone who sent no secret at all."""
+    with pytest.raises(ValueError):
+        OperatorDirectory({"": Operator(operator_id="op-x", display_name="X")})
+
+    path = tmp_path / "operators.json"
+    path.write_text(json.dumps({"operators": [
+        {"token": "same", "operator_id": "op-a"},
+        {"token": "same", "operator_id": "op-b"},
+    ]}))
+    with pytest.raises(ValueError):
+        OperatorDirectory.from_file(path)

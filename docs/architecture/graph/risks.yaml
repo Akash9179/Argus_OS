@@ -54,10 +54,10 @@ risks:
 
   - id: R-8
     title: Teleop security far below system discipline
-    severity: high
+    severity: medium
     affects: [teleop.bridge, teleop.relay, teleop.cockpit]
     summary: Live drive control over Tailscale Funnel behind one static password; no per-operator identity, no rate limiting, zero logging in the daemon, C2 token in localStorage. This is now the demo path for a defence product driven over the internet.
-    mitigation: Structured logging and real identity land with the teleop convergence (ADR-0009), before the real adapter exists.
+    mitigation: PARTLY CLOSED 18 Aug 2026, the daemon now has per-operator tokens and an append-only session log, both CI-proven (tests/test_bridge_daemon.py); the shared ARGUS_PASSWORD is gone from the daemon. Remaining, no auth rate limiting, the legacy relay still runs the old password until ADR-0009 convergence retires it, and the C2 token still sits in localStorage.
 
   - id: R-9
     title: The founder is the pipeline

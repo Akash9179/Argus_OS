@@ -31,6 +31,16 @@ These live in `proto/link/v1/messages.proto`. Direction is relative to the asset
 
 **TASK_STATUS (asset to platform, whenever the situation changes).** The asset's answer and running commentary on an order: accepted, underway with 50 percent done and two minutes remaining, completed, or failed and why, in plain words an operator can read directly.
 
+## The conventions registry
+
+The contract's open spots (`Telemetry.payload`, `TaskParameters.extras`,
+`Asset.capabilities`) carry conventions that are real protocol without
+appearing in the protos: how a machine's registry rides upward, how a
+task is cancelled, how patrol laps are encoded, which capability keys
+mean what. Those are recorded, versioned, in **CONVENTIONS.md** in this
+directory. A partner implements LINK from the protos plus that file; a
+convention that exists only in code is a bug.
+
 ## Rules of the contract
 
 - **Open vocabularies.** Fields like the kind of entity ("person", "vehicle") or the kind of task ("navigate", "patrol") are open lists. A newer machine may send a value an older receiver has never heard of. The receiver must keep and pass on that value, never discard it. This is how the system grows to new domains without breaking anyone.

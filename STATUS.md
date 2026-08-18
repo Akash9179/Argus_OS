@@ -16,14 +16,14 @@ verdict: keep / refactor / replace / archive / new.
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ARGUS LINK (`platform.link`) | software_verified | keep | 1 known gap |
+| ARGUS LINK (`platform.link`) | software_verified | keep | - |
 | ARGUS TRACK (`platform.track`) | software_verified | keep | 2 known gaps |
 | ARGUS C2 (`platform.c2`) | software_verified | keep | 3 known gaps |
 | AI Gateway (`platform.gateway`) | software_verified | keep | 1 known gap |
 | Voice service (`platform.voice`) | software_verified | keep | 1 known gap |
 | Argus Sync (`platform.sync`) | planned | new | - |
 | Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 1 known gap |
-| Simulated vehicle (`sim.vehicle`) | simulated | keep | 1 known gap |
+| Simulated vehicle (`sim.vehicle`) | simulated | keep | - |
 
 ## Edge (the machine)
 

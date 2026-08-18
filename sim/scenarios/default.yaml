@@ -11,6 +11,10 @@ asset:
     name: "SIM-1"
     max_speed_mps: 4.0
     sensors: "camera"
+    # What this vehicle can be ordered to do. Behavior and the declaration
+    # the world model sees both come from this line; edit it and the
+    # machine changes with no code change.
+    supported_task_types: [navigate, patrol, hold, return_home]
 
 start:
   latitude_deg: 51.50450

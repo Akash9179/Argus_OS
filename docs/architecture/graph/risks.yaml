@@ -26,10 +26,10 @@ risks:
 
   - id: R-4
     title: The frozen contract is growing a shadow contract
-    severity: medium
+    severity: low
     affects: [platform.link]
     summary: Registry-in-telemetry, cancel-as-status, laps-in-extras are unversioned dict conventions a partner cannot discover from the protos. Conventions in Python docstrings are not contract.
-    mitigation: A versioned conventions registry document in link/, or promotion of stable conventions into a planned v2. Not yet started; see D-8, D-9, OD-21.
+    mitigation: CLOSED 18 Aug 2026, link/CONVENTIONS.md v1.0 records every open-struct convention (registry-in-telemetry, cancel-as-status, laps-in-extras, capability keys, provisional identity) with the rule that new conventions land there in the same change. Residual, promotion of stable conventions into typed v2 fields remains future contract work; OD-21 stays open.
 
   - id: R-5
     title: Near-zero hardware contact, and the first contact is hostile

@@ -18,6 +18,8 @@ import threading
 from collections import deque
 from typing import Callable
 
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Struct
 from google.protobuf.timestamp_pb2 import Timestamp
 from link.v1.messages_pb2 import (
     Heartbeat,
@@ -62,6 +64,10 @@ class LinkClient:
         self._on_task = on_task
         self._queue: deque[tuple[str, bytes]] = deque(maxlen=OFFLINE_QUEUE_LIMIT)
         self._lock = threading.Lock()
+        # The machine's capability declaration, kept so every reconnect
+        # can repeat it (link/CONVENTIONS.md section 1). Re-declaring is
+        # idempotent on the platform side, which merges.
+        self._declaration: bytes | None = None
 
         self._link.subscribe(self._task_topic(), self._on_task_message)
         # Whatever was held during an outage goes out as soon as the link
@@ -114,13 +120,16 @@ class LinkClient:
         self._link.publish(self._topic(kind), payload)
 
     def flush(self) -> None:
-        """Send everything held while the link was down."""
+        """Send everything held while the link was down, and re-declare."""
         with self._lock:
             held, self._queue = list(self._queue), deque(maxlen=OFFLINE_QUEUE_LIMIT)
+            declaration = self._declaration
+        if declaration is not None:
+            self._link.publish(self._topic("telemetry"), declaration)
         for kind, payload in held:
             self._link.publish(self._topic(kind), payload)
         if held:
-            log.info("%s: sent %d held observations", self.asset_id, len(held))
+            log.info("%s: sent %d held messages", self.asset_id, len(held))
 
     @property
     def held(self) -> int:
@@ -151,7 +160,13 @@ class LinkClient:
             hb.battery_fraction = battery_fraction
         self._send("heartbeat", hb.SerializeToString())
 
-    def telemetry(self, position: Position, heading_deg: float, speed_mps: float) -> None:
+    def telemetry(
+        self,
+        position: Position,
+        heading_deg: float,
+        speed_mps: float,
+        payload: dict | None = None,
+    ) -> None:
         msg = Telemetry(
             link_version=LINK_VERSION,
             ontology_version=ONTOLOGY_VERSION,
@@ -161,6 +176,20 @@ class LinkClient:
             speed_mps=speed_mps,
             timestamp=timestamp_now(),
         )
+        if payload is not None:
+            # The contract's documented extension point (D-8): open data
+            # rides Telemetry.payload rather than reopening frozen v1.
+            struct = Struct()
+            ParseDict(payload, struct)
+            msg.payload.CopyFrom(struct)
+            # A telemetry carrying a payload is a declaration, not a
+            # position sample: stale coordinates are worthless a second
+            # later, but a declaration the platform never received stays
+            # missing forever. It is remembered and re-sent on every
+            # connect (the convention says on change and after a
+            # reconnect), rather than riding the capped outage queue
+            # where enough observations could evict it.
+            self._declaration = msg.SerializeToString()
         self._send("telemetry", msg.SerializeToString())
 
     def observation(self, observation: Observation) -> None:

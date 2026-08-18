@@ -26,13 +26,13 @@ from sim.link_client import LinkClient, timestamp_now
 
 log = logging.getLogger(__name__)
 
-# Task types this machine can carry out. A machine reports failure for
-# anything else rather than dropping the order silently, which is what the
-# contract requires and what keeps an operator informed.
-SUPPORTED_TASK_TYPES = ("navigate", "patrol", "hold", "return_home")
-
 # How close counts as arrived, in meters.
 ARRIVAL_TOLERANCE_M = 2.0
+
+# What a vehicle can do when its scenario does not say. The value a real
+# machine's reference manifest carries, so the default sim behaves like
+# the default machine.
+DEFAULT_TASK_TYPES = ("navigate", "patrol", "hold", "return_home")
 
 
 @dataclass
@@ -69,6 +69,11 @@ class VehicleConfig:
     battery_start: float = 0.92
     battery_drain_per_minute: float = 0.004
     capabilities: dict[str, Any] = field(default_factory=dict)
+    # What this vehicle can be ordered to do. Scenario data, not code: the
+    # same value drives the accept/refuse behavior and the declaration the
+    # world model sees, so the two cannot drift apart (the reverse-modeling
+    # fix). A task type outside this tuple is refused in words.
+    supported_task_types: tuple[str, ...] = DEFAULT_TASK_TYPES
     observations: list[ScriptedObservation] = field(default_factory=list)
     patrol_laps: int = 1
     # What this machine says about its own orders. Loaded from the machine's
@@ -77,6 +82,18 @@ class VehicleConfig:
 
     def say(self, key: str) -> str:
         return self.messages.get(key, "")
+
+    def declared_capabilities(self) -> dict[str, Any]:
+        """What this vehicle tells the world model it is and can do.
+
+        The same shape a real machine's manifest declares (comma-joined
+        task types, name as data), built from the same fields that drive
+        behavior. Anything else the scenario declared passes through.
+        """
+        declared = dict(self.capabilities)
+        declared.setdefault("name", self.name)
+        declared["supported_task_types"] = ", ".join(self.supported_task_types)
+        return declared
 
 
 class SimulatedVehicle:
@@ -126,6 +143,13 @@ class SimulatedVehicle:
         last_telemetry = 0.0
         last_move = time.monotonic()
 
+        # Declare what this machine is and can do, the way a real
+        # machine's registry rides up: in a telemetry payload (D-8). The
+        # client remembers the declaration and repeats it on every
+        # connect, so a link that is down at boot, or drops later, never
+        # leaves the platform without it.
+        self._send_telemetry(declare=True)
+
         while not self._stop.is_set():
             now = time.monotonic()
             elapsed = now - self._started_at
@@ -168,7 +192,7 @@ class SimulatedVehicle:
                 self._finish(TaskState.TASK_STATE_CANCELLED, self.cfg.say("cancelled"))
             return
 
-        if task.task_type not in SUPPORTED_TASK_TYPES:
+        if task.task_type not in self.cfg.supported_task_types:
             self.client.task_status(
                 task_id=task.task_id,
                 status=TaskState.TASK_STATE_FAILED,
@@ -364,7 +388,13 @@ class SimulatedVehicle:
             current_task_id=self.task.task_id if self.task else "",
         )
 
-    def _send_telemetry(self) -> None:
+    def _send_telemetry(self, declare: bool = False) -> None:
+        payload = None
+        if declare:
+            payload = {"registry": {"manifest": self.cfg.declared_capabilities()}}
         self.client.telemetry(
-            position=self._position(), heading_deg=self.heading_deg, speed_mps=self.speed_mps
+            position=self._position(),
+            heading_deg=self.heading_deg,
+            speed_mps=self.speed_mps,
+            payload=payload,
         )

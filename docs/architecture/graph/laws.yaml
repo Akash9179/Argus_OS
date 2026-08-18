@@ -47,7 +47,7 @@ laws:
   - id: L10
     name: Registry law
     line: Everything the HAL knows is queryable structured data.
-    enforcement: [tests/test_pilot_loop.py]
+    enforcement: [tests/test_pilot_loop.py, tests/test_sim_loop.py]
 
   - id: L11
     name: One cognitive architecture

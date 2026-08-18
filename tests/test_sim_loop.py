@@ -199,3 +199,109 @@ def drain(subscription) -> list[dict]:
     while not subscription.queue.empty():
         messages.append(subscription.queue.get_nowait())
     return messages
+
+
+# ------------------------------------ capabilities come from data, not code
+async def test_what_it_can_do_is_scenario_data_and_reaches_the_world_model(
+    client, world, make_vehicle
+):
+    """One source of truth for what a machine can do (the reverse-modeling
+    fix): the scenario's declaration drives both the vehicle's own
+    accept/refuse behavior and what TRACK believes about it. Change the
+    data and the machine changes; no code changed hands."""
+    vehicle = make_vehicle(supported_task_types=("navigate", "hold"))
+    vehicle.start()
+    await wait_until(lambda: world.store.get_asset(vehicle.asset_id) is not None)
+
+    # The declaration reached the world model through the contract's
+    # registry-in-telemetry convention, comma-joined like every machine's.
+    def declared():
+        asset = world.store.get_asset(vehicle.asset_id)
+        if not asset.HasField("capabilities"):
+            return None
+        field = asset.capabilities.fields.get("supported_task_types")
+        return field.string_value if field is not None else None
+
+    assert await wait_until(lambda: declared() == "navigate, hold")
+
+    # And the machine's behavior is the same truth: patrol, supported by
+    # every default vehicle, is refused by this one, in words.
+    created = await client.post(
+        "/v1/tasks",
+        json={
+            "asset_id": vehicle.asset_id,
+            "task_type": "patrol",
+            "waypoints": [
+                {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON},
+                {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON + 0.0005},
+            ],
+            "channel": "map",
+        },
+    )
+    task_id = created.json()["task_id"]
+    await wait_until(lambda: world.store.get_task(task_id).status == TaskState.TASK_STATE_FAILED)
+    assert "cannot" in world.store.get_task(task_id).status_history[-1].message.lower()
+
+
+async def test_a_scenario_file_carries_the_task_types(tmp_path):
+    """The loader accepts the list form and the manifest's comma form."""
+    import yaml
+
+    from sim.scenario import load
+
+    scenario = {
+        "asset": {
+            "asset_id": "01SIMTEST00000000000000001",
+            "asset_class": "ugv",
+            "name": "Listy",
+            "capabilities": {"supported_task_types": ["navigate", "hold"]},
+        },
+        "start": {"latitude_deg": SITE_LAT, "longitude_deg": SITE_LON},
+    }
+    p = tmp_path / "s.yaml"
+    p.write_text(yaml.safe_dump(scenario))
+    cfg = load(p)
+    assert cfg.supported_task_types == ("navigate", "hold")
+    assert cfg.declared_capabilities()["supported_task_types"] == "navigate, hold"
+
+    scenario["asset"]["capabilities"]["supported_task_types"] = "patrol, return_home"
+    p.write_text(yaml.safe_dump(scenario))
+    cfg = load(p)
+    assert cfg.supported_task_types == ("patrol", "return_home")
+
+    # Absent entirely: the classic four, unchanged behavior.
+    del scenario["asset"]["capabilities"]["supported_task_types"]
+    p.write_text(yaml.safe_dump(scenario))
+    cfg = load(p)
+    assert cfg.supported_task_types == ("navigate", "patrol", "hold", "return_home")
+
+
+async def test_the_declaration_survives_a_link_that_is_down_at_boot(
+    client, world, make_vehicle
+):
+    """A stale position is worthless a second later; a declaration the
+    platform never received stays missing forever. So the client keeps
+    the declaration and repeats it on every connect, the way the
+    convention says a registry travels (link/CONVENTIONS.md section 1).
+    Restoring the link alone must be enough; no one calls flush here."""
+    vehicle = make_vehicle(supported_task_types=("navigate", "hold"))
+    # The link is down when the run loop boots, as it is against a real
+    # broker whose async connect has not completed yet.
+    vehicle.client.start()
+    vehicle.link.drop()
+    vehicle._thread.start()
+
+    # The vehicle boots and declares into a dead link; nothing arrives.
+    await wait_until(lambda: vehicle.client._declaration is not None)
+    assert world.store.get_asset(vehicle.asset_id) is None
+
+    vehicle.link.restore()
+
+    def declared():
+        asset = world.store.get_asset(vehicle.asset_id)
+        if asset is None or not asset.HasField("capabilities"):
+            return None
+        field = asset.capabilities.fields.get("supported_task_types")
+        return field.string_value if field is not None else None
+
+    assert await wait_until(lambda: declared() == "navigate, hold")

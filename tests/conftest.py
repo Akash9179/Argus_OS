@@ -149,6 +149,7 @@ def make_vehicle(transport, settings):
         asset_class: str = "ugv",
         speed_mps: float = 25.0,
         observations: list[ScriptedObservation] | None = None,
+        supported_task_types: tuple[str, ...] | None = None,
     ) -> RunningVehicle:
         config = VehicleConfig(
             asset_id=asset_id or new_id(),
@@ -162,6 +163,8 @@ def make_vehicle(transport, settings):
             observations=observations or [],
             messages=load_language(),
         )
+        if supported_task_types is not None:
+            config.supported_task_types = supported_task_types
         link = DirectVehicleLink(transport)
         holder: dict = {}
         client = LinkClient(

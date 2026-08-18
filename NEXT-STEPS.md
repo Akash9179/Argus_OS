@@ -117,13 +117,17 @@ throughout.
      empty-directory refusal.
    - Residual on R-8: no auth rate limiting; the legacy relay keeps the
      old password until convergence retires it; C2 token in localStorage.
-5. **Housekeeping that keeps the above honest.**
-   - [ ] Sim capabilities derive from its manifest (closes the
-         reverse-modeling gap; behavior changes with no code change).
-   - [ ] A versioned LINK conventions document in `link/` recording
-         registry-in-telemetry, cancel-as-status, laps-in-extras (risk R-4),
-         so the shadow contract becomes discoverable.
-   - [ ] Graph and STATUS updated with every step above, same commit.
+5. **Housekeeping that keeps the above honest. DONE 18 Aug 2026.**
+   - [x] Sim capabilities derive from scenario data: supported task types
+         drive both accept/refuse behavior and the wire declaration
+         (registry-in-telemetry), from one source; CI proves a behavior
+         change from data alone (`tests/test_sim_loop.py`).
+   - [x] `link/CONVENTIONS.md` v1.0: the versioned conventions registry
+         (registry-in-telemetry, cancel-as-status, laps-in-extras,
+         capability keys, provisional identity). Risk R-4 closed; the
+         standing rule is that a new convention lands there in the same
+         change that ships it.
+   - [x] Graph and STATUS updated with every step above, same commit.
 
 ## Track 3: real Jetson proof (needs Track 1 gate for motion; boot needs only the device)
 

@@ -15,9 +15,7 @@ components:
     status: software_verified
     disposition: keep
     tests: [tests/test_sim_loop.py, scripts/verify_link.py]
-    known_gaps:
-      - Open-struct conventions (registry-in-telemetry, cancel-as-status, laps-in-extras) form an unversioned shadow contract a partner cannot discover from the protos
-    notes: CI runs buf breaking against the link-v1 tag. Never change without a version plan (ADR required).
+    notes: CI runs buf breaking against the link-v1 tag. Never change without a version plan (ADR required). The open-struct conventions are recorded and versioned in link/CONVENTIONS.md (18 Aug 2026); new conventions land there in the same change that ships them.
 
   - id: platform.track
     name: ARGUS TRACK
@@ -459,8 +457,7 @@ components:
     status: simulated
     disposition: keep
     tests: [tests/test_sim_loop.py]
-    known_gaps:
-      - Duplicates behavioral logic that can drift from manifest truth (the reverse-modeling bug); capabilities should derive from the manifest
+    notes: 18 Aug 2026, the reverse-modeling gap closed, supported task types are scenario data driving both the accept/refuse behavior and the wire declaration (registry-in-telemetry), CI-proven with a behavior change from data alone.
 
   # -------------------------------------------------------------- operations
   - id: ops.install

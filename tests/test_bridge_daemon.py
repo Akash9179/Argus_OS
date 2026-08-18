@@ -210,9 +210,13 @@ def test_auth_role_telemetry_and_control(daemon):
 def test_second_client_is_spectator(daemon):
     _, port = daemon
     a, b = WsClient(port), WsClient(port)
+    # The daemon assigns DRIVER to whichever auth it processes first, by
+    # design. Sending both auths before reading A's role made this a race
+    # on which handler thread ran first, so serialize: A must hold the
+    # driver seat before B even asks.
     a.send({"t": "auth", "password": "pw"})
-    b.send({"t": "auth", "password": "pw"})
     assert a.recv_until("role")["role"] == "DRIVER"
+    b.send({"t": "auth", "password": "pw"})
     assert b.recv_until("role")["role"] == "SPECTATOR"
     a.close()
     b.close()

@@ -1,5 +1,19 @@
 # ARGUS OS — Master Build Plan (v1.0)
 
+> **Status: HISTORICAL since 18 August 2026 (founder instruction, decision
+> D-12).** This plan governed the v1 build (Stages 1 to 5) and it did its
+> job; its stages, gate history, and recorded founder decisions remain the
+> authentic record of that era and are not rewritten. It is no longer the
+> source of truth for direction. The canonical hierarchy is now:
+> **ARCHITECTURE.md** (target architecture and the eighteen laws; its
+> section 2 supersedes section 2 here, containing the same ten laws plus
+> eight more), `architecture/graph/decisions.yaml` (the live decisions
+> registry, migrated from section 10 here), `STATUS.md` (generated current
+> state), and `NEXT-STEPS.md` (the roadmap). Two parts of this file remain
+> operative until migrated: the frontend review gates in section 5, and the
+> model selection and escalation protocol in section 11. Where anything
+> below conflicts with ARCHITECTURE.md, ARCHITECTURE.md wins.
+
 This document is the single source of truth for building the ARGUS operating system. It is written as a brief for an AI coding agent (Claude Code). Read it fully before writing any code. Where this document and any older artifact disagree, this document wins. The architecture deck "argus-architecture-v9.html" is historical reference only and must not be treated as a spec.
 
 "ARGUS OS" is a placeholder name. A final name will be chosen later. Do not hardcode the name into schemas, package names, or protocols in ways that are expensive to change; use a single configurable constant.
@@ -242,7 +256,7 @@ Throughout: the simulated vehicle runs in CI against every TRACK and LINK change
    Why the rest were eliminated, recorded so the analysis is not repeated: Ultralytics YOLOv8/v11/v26 are AGPL-3.0, which would force open-sourcing PILOT and so fails law 9 and the closed-core strategy. RT-DETR (Baidu), YOLOX (Megvii), D-FINE (USTC) and LW-DETR (Baidu) are all permissively licensed but Chinese in origin, and fail law 8. Law 8 did most of the eliminating here, not law 9, because the permissive licenses in this field are largely attached to Chinese-origin models.
 
    Left open deliberately: NVIDIA ships retrained RT-DETR weights through TAO, trained by NVIDIA on NVIDIA data. Whether law 8 bites the architecture or only the weights is unresolved. RF-DETR avoids the question, which is why it was chosen; if the question ever becomes load-bearing, it is a founder decision.
-4. **The name:** ARGUS OS is a placeholder throughout.
+4. **The name:** ARGUS OS is a placeholder throughout. **Its scope is DECIDED 4 August 2026, founder instruction: ARGUS OS names the whole family**, the ground station and the vehicle alike, exactly as section 1 describes it. It is not the name of the ground half. The runtime installed on a machine stays ARGUS PILOT; a ground-side bundle, if one is ever named separately, gets its own name rather than taking this one. Recorded because a second repository (`Argus_Drive`, a pre-laws teleoperation cockpit that runs in the operator's browser) already carries a name that reads as the vehicle half and is not, and the collision would otherwise be inherited. The word ARGUS OS itself remains a placeholder.
 5. **Vertical extent of zones. DECIDED 3 August 2026, founder instruction: zones get no vertical extent for now.** `Zone` keeps its polygon and gains no altitude bounds. `link_version` stays at 1 and the frozen contract is not reopened. The consequence is accepted and recorded here so it is not rediscovered as a bug: an aircraft overflying at any height triggers a ground zone's entry rule, because the zone is a 2D footprint of infinite vertical extent. Ground-only v1 is unaffected. Revisit when the air domain is scheduled, at which point adding `min_altitude_m` and `max_altitude_m` to `Zone` is additive but still a version bump. Related: decision 6.
 6. **Altitude in fusion association (raised at Stage 2, no contract impact).** Distance gating ignores altitude, so two things at the same latitude and longitude but separated vertically would fuse into one track. Code-only fix inside the associator when an air domain lands; recorded here so it is not rediscovered as a bug.
 7. **Drive/Flight product structure** (shared core vs independent lines): does not block v1; the schema law keeps both open. Decide when the second body type is scheduled.

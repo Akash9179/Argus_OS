@@ -1,0 +1,87 @@
+# The eighteen Argus laws and where each is enforced. Full text in
+# ARCHITECTURE.md section 2, which is the canonical statement. Laws 1 to 10
+# are the original ten (plan era, unchanged in substance). Laws 11 to 18 were
+# added by the 18 Aug 2026 architecture alignment (founder decision D-12).
+# enforcement: a test path means CI enforces it; "review" means the law-auditor
+# agent and human review are the only guard today; "gap" means nothing checks
+# it yet and closing that is tracked work.
+
+laws:
+  - id: L1
+    name: HAL law
+    line: No vehicle, sensor, or device specifics above the HAL.
+    enforcement: [review]
+  - id: L2
+    name: SDK honesty law
+    line: Applications use only public service interfaces; no backdoors.
+    enforcement: [review]
+  - id: L3
+    name: Gateway law
+    line: No model or provider names outside the AI gateway.
+    enforcement: [tests/test_gateway_policy.py]
+  - id: L4
+    name: Schema law
+    line: Ontology multi-domain from the first line; ground implemented first.
+    enforcement: [review]
+  - id: L5
+    name: Waterline law
+    line: Operators never see internals; map, plain sentences, voice only.
+    enforcement: [tests/test_zones_and_language.py, review]
+  - id: L6
+    name: Disconnection law
+    line: Every asset fully functional alone; link adds, never enables.
+    enforcement: [tests/test_pilot_loop.py]
+  - id: L7
+    name: Honesty law
+    line: Never claim more certainty than held; spoken output always printed.
+    enforcement: [tests/test_voice_loop.py, review]
+  - id: L8
+    name: Sovereignty laws
+    line: Air-gapped targets; no Chinese-origin models; no cloud in mission paths.
+    enforcement: [tests/test_gateway_policy.py]
+  - id: L9
+    name: Licensing law
+    line: Verify every third-party license for military use before integration.
+    enforcement: [review]
+    notes: LICENSES.md is the record; the gateway refuses a local model not named in it.
+  - id: L10
+    name: Registry law
+    line: Everything the HAL knows is queryable structured data.
+    enforcement: [tests/test_pilot_loop.py]
+
+  - id: L11
+    name: One cognitive architecture
+    line: Land, Air, and Sea share one cognitive runtime and ontology; domain behavior lives below the skill boundary.
+    enforcement: [gap]
+    notes: Becomes testable when the skill boundary exists (the domain acceptance test in ARCHITECTURE.md section 8).
+  - id: L12
+    name: Bounded actuation law
+    line: Models propose typed plans and skill invocations; they never directly command actuators. Physical action passes through verification, the safety governor, a skill, a domain controller, and a hardware driver, in that order.
+    enforcement: [gap]
+    notes: Structurally true today only because no model is in any acting loop; the readback rule in voice is the existing enforcement of its spirit. Becomes a test with the ActionVerifier.
+  - id: L13
+    name: Controlled learning law
+    line: No uncontrolled self-modification in the field. Replanning and memory updates yes; silently retraining weights into a live mission, never. Improvements flow through experience, evaluation, approval, and signed release.
+    enforcement: [gap]
+  - id: L14
+    name: No snowflake machines
+    line: SSH is for debugging. A permanent fix returns to Git, tests, a versioned release, and deployment. No field device becomes an undocumented fork.
+    enforcement: [review]
+  - id: L15
+    name: Offline truth law
+    line: Every machine keeps enough persistent local state to recover identity, mission, home, configuration, and relevant memory after restart or reboot.
+    enforcement: [gap]
+    notes: Currently violated by design of WorldSlice (risk R-10); closing it is phase 2/3 work.
+  - id: L16
+    name: Provenance law
+    line: Argus can always answer which sensor produced an observation, when, on which machine, with what confidence, which model transformed it, which decision used it, and what versions were running.
+    enforcement: [review]
+    notes: Partially real (observations are immutable and attributed); full decision-chain provenance arrives with the explanation recorder.
+  - id: L17
+    name: Evidence law
+    line: Built has evidence levels. Nothing is "done"; it is planned, scaffolded, simulated, software_verified, hardware_integrated, field_validated, or deprecated, and promotions require matching evidence.
+    enforcement: [tests/test_engineering_graph.py]
+  - id: L18
+    name: Queryable architecture law
+    line: The codebase itself has a machine-readable engineering graph; the engineering graph and the operational ontology never share a database.
+    enforcement: [tests/test_engineering_graph.py]

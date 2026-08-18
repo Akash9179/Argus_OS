@@ -1,0 +1,69 @@
+# Typed edges between components. Both ends must exist in components.yaml;
+# CI fails on a dangling reference.
+# Types: USES, CONSUMES, IMPLEMENTS, EXPOSES, PRODUCES, TESTED_BY, RUNS_ON,
+#        SUPERSEDES, PART_OF, GOVERNED_BY, BLOCKED_BY, SYNC_WITH
+
+relationships:
+  # Contract consumers
+  - {from: platform.track, type: CONSUMES, to: platform.link}
+  - {from: edge.link_client, type: CONSUMES, to: platform.link}
+  - {from: sim.vehicle, type: CONSUMES, to: platform.link}
+  - {from: teleop.bridge, type: CONSUMES, to: platform.link, note: "optional LinkReporter only; its own wire contract is not LINK"}
+
+  # Platform plane
+  - {from: platform.c2, type: CONSUMES, to: platform.track, note: "public REST/WS only (SDK honesty law)"}
+  - {from: platform.voice, type: CONSUMES, to: platform.track, note: "HTTP with the operator's own token"}
+  - {from: platform.voice, type: USES, to: platform.gateway}
+  - {from: platform.sync, type: SYNC_WITH, to: platform.track}
+  - {from: platform.sync, type: CONSUMES, to: core.local_world_model, note: "syncs the append-only journal"}
+
+  # Edge plane
+  - {from: edge.pilot, type: USES, to: edge.hal}
+  - {from: edge.pilot, type: PART_OF, to: domains.drive}
+  - {from: edge.autonomy_core, type: PART_OF, to: edge.pilot}
+  - {from: edge.autonomy_core, type: USES, to: edge.worldslice}
+  - {from: edge.autonomy_core, type: USES, to: edge.navigator}
+  - {from: edge.autonomy_core, type: USES, to: edge.link_client}
+  - {from: edge.navigator, type: USES, to: edge.hal.locomotion_interface}
+  - {from: edge.hal.simulated_drivers, type: IMPLEMENTS, to: edge.hal.sensor_interface}
+  - {from: edge.hal.simulated_drivers, type: IMPLEMENTS, to: edge.hal.locomotion_interface}
+  - {from: edge.hal.mqtt_comms, type: IMPLEMENTS, to: edge.hal.comms_interface}
+  - {from: edge.hal.sensor_interface, type: PART_OF, to: edge.hal}
+  - {from: edge.hal.locomotion_interface, type: PART_OF, to: edge.hal}
+  - {from: edge.hal.comms_interface, type: PART_OF, to: edge.hal}
+  - {from: edge.link_client, type: USES, to: edge.hal.comms_interface}
+
+  # Teleop stack
+  - {from: teleop.cockpit, type: CONSUMES, to: teleop.bridge}
+  - {from: teleop.bridge, type: USES, to: teleop.watchdog}
+  - {from: teleop.bridge, type: USES, to: teleop.relay}
+  - {from: teleop.bridge, type: RUNS_ON, to: bodies.ugv01, note: "target; today only the relay has run there"}
+
+  # Target core supersessions and dependencies
+  - {from: core.perception_interface, type: SUPERSEDES, to: edge.hal.sensor_interface}
+  - {from: core.local_world_model, type: SUPERSEDES, to: edge.worldslice}
+  - {from: core.cognitive_runtime, type: SUPERSEDES, to: drive.brain}
+  - {from: core.localization_provider, type: PART_OF, to: edge.hal, note: "a new provider kind on the existing seam"}
+  - {from: core.cognitive_runtime, type: CONSUMES, to: core.local_world_model}
+  - {from: core.cognitive_runtime, type: USES, to: core.memory}
+  - {from: core.cognitive_runtime, type: USES, to: core.action_verifier}
+  - {from: core.cognitive_runtime, type: USES, to: core.skills}
+  - {from: core.cognitive_runtime, type: USES, to: platform.gateway, note: "the gateway grows into the Model Gateway"}
+  - {from: core.action_verifier, type: USES, to: core.safety_governor}
+  - {from: core.skills, type: USES, to: domains.drive}
+  - {from: core.skills, type: USES, to: domains.flight}
+  - {from: core.skills, type: USES, to: domains.sea}
+  - {from: perception.zed, type: IMPLEMENTS, to: core.perception_interface}
+  - {from: perception.detector, type: IMPLEMENTS, to: core.perception_interface}
+  - {from: core.local_world_model, type: CONSUMES, to: core.perception_interface}
+  - {from: core.local_world_model, type: CONSUMES, to: core.localization_provider}
+  - {from: learning.experience, type: CONSUMES, to: core.local_world_model}
+  - {from: learning.isaac, type: CONSUMES, to: learning.experience}
+
+  # Hardware and blockers
+  - {from: edge.pilot, type: RUNS_ON, to: bodies.ugv01, note: "target; has never happened"}
+  - {from: perception.zed, type: RUNS_ON, to: bodies.ugv01}
+  - {from: bodies.ugv01, type: BLOCKED_BY, to: bodies.ugv01.firmware_v4, note: "no autonomous motion until the firmware is bench-verified and flashed"}
+
+  # Operations
+  - {from: ops.fleet_deployment, type: PRODUCES, to: edge.pilot, note: "versioned releases onto machines"}

@@ -1,0 +1,74 @@
+# Live architectural risks. Source: the 17 Aug 2026 as-built audit (Appendix D),
+# carried forward by the 18 Aug 2026 reconciliation. Close a risk by fixing it,
+# never by deleting the entry silently; record the closing commit.
+
+risks:
+  - id: R-1
+    title: The HAL abstracts detections, not sensing
+    severity: high
+    affects: [edge.hal.sensor_interface, edge.navigator, core.localization_provider]
+    summary: poll() returns finished Detections; no images, depth, point clouds, IMU or GNSS cross the HAL. Detector lives inside each camera driver, costmaps are unreachable, localization fusion has no inputs. Cheap to fix now, expensive after three real drivers exist.
+    mitigation: ADR-0003 perception stream interfaces; phase 2 of the roadmap, before any real sensor driver is written.
+
+  - id: R-2
+    title: Localization welded to locomotion
+    severity: high
+    affects: [edge.hal.locomotion_interface, core.localization_provider]
+    summary: pose() on the locomotion driver means "where am I" is answered by the thing that turns wheels. The open provider choice (D-1) will be distorted by which option fits the wrong seam.
+    mitigation: ADR-0004 LocalizationProvider; phase 2, before the D-1 bench comparison.
+
+  - id: R-3
+    title: Two parallel vehicle stacks accreting independently
+    severity: high
+    affects: [teleop.bridge, edge.pilot, edge.hal]
+    summary: PILOT and the teleop bridge each have a vehicle abstraction, wire contract, watchdog, and mock, and teleop is the current demo path. Left alone, the real MCU adapter gets written twice against an unverified relay map and the safety stories diverge exactly where they must not.
+    mitigation: ADR-0009 convergence; one process owns the hardware, the bridge adapter becomes a shim over the HAL driver.
+
+  - id: R-4
+    title: The frozen contract is growing a shadow contract
+    severity: medium
+    affects: [platform.link]
+    summary: Registry-in-telemetry, cancel-as-status, laps-in-extras are unversioned dict conventions a partner cannot discover from the protos. Conventions in Python docstrings are not contract.
+    mitigation: A versioned conventions registry document in link/, or promotion of stable conventions into a planned v2. Not yet started; see D-8, D-9, OD-21.
+
+  - id: R-5
+    title: Near-zero hardware contact, and the first contact is hostile
+    severity: high
+    affects: [edge.pilot, perception.zed, bodies.ugv01, bodies.ugv01.firmware_v4]
+    summary: PILOT has never run on a Jetson; the container base has no CUDA; the installed ZED SDK drivers do not match the flashed kernel; the vehicle firmware latches throttle on link loss. "3B is just drivers and a manifest" is an untested claim. Budget for the HAL being wrong once.
+    mitigation: The safety gate (ARCHITECTURE.md section 6) plus phase 3, real Jetson proof before the cognitive layer.
+
+  - id: R-6
+    title: The air-gapped intelligence path is a paper capability
+    severity: medium
+    affects: [platform.gateway, platform.voice]
+    summary: The sovereignty differentiator rests on an adapter that has never answered a request, no model chosen or license-cleared, and every voice feature tuned against a frontier cloud model. Intent quality on a small local model may need real prompt and schema rework.
+    mitigation: OD-19 model benchmark on the Orin; run the deployed profile end to end once, early.
+
+  - id: R-7
+    title: Single-station centralization vs the fleet pitch
+    severity: low
+    affects: [platform.track, platform.sync]
+    summary: One TRACK, SQLite, full-scan association. Right for one site; federation, mesh, and probabilistic tracking are unsketched. Provisional identity breaks first (OD-21).
+    mitigation: Accepted for v1 by design; Argus Sync (phase 8) is the first step beyond it.
+
+  - id: R-8
+    title: Teleop security far below system discipline
+    severity: high
+    affects: [teleop.bridge, teleop.relay, teleop.cockpit]
+    summary: Live drive control over Tailscale Funnel behind one static password; no per-operator identity, no rate limiting, zero logging in the daemon, C2 token in localStorage. This is now the demo path for a defence product driven over the internet.
+    mitigation: Structured logging and real identity land with the teleop convergence (ADR-0009), before the real adapter exists.
+
+  - id: R-9
+    title: The founder is the pipeline
+    severity: medium
+    affects: [bodies.ugv01, perception.zed]
+    summary: Stage gates, frontend gates, decisions, and both critical-path lead-time items (Stereolabs email, MCU bench work) serialize through one person. The discipline costs calendar time exactly where hardware lead times are longest.
+    mitigation: NEXT-STEPS.md keeps the founder-blocked list explicit and first.
+
+  - id: R-10
+    title: A reboot is amnesia
+    severity: high
+    affects: [edge.worldslice, core.local_world_model]
+    summary: All machine-local state is in memory. A machine that reboots loses identity context, mission, and home; incompatible with law 15 and with any unattended deployment.
+    mitigation: ADR-0005 persistent local world store; phase 2/3.

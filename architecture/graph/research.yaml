@@ -1,0 +1,72 @@
+# Research references mapped to the Argus decisions and components they
+# influence. Rule: record what problem it solves, what we take, what we do NOT
+# assume, and what it influences. Research is never decoration; if a newer
+# primary source materially supersedes an entry, add the new source, explain
+# the difference, and propose an ADR. Prose mapping lives in RESEARCH.md.
+
+research:
+  - id: R1-vesta
+    title: "Vesta: A Generalist Embodied Reasoning Model (NVIDIA, 2026)"
+    url: https://research.nvidia.com/labs/gear/vesta/
+    influences: [core.cognitive_runtime, core.memory]
+    takeaway: One shared cognitive runtime with a memory harness beats a swarm of isolated agents; models stay behind Argus interfaces.
+
+  - id: R2-mem
+    title: "MEM: Multi-Scale Embodied Memory for Vision Language Action Models (2026)"
+    url: https://arxiv.org/abs/2603.03596
+    influences: [core.memory]
+    takeaway: Working/sensory, episodic, and semantic memory serve different purposes; never collapse them into one prompt buffer.
+
+  - id: R3-do-what-you-say
+    title: "Do What You Say: Runtime Reasoning-Action Alignment Verification (ICRA 2026)"
+    url: https://research.nvidia.com/publication/2026-06_do-what-you-say-steering-vision-language-action-models-runtime-reasoning-action
+    influences: [core.action_verifier]
+    takeaway: Correct textual reasoning does not guarantee the generated action matches it; an explicit ActionVerifier belongs between planning and skill execution.
+
+  - id: R4-rise
+    title: "RISE: Self-Improving Robot Policy with Compositional World Model (2026)"
+    url: https://arxiv.org/abs/2602.11075
+    influences: [learning.experience, learning.isaac]
+    takeaway: Prefer controlled model-based/offline learning over live self-training; collect experience early.
+
+  - id: R5-vla-mbpo
+    title: "VLA-MBPO: Practical World Model-based RL for VLA Models (2026)"
+    url: https://arxiv.org/abs/2603.20607
+    influences: [learning.isaac, core.local_world_model]
+    takeaway: Model-based rollouts need multi-view consistency and bounded imagined horizons; world-model outputs need confidence and evaluation.
+
+  - id: R6-world-task-factorization
+    title: "World-Task Factorization for Robot Learning (2026)"
+    url: https://arxiv.org/abs/2606.02027
+    influences: [core.cognitive_runtime, core.skills, domains.drive, domains.flight, domains.sea]
+    takeaway: Separating world structure from task logic improves cross-embodiment generalization; strongest support for one shared ontology/world plus domain skill modules instead of three brains.
+
+  - id: R7-isaac
+    title: NVIDIA Isaac Sim / Isaac Lab
+    url: https://developer.nvidia.com/isaac/lab
+    influences: [learning.isaac]
+    takeaway: Use GPU-accelerated simulation and existing RL/imitation tooling; do not build custom RL infrastructure before evaluating Isaac Lab.
+
+  - id: R8-cosmos
+    title: NVIDIA Cosmos
+    url: https://www.nvidia.com/en-us/ai/cosmos/
+    influences: [core.cognitive_runtime, platform.gateway]
+    takeaway: Strong provider candidate for physical reasoning and prediction capabilities; never hardwire the architecture to it. Check every backbone against the sovereignty law (the Alpamayo lesson, D-3a).
+
+  - id: R9-stereolabs
+    title: Stereolabs ZED SDK 5 / TERRA
+    url: https://www.stereolabs.com/blog/introducing-zed-sdk-50
+    influences: [perception.zed, core.perception_interface]
+    takeaway: Use existing vision/depth/spatial-AI capabilities instead of rebuilding low-level perception; ZED is the eyes behind a replaceable provider, never the brain.
+
+  - id: R10-palantir-ontology
+    title: Palantir Foundry Ontology
+    url: https://palantir.com/docs/foundry/ontology/overview/
+    influences: [platform.link, platform.track, engineering.graph]
+    takeaway: Objects, properties, links, actions, functions as the shared operational language linking perception, reasoning, C2, and actions; ontology is more than a storage schema.
+
+  - id: R11-maven
+    title: Maven Smart System / Palantir defense pattern
+    url: https://blog.palantir.com/maven-smart-system-innovating-for-the-alliance-5ebc31709eea
+    influences: [platform.c2, platform.track]
+    takeaway: Aggregate heterogeneous data into one picture, add contextual AI reasoning, integrate into human workflows with bounded tasking. Belongs in C2/TRACK; must never replace machine-local autonomy.

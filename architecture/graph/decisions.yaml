@@ -1,0 +1,158 @@
+# Every recorded decision, decided and open. This file supersedes
+# ARGUS-OS-PLAN.md section 10 as the live registry (the plan keeps the
+# original prose for history). Open decisions are founder-gated: flag and ask,
+# never resolve silently. `affects` must reference component ids.
+
+decisions:
+
+  # ------------------------------------------------ decided (from the plan era)
+  - id: D-1
+    title: Localization source of truth (cuVSLAM vs ZED-native vs fused)
+    status: open
+    affects: [core.localization_provider, perception.zed]
+    summary: Decide with a bench comparison on the actual vehicle; deferred 3 Aug 2026 until hardware. The alignment reframes the seam. Whatever wins sits behind LocalizationProvider so the choice stays a provider swap.
+
+  - id: D-2
+    title: ZED SDK / TERRA air-gapped licensing
+    status: open
+    affects: [perception.zed]
+    summary: Offline activation terms and per-unit field licensing unverified with Stereolabs. The email (two questions, licensing and the ZED X support matrix for L4T 36.5) is drafted and unsent. PARKED 18 Aug 2026 on founder instruction ("you can ignore this"); off the critical path, not resolved. Everything ZED-dependent inherits the park; the demo path (D-20) does not depend on it.
+
+  - id: D-3
+    title: Detector model
+    status: decided
+    date: 2026-08-03
+    decided_by: founder
+    affects: [perception.detector]
+    summary: RF-DETR, Apache-licensed tiers only (Nano/Small/Medium/Large). YOLO is AGPL; most permissive DETRs are Chinese-origin and fail the sovereignty law. The NVIDIA TAO backbone question stays open (D-3a).
+
+  - id: D-3a
+    title: Does the sovereignty law bite a model's architecture or only its weights
+    status: open
+    affects: [platform.gateway, perception.detector]
+    summary: Raised by NVIDIA TAO RT-DETR weights and answered in practice on 4 Aug 2026 by the Alpamayo review (its backbone is Qwen3-VL, so NVIDIA branding does not clean a Chinese backbone; check the backbone every time). Whether an architecture alone taints remains a founder call if it ever becomes load-bearing.
+
+  - id: D-4
+    title: Scope of the name ARGUS OS
+    status: decided
+    date: 2026-08-04
+    decided_by: founder
+    affects: [platform.link]
+    summary: ARGUS OS names the whole family, ground station and vehicle alike. The machine runtime stays ARGUS PILOT. The word itself remains a placeholder.
+
+  - id: D-5
+    title: Vertical extent of zones
+    status: decided
+    date: 2026-08-03
+    decided_by: founder
+    affects: [platform.link, platform.track]
+    summary: No vertical extent for now; link_version stays 1. Accepted consequence, an overflight triggers ground-zone rules. Altitude bounds are additive at the air domain, still a version bump.
+
+  - id: D-6
+    title: Altitude in fusion association
+    status: open
+    affects: [platform.track]
+    summary: Distance gating ignores altitude; two objects vertically separated would fuse. Code-only fix inside the associator when the air domain lands. Recorded so it is not rediscovered as a bug.
+
+  - id: D-7
+    title: Drive/Flight product structure
+    status: decided
+    date: 2026-08-17
+    decided_by: founder
+    affects: [domains.drive, domains.flight, domains.sea]
+    summary: Resolved by the alignment. Drive, Flight and Sea are domain execution layers under one cognitive architecture, not separate product lines and not separate brains. See ADR-0002.
+
+  - id: D-8
+    title: How the HAL registry reaches the world model
+    status: decided_convention
+    date: 2026-08-03
+    affects: [edge.hal, platform.track, platform.link]
+    summary: Registry snapshot rides Telemetry.payload under the key "registry", on change and on reconnect. Uses the contract's documented extension point; does not reopen v1. Author's convention, reviewed status pending; part of the shadow-contract risk R-4.
+
+  - id: D-9
+    title: Task cancellation encoding
+    status: decided_convention
+    date: 2026-08-02
+    affects: [platform.link, platform.track, edge.autonomy_core]
+    summary: Cancellation is a TASK carrying status CANCELLED; the frozen contract has no cancel message. Author's convention, part of R-4.
+
+  - id: D-10
+    title: Where autonomy level lives
+    status: decided
+    date: 2026-08-03
+    decided_by: founder
+    affects: [platform.track, edge.autonomy_core]
+    summary: Split in two, staged. Fleet autonomy policy is per-asset state held and enforced by TRACK (built). Machine-local standing orders travel as a normal task with an open task_type (with real perception, formerly Stage 3B). Stage one done and CI green.
+
+  - id: D-11
+    title: Which cloud adapter ships for bench development
+    status: decided
+    date: 2026-08-03
+    decided_by: founder
+    affects: [platform.gateway]
+    summary: Anthropic, present in dev and demo profiles, refused by deployed. A second provider is an adapter, not a caller change.
+
+  - id: D-12
+    title: Target architecture adoption
+    status: decided
+    date: 2026-08-18
+    decided_by: founder
+    affects: [core.cognitive_runtime, core.local_world_model, core.perception_interface, core.localization_provider, engineering.graph]
+    summary: ARGUS_ARCHITECTURE_ALIGNMENT_REPORT.md adopted as target direction. ARCHITECTURE.md becomes the canonical architecture document; code and hardware evidence remain the as-built truth; ADRs record deviations. Reconciliation performed 18 Aug 2026.
+
+  # -------------------------------------------------- open (from the alignment)
+  - id: OD-13
+    title: Bang-bang steering vs Nav2 MPPI
+    status: open
+    affects: [edge.navigator, bodies.ugv01, domains.drive]
+    summary: MPPI plans continuous curvature; the vehicle steers full-left/full-right/nothing. Candidates, pulsed-relay driver, proportional firmware change, or a different controller. Which is viable depends on the now-obtained firmware; the first real test of whether the HAL holds. If MPPI loses, re-argue carrying ROS 2 at all rather than inheriting it.
+
+  - id: OD-14
+    title: Cognitive Runtime process model and AutonomyCore split
+    status: open
+    affects: [core.cognitive_runtime, edge.autonomy_core]
+    summary: In-process PILOT module vs separate local service; which event bus; and which parts of AutonomyCore become Skills vs Executive logic. Investigate on the real Jetson before deciding (report section 34, questions 10 to 12).
+
+  - id: OD-15
+    title: Perception API shape
+    status: open
+    affects: [core.perception_interface, perception.zed]
+    summary: Python-native, ROS-native, or transport-neutral with ROS adapters. Also which ZED outputs are consumed directly vs via ROS 2. Decide when the first real provider is written, on the Jetson.
+
+  - id: OD-16
+    title: Local journal and store format
+    status: open
+    affects: [core.local_world_model, learning.experience]
+    summary: SQLite-only vs MCAP plus SQLite vs another combination for the append-only journal; storage budget per mission; what auto-deletes, compresses, or uploads. Default direction, SQLite WAL for structured state, MCAP/SVO files for heavy streams, DB stores references (ADR-0005).
+
+  - id: OD-17
+    title: Repository reorganization scope
+    status: open
+    affects: [domains.drive, edge.pilot, platform.link]
+    summary: The target layout (core/, domains/, platform/, hardware/, learning/) improves boundaries, but large moves destroy history. Every module is mapped in this graph; propose a low-risk migration per slice, never a blind rename. Monorepo stays; splits only on a real security/release/audience boundary.
+
+  - id: OD-18
+    title: Containers vs host on the Jetson
+    status: open
+    affects: [edge.pilot, perception.zed, ops.fleet_deployment]
+    summary: GMSL/ZED capture pierces the container boundary (host BSP and kernel drivers); the container base has no CUDA. Decide what runs containerized vs host-side, and whether the first Ansible release deploys systemd services, containers, or a hybrid.
+
+  - id: OD-19
+    title: Local reasoning model selection
+    status: open
+    affects: [platform.gateway, core.cognitive_runtime]
+    summary: Benchmark non-Chinese-origin candidates (Nemotron, Gemma 4, Phi-4 Mini class, Cosmos for physical reasoning) on the actual Orin 64GB with Argus-specific tasks before freezing anything. Capability-by-capability defaults, never one universal model for convenience. Requires the model registry (origin, license, hash, approved profiles).
+
+  - id: OD-20
+    title: What the near-term demo is
+    status: decided
+    date: 2026-08-18
+    decided_by: founder
+    affects: [teleop.bridge, edge.pilot, bodies.ugv01, core.localization_provider]
+    summary: BOTH. Manual driving by remote control (the teleop path) and autonomous waypoint patrol (point A to B to C to D). Not detection; navigation. Consequence recorded, not silently absorbed - autonomous outdoor waypoint patrol needs a real localization source on a vehicle that today has no GNSS, IMU, or camera attached; with Stereolabs parked (D-2), a GNSS/IMU receiver is the shortest path and is a hardware purchase decision. Teleop needs only the safety bench gate.
+
+  - id: OD-21
+    title: Provisional identity on the wire
+    status: open
+    affects: [platform.link, platform.track, platform.sync]
+    summary: Asset-assigned entity IDs are indistinguishable from resolved ones; TRACK treats them as provisional by convention. First thing that breaks under federation or sync-after-long-disconnection. Needs a wire representation plan that respects the frozen contract.

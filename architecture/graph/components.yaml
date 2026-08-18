@@ -1,0 +1,515 @@
+# Every engineering component of Argus, populated from the repository as of
+# main @ 3c26521 plus the 18 Aug 2026 architecture reconciliation.
+# Schema and maturity/disposition vocabulary: see README.md in this directory.
+# Statuses follow law 17: claim only what evidence supports.
+
+components:
+
+  # ---------------------------------------------------------------- platform
+  - id: platform.link
+    name: ARGUS LINK
+    type: Component
+    path: link/
+    plane: platform
+    role: The frozen v1 contract; protobuf ontology (8 objects) plus 5 wire messages, Python and TypeScript bindings
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_sim_loop.py, scripts/verify_link.py]
+    known_gaps:
+      - Open-struct conventions (registry-in-telemetry, cancel-as-status, laps-in-extras) form an unversioned shadow contract a partner cannot discover from the protos
+    notes: CI runs buf breaking against the link-v1 tag. Never change without a version plan (ADR required).
+
+  - id: platform.track
+    name: ARGUS TRACK
+    type: Service
+    path: track/
+    plane: platform
+    role: Fleet world model server; MQTT ingest, fusion, zones, events, tasks, autonomy modes, REST/WS
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py]
+    known_gaps:
+      - Single station, SQLite single-writer, full-scan association; fine for one site, not a dense theater
+      - Provisional identity is convention only; indistinguishable from resolved identity on the wire
+    notes: Target direction expands it toward Maven-like fleet intelligence (phase 7) without making it required for local execution.
+
+  - id: platform.c2
+    name: ARGUS C2
+    type: Application
+    path: c2/
+    plane: platform
+    role: Operator application; map, force rail, event feed, voice bar, autonomy modes
+    status: software_verified
+    disposition: keep
+    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
+    known_gaps:
+      - Gate-2 founder review of the built surface still pending
+      - Bearer token stored in localStorage
+      - No video pane; WebRTC documented but nonexistent anywhere
+    notes: Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite runs in its own CI job.
+
+  - id: platform.gateway
+    name: AI Gateway
+    type: Service
+    path: gateway/
+    plane: platform
+    role: Capability-based model access; adapters, policy profiles, sovereignty enforcement at point of use
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_gateway_policy.py]
+    known_gaps:
+      - llama_local adapter written and configured but has never answered a request; air-gapped language path unproven
+    notes: This is the seed of the target Model Gateway (capability-to-provider routing with an approval registry). Only package allowed to name a model or provider.
+
+  - id: platform.voice
+    name: Voice service
+    type: Service
+    path: voice/
+    plane: platform
+    role: STT, strict intent schema, world validation, readback confirmation, TTS; personalities as data
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_voice_loop.py]
+    known_gaps:
+      - Intent quality validated only against a frontier cloud model; deployed profile behavior on a local model untested
+
+  - id: platform.sync
+    name: Argus Sync
+    type: Service
+    path: null
+    plane: platform
+    role: Local-first incremental event sync between machine journals and fleet storage, cursor-based
+    status: planned
+    disposition: new
+    notes: The offline observation queue in edge.link_client is the behavioral seed. Full design in ARCHITECTURE.md and the alignment report section 25.
+
+  # -------------------------------------------------------------------- edge
+  - id: edge.pilot
+    name: ARGUS PILOT
+    type: Service
+    path: drive/pilot/
+    plane: edge
+    role: The machine edge runtime; boots from a manifest, loads drivers, runs the autonomy loop, speaks LINK
+    status: simulated
+    disposition: keep
+    tests: [tests/test_pilot_loop.py]
+    known_gaps:
+      - Has never run on the Jetson; all evidence is Mac and CI containers
+    blockers:
+      - First boot on the actual Jetson (phase 3)
+
+  - id: edge.hal
+    name: Hardware abstraction layer
+    type: Component
+    path: drive/pilot/hal/
+    plane: edge
+    role: Driver protocols, capability manifests, registry, loader; refuses to boot on a missing driver
+    status: simulated
+    disposition: keep
+    tests: [tests/test_pilot_loop.py]
+    notes: The most rigorously executed part of the codebase per the as-built audit. The seam grows two new provider kinds (perception streams, localization) rather than being replaced.
+
+  - id: edge.hal.sensor_interface
+    name: SensorDriver interface (Detection-only)
+    type: Interface
+    path: drive/pilot/hal/interfaces.py
+    plane: edge
+    role: poll() returning finished Detections; no images, depth, point clouds, IMU or GNSS cross the HAL
+    status: simulated
+    disposition: replace
+    superseded_by: core.perception_interface
+    known_gaps:
+      - Highest architectural risk in the audit; detector forced inside each camera driver, costmaps unreachable, localization fusion has no inputs
+    notes: Kept as a compatibility shim while the richer stream interfaces migrate in (phase 2).
+
+  - id: edge.hal.locomotion_interface
+    name: LocomotionDriver interface
+    type: Interface
+    path: drive/pilot/hal/interfaces.py
+    plane: edge
+    role: set_velocity, goto, stop_moving, and (wrongly) pose
+    status: simulated
+    disposition: refactor
+    known_gaps:
+      - pose() welds localization to locomotion; a GNSS+IMU+VSLAM fusion has no home on this seam
+    notes: pose() ownership moves to core.localization_provider (phase 2); motion commands stay here.
+
+  - id: edge.hal.comms_interface
+    name: CommsDriver interface
+    type: Interface
+    path: drive/pilot/hal/interfaces.py
+    plane: edge
+    role: publish, subscribe, connection state; transport-neutral by design
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_pilot_loop.py]
+
+  - id: edge.hal.mqtt_comms
+    name: MQTT comms driver
+    type: Driver
+    path: drive/pilot/hal/drivers/mqtt.py
+    plane: edge
+    role: Real MQTT over WiFi
+    status: software_verified
+    disposition: keep
+
+  - id: edge.hal.simulated_drivers
+    name: Simulated driver set
+    type: Driver
+    path: drive/pilot/hal/drivers/simulated.py
+    plane: edge
+    role: Simulated locomotion and camera; scripted sightings from the manifest
+    status: simulated
+    disposition: keep
+    known_gaps:
+      - SimulatedLocomotion models a reverse the real vehicle may not have; capabilities are asserted, not manifest-derived
+
+  - id: edge.autonomy_core
+    name: Autonomy core
+    type: Component
+    path: drive/pilot/autonomy/core.py
+    plane: edge
+    role: Deterministic task loop; orders, refusal in words, routing, sensing, reporting, heartbeats
+    status: simulated
+    disposition: refactor
+    tests: [tests/test_pilot_loop.py, tests/test_autonomy.py]
+    notes: In the target architecture this splits into Skills plus Executive logic inside the Cognitive Runtime (open decision OD-14). Behavior is preserved; the split is a reshaping, not a rewrite.
+
+  - id: edge.navigator
+    name: Navigator (Direct and Nav2)
+    type: Component
+    path: drive/pilot/autonomy/
+    plane: edge
+    role: Pluggable navigation; direct waypoint chasing or Nav2 MPPI in a ROS 2 container, manifest-derived constraints
+    status: simulated
+    disposition: keep
+    tests: [drive/pilot/ros/tests]
+    known_gaps:
+      - Costmaps receive no sensor input at all; obstacle avoidance has no data path until perception streams exist
+      - Runtime parameter pushes can be silently refused; Nav2Navigator reaches into a private bridge attribute
+      - MPPI assumes continuous curvature; the real vehicle steers bang-bang (open decision OD-13)
+
+  - id: edge.worldslice
+    name: WorldSlice
+    type: Component
+    path: drive/pilot/autonomy/worldslice.py
+    plane: edge
+    role: Machine-local entities, current task, home; all in memory, lost on reboot
+    status: simulated
+    disposition: replace
+    superseded_by: core.local_world_model
+    known_gaps:
+      - Memory-only; violates law 15 (offline truth is first-class). A reboot is amnesia.
+
+  - id: edge.link_client
+    name: Edge LINK client
+    type: Component
+    path: drive/pilot/link_client.py
+    plane: edge
+    role: The five messages through a comms driver; offline queue (500, freshest kept), merge with original timestamps
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_pilot_loop.py]
+
+  # ------------------------------------------------------------------ teleop
+  - id: teleop.bridge
+    name: Teleop bridge daemon
+    type: Service
+    path: drive/bridge/
+    plane: edge
+    role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock only), optional LINK reporter
+    status: software_verified
+    disposition: refactor
+    tests: [tests/test_bridge_daemon.py]
+    known_gaps:
+      - Zero logging; no session can be reconstructed after an incident
+      - Single static shared password, no per-operator identity, no rate limiting
+      - Own JSON wire contract and own vehicle abstraction, parallel to the HAL
+    notes: Convergence direction (ADR-0009) makes its VehicleAdapter a shim over the HAL locomotion driver so exactly one process owns the hardware. Do not build the real MCU adapter twice.
+
+  - id: teleop.relay
+    name: Bridge relay
+    type: Service
+    path: drive/bridge/argus_relay.py
+    plane: edge
+    role: Stdlib-only relay for driving over a routed link
+    status: hardware_integrated
+    disposition: refactor
+    evidence:
+      hardware_runs:
+        - "2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved."
+    known_gaps:
+      - Exposes live drive control via Tailscale Funnel behind one static password sent as the first frame
+
+  - id: teleop.cockpit
+    name: Teleop cockpit
+    type: Application
+    path: drive/cockpit/
+    plane: platform
+    role: Browser driving UI; gamepad and keyboard, ignition control, HUD telemetry
+    status: software_verified
+    disposition: refactor
+    known_gaps:
+      - No video pane
+    notes: Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
+
+  - id: teleop.watchdog
+    name: Teleop watchdog
+    type: Component
+    path: drive/bridge/watchdog.py
+    plane: edge
+    role: STOPPED / DRIVING / LATCHED; 700 ms silence or link loss latches a safe stop, re-arm always explicit
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_bridge_daemon.py]
+    known_gaps:
+      - Mock-tested only; hardware validation pending, and the layer below it (MCU firmware) is not yet failsafe
+
+  - id: drive.brain
+    name: Brain prototype
+    type: Component
+    path: drive/brain/
+    plane: edge
+    role: Bench LLM prototype; vision plus telemetry to one model call, bounded drive nudge, human override
+    status: scaffolded
+    disposition: archive
+    superseded_by: core.cognitive_runtime
+    known_gaps:
+      - Direct Anthropic SDK with a hardcoded model name; the one live gateway-law violation, flagged in its own README
+    notes: Keep as reference for the bounded-intent and override patterns. Do not extend. Future machine intelligence goes through the Model Gateway inside the Cognitive Runtime.
+
+  # ---------------------------------------------------------------- core (target)
+  - id: core.cognitive_runtime
+    name: Argus Cognitive Runtime
+    type: Component
+    path: null
+    plane: core
+    role: The machine-local harness; event bus, world model client, memory, executive, planner, verification, skills
+    status: planned
+    disposition: new
+    notes: Phase 4. Deterministic-first; a dead model degrades cognition, never the mission. Design in ARCHITECTURE.md section 4.
+
+  - id: core.local_world_model
+    name: Local World Model
+    type: Component
+    path: null
+    plane: core
+    role: Persistent machine-local truth; identity, pose, mission, home, entities, plans, decisions, provenance
+    status: planned
+    disposition: new
+    notes: Replaces edge.worldslice. SQLite (WAL) plus an append-only event journal; reboot recovers identity, mission, home, and never auto-resumes motion (ADR-0005).
+
+  - id: core.perception_interface
+    name: Perception stream interfaces
+    type: Interface
+    path: null
+    plane: core
+    role: Typed streams (frames, depth, point clouds, IMU, GNSS, detections, occupancy) with discoverable per-sensor capabilities
+    status: planned
+    disposition: new
+    notes: Replaces the Detection-only sensor seam (ADR-0003). Highest-priority refactor. High-rate data stays on a local sensor bus, never in LINK by default.
+
+  - id: core.localization_provider
+    name: LocalizationProvider
+    type: Interface
+    path: null
+    plane: core
+    role: First-class pose; GNSS, IMU, VSLAM, wheel odometry fuse behind one PoseEstimate with covariance and health
+    status: planned
+    disposition: new
+    notes: Takes pose() ownership from the locomotion interface (ADR-0004). ZED-native today, cuVSLAM or fusion tomorrow, without the rest of Argus caring.
+
+  - id: core.memory
+    name: Memory manager
+    type: Component
+    path: null
+    plane: core
+    role: Working, episodic, and semantic memory at different timescales, with provenance and confidence
+    status: planned
+    disposition: new
+
+  - id: core.action_verifier
+    name: ActionVerifier
+    type: Component
+    path: null
+    plane: core
+    role: Checks a proposed action against plan, capability, ontology, mission, world state, and safety before any skill runs
+    status: planned
+    disposition: new
+    notes: Law 12 enforcement point. Reject leads to replan, review request, or contingency; never to silent execution.
+
+  - id: core.safety_governor
+    name: Safety governor
+    type: Component
+    path: null
+    plane: core
+    role: Deterministic gate below all reasoning; higher intelligence cannot bypass a lower safety layer
+    status: planned
+    disposition: new
+
+  - id: core.skills
+    name: Skill registry and executor
+    type: Component
+    path: null
+    plane: core
+    role: Typed universal skills (navigate, patrol, hold, inspect, return_home, ...) executed by domain layers
+    status: planned
+    disposition: new
+    notes: Partly extracted from edge.autonomy_core, whose task state machine already behaves like a skill executor for navigate/patrol/hold/return_home.
+
+  # -------------------------------------------------------------- perception
+  - id: perception.zed
+    name: ZED provider
+    type: Adapter
+    path: null
+    plane: edge
+    role: Stereolabs ZED X behind the perception interface; depth, tracking, detections as capability streams
+    status: planned
+    disposition: new
+    blockers:
+      - Installed ZED SDK 5.4.1 bundles ZED X GMSL drivers for L4T 35.x; flashed kernel is L4T 36.5; the matching SDK must be installed when the camera arrives
+      - Camera ORDERED 18 Aug 2026, delivery expected within days, WITH the ZED Link GMSL2 capture card and cable (founder-confirmed); hardware connection path complete on arrival, driver bring-up remains
+      - Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
+
+  - id: perception.detector
+    name: Object detector (RF-DETR)
+    type: Adapter
+    path: null
+    plane: edge
+    role: RF-DETR Apache tiers via TensorRT behind the perception interface
+    status: planned
+    disposition: new
+    notes: Model decided 3 Aug 2026 (D-3); zero detector code exists, no CUDA/TensorRT in the container base.
+
+  # ----------------------------------------------------------------- domains
+  - id: domains.drive
+    name: ARGUS DRIVE
+    type: Domain
+    path: drive/
+    plane: domain
+    role: Land-domain execution; translates skills into ground navigation and vehicle control
+    status: simulated
+    disposition: refactor
+    notes: The name now means the Land execution layer, not the universal brain. Today it also contains PILOT, the teleop stack, and the brain prototype; the boundary is architectural until the repo reorganization decision (OD-17).
+
+  - id: domains.flight
+    name: ARGUS FLIGHT
+    type: Domain
+    path: null
+    plane: domain
+    role: Air-domain execution; flight controller integration, 3D navigation, flight failsafes
+    status: planned
+    disposition: new
+    notes: Phase 11, only after the universal boundaries survive real Land hardware.
+
+  - id: domains.sea
+    name: ARGUS SEA
+    type: Domain
+    path: null
+    plane: domain
+    role: Marine-domain execution; heading, thrust, rudder, docking
+    status: planned
+    disposition: new
+
+  # ------------------------------------------------------------------ bodies
+  - id: bodies.ugv01
+    name: ugv-01 hardware truth
+    type: Hardware
+    path: bodies/ugv-01/
+    plane: hardware
+    role: The first steel; survey findings, MCU protocol notes, wiring, firmware
+    status: scaffolded
+    disposition: keep
+    known_gaps:
+      - Relay map is verbal and unverified
+      - Deployed MCU firmware holds last throttle forever on link loss; steering feedback disconnected; brake relays disconnected; no ignition or e-stop relay
+    blockers:
+      - Bench verification of the relay map, wheels off the ground, one relay at a time
+
+  - id: bodies.ugv01.firmware_v4
+    name: v4 watchdog firmware
+    type: Firmware
+    path: bodies/ugv-01/firmware/
+    plane: hardware
+    role: Replacement MCU firmware; opt-in latching watchdog, break-before-make on both reversing relay pairs
+    status: scaffolded
+    disposition: keep
+    known_gaps:
+      - Written but never flashed and never bench-verified
+    blockers:
+      - Bench verification is the hard safety gate; no autonomous moving test happens before it passes (ARCHITECTURE.md section 6)
+
+  # --------------------------------------------------------------------- sim
+  - id: sim.vehicle
+    name: Simulated vehicle
+    type: Fixture
+    path: sim/
+    plane: platform
+    role: Permanent CI fixture speaking real LINK; indistinguishable from a real asset by message inspection
+    status: simulated
+    disposition: keep
+    tests: [tests/test_sim_loop.py]
+    known_gaps:
+      - Duplicates behavioral logic that can drift from manifest truth (the reverse-modeling bug); capabilities should derive from the manifest
+
+  # -------------------------------------------------------------- operations
+  - id: ops.install
+    name: Install and verification tooling
+    type: Tooling
+    path: scripts/
+    plane: operations
+    role: preflight.sh, verify_install.py (deployment prover), verify_link.py
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_verify_install.py]
+
+  - id: ops.fleet_deployment
+    name: Fleet deployment
+    type: Tooling
+    path: null
+    plane: operations
+    role: Ansible inventory and idempotent Jetson provisioning now; signed releases, private registry, staged OTA, rollback later
+    status: planned
+    disposition: new
+    notes: Law 14 (no snowflake machines). Git defines the fleet; SSH is for debugging, and permanent fixes return to Git.
+
+  - id: learning.experience
+    name: Experience recording
+    type: Component
+    path: null
+    plane: learning
+    role: Synchronized mission experience; structured metadata in the journal, heavy streams in MCAP/SVO files
+    status: planned
+    disposition: new
+    notes: Phase 3 records; phase 9 learns. Built early so future simulation and RL have data.
+
+  - id: learning.isaac
+    name: Isaac simulation and RL
+    type: Component
+    path: null
+    plane: learning
+    role: Isaac Sim for physical simulation and synthetic data, Isaac Lab for policy training; Jetson runs inference only
+    status: planned
+    disposition: new
+    notes: Do not invent an RL stack before evaluating Isaac Lab (R7).
+
+  # ------------------------------------------------------------- engineering
+  - id: engineering.graph
+    name: Engineering Knowledge Graph
+    type: Tooling
+    path: architecture/graph/
+    plane: engineering
+    role: This graph; YAML source, validator and query CLI, generated STATUS.md, CI consistency gate
+    status: software_verified
+    disposition: new
+    tests: [tests/test_engineering_graph.py]
+
+  - id: engineering.test_suite
+    name: Fast in-process test suite
+    type: Fixture
+    path: tests/
+    plane: engineering
+    role: The full loop in one process, no broker; sim loop, pilot criteria, voice, gateway laws, graph consistency. CI runs it without the cloud client installed, the shape a deployed system ships in
+    status: software_verified
+    disposition: keep
+    notes: The other two gates live elsewhere, vitest in c2/ and the containerized Nav2 job in drive/pilot/docker/.

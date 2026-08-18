@@ -536,3 +536,71 @@ def test_an_empty_token_is_refused_at_load_not_at_the_door(tmp_path):
     ]}))
     with pytest.raises(ValueError):
         OperatorDirectory.from_file(path)
+
+
+def test_hammering_the_door_locks_it_even_for_the_right_key(tmp_path):
+    """Auth rate limiting (the last daemon-side R-8 item): repeated failed
+    attempts from one address shut that address out for the window, and
+    the lockout applies to a correct token too, which is what makes a
+    brute-force sweep pointless. The lockout expires; a person who fat
+    fingered their token twice is not locked out forever."""
+    d = BridgeDaemon(MockVehicle(), operators=two_operators(),
+                     host="127.0.0.1", port=0, watchdog_timeout_s=0.3,
+                     log_path=tmp_path / "sessions.jsonl",
+                     auth_max_failures=2, auth_window_s=0.5)
+    d.start()
+    port = d._server.getsockname()[1]
+    try:
+        for _ in range(2):
+            c = WsClient(port)
+            c.send({"t": "auth", "token": "wrong"})
+            assert c.recv().get("reason") == "auth"
+
+        blocked = WsClient(port)
+        blocked.send({"t": "auth", "token": "pw"})     # right key, locked door
+        assert blocked.recv().get("reason") == "rate_limited"
+
+        events = read_events(d.log.path)
+        assert any(e["event"] == "auth_rate_limited" for e in events)
+
+        time.sleep(0.6)                                # the window passes
+        again = WsClient(port)
+        again.send({"t": "auth", "token": "pw"})
+        assert again.recv_until("role")["role"] == "DRIVER"
+        again.close()
+    finally:
+        d.stop()
+
+
+def test_a_successful_auth_clears_the_slate(tmp_path):
+    """Typos then the right token is a person, not an attack: a success
+    wipes the address's failure count, so the same number of typos again
+    does not add up to a lockout across the success."""
+    d = BridgeDaemon(MockVehicle(), operators=two_operators(),
+                     host="127.0.0.1", port=0, watchdog_timeout_s=0.3,
+                     log_path=tmp_path / "sessions.jsonl",
+                     auth_max_failures=5, auth_window_s=60.0)
+    d.start()
+    port = d._server.getsockname()[1]
+    try:
+        for _ in range(4):                      # one short of the limit
+            c = WsClient(port)
+            c.send({"t": "auth", "token": "typo"})
+            assert c.recv().get("reason") == "auth"
+
+        ok = WsClient(port)
+        ok.send({"t": "auth", "token": "pw"})   # the person gets in
+        assert ok.recv_until("role")["role"] == "DRIVER"
+        ok.close()
+
+        for _ in range(4):                      # 4 + 4 > 5, but the slate is clean
+            c = WsClient(port)
+            c.send({"t": "auth", "token": "typo"})
+            assert c.recv().get("reason") == "auth"
+
+        again = WsClient(port)
+        again.send({"t": "auth", "token": "pw2"})
+        assert again.recv_until("role")["role"] == "DRIVER"
+        again.close()
+    finally:
+        d.stop()

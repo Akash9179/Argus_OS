@@ -131,3 +131,54 @@ def test_local_and_global_coordinates_round_trip(bridge):
         x, y = node.to_local(lat, lon)
         assert x == pytest.approx(east_m, abs=0.5)
         assert y == pytest.approx(north_m, abs=0.5)
+
+
+def test_odometry_comes_from_the_provider_not_the_wheels(ros):
+    """ADR-0004 at this seam: what Nav2 navigates on is the localization
+    provider's estimate. A provider that disagrees with the wheels wins,
+    which is the whole point of having one."""
+    from pilot.hal.localization import PoseEstimate
+
+    manifest = parse_manifest(a_manifest())
+    locomotion = SimulatedLocomotion(
+        manifest, start_latitude_deg=SITE_LAT, start_longitude_deg=SITE_LON
+    )
+    locomotion.start()
+
+    class SomewhereElse:
+        """A provider that plainly disagrees with the wheel arithmetic."""
+
+        def estimate(self) -> PoseEstimate:
+            return PoseEstimate(
+                latitude_deg=SITE_LAT + 0.001,
+                longitude_deg=SITE_LON,
+                heading_deg=90.0,
+                speed_mps=1.5,
+                source="test_fixture",
+            )
+
+    node = LocomotionBridge(locomotion, localization=SomewhereElse(), rate_hz=50.0)
+    executor = spin_in_background(node)
+    try:
+        listener = Node("test_odom_listener")
+        heard: list[Odometry] = []
+        listener.create_subscription(Odometry, "odom", heard.append, 10)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not heard:
+            rclpy.spin_once(listener, timeout_sec=0.05)
+        assert heard, "no odometry arrived"
+
+        # The datum is the provider's first estimate, so the provider's
+        # own position reads as the origin; the wheels sit ~111m south of
+        # it and must NOT be what odometry reports.
+        odom = heard[-1]
+        assert abs(odom.pose.pose.position.x) < 1.0
+        assert abs(odom.pose.pose.position.y) < 1.0
+        assert abs(odom.twist.twist.linear.x - 1.5) < 1e-6
+        wheels_x, wheels_y = node.to_local(SITE_LAT, SITE_LON)
+        assert abs(wheels_y) > 100.0, "the wheel position should be far from the datum"
+        listener.destroy_node()
+    finally:
+        executor.shutdown()
+        node.destroy_node()
+        locomotion.stop()

@@ -184,7 +184,7 @@ components:
     tests: [drive/pilot/ros/tests]
     known_gaps:
       - Costmaps receive no sensor input at all; obstacle avoidance has no data path until perception streams exist
-      - Runtime parameter pushes can be silently refused; Nav2Navigator reaches into a private bridge attribute
+      - Runtime parameter pushes can be silently refused
       - MPPI assumes continuous curvature; the real vehicle steers bang-bang (open decision OD-13)
 
   - id: edge.worldslice
@@ -219,7 +219,6 @@ components:
     disposition: refactor
     tests: [tests/test_bridge_daemon.py]
     known_gaps:
-      - No rate limiting on auth attempts
       - Own JSON wire contract and own vehicle abstraction, parallel to the HAL
     notes: Convergence direction (ADR-0009) makes its VehicleAdapter a shim over the HAL locomotion driver so exactly one process owns the hardware. Do not build the real MCU adapter twice. 18 Aug 2026, the software half of ADR-0009 point 4 landed, per-operator tokens (drive/bridge/identity.py) and an append-only session log (drive/bridge/session_log.py) from which a session is reconstructed in CI; the old relay (argus_relay.py) still runs on the shared password and retires at convergence.
 
@@ -321,11 +320,10 @@ components:
     role: First-class pose; PoseEstimate with uncertainty, source, and health; the fourth HAL driver kind
     status: software_verified
     disposition: new
-    tests: [tests/test_localization_provider.py]
+    tests: [tests/test_localization_provider.py, drive/pilot/ros/tests]
     known_gaps:
-      - The ROS locomotion bridge and Nav2Navigator still read LocomotionDriver.pose(); they migrate to the provider with the Jetson bring-up
       - Only the dead-reckoning provider exists; GNSS and visual providers arrive with the hardware
-    notes: Built 18 Aug 2026 (ADR-0004). Every machine gets an honest dead-reckoning provider by default; a manifest swaps providers with no code change (CI-proven). Dead reckoning reports its uncertainty as unknown rather than inventing a number.
+    notes: Built 18 Aug 2026 (ADR-0004). Every machine gets an honest dead-reckoning provider by default; a manifest swaps providers with no code change (CI-proven). Dead reckoning reports its uncertainty as unknown rather than inventing a number. Migration completed 18 Aug 2026, the ROS bridge, Nav2Navigator, and the container diagnostic read the provider; nothing above the HAL reads pose(), and the containerized suite proves a provider that disagrees with the wheels wins.
 
   - id: core.memory
     name: Memory manager

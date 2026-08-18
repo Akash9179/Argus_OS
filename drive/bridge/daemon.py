@@ -67,6 +67,8 @@ class BridgeDaemon:
         port: int = 8090,
         watchdog_timeout_s: float = 0.7,
         log_path=None,
+        auth_max_failures: int = 5,
+        auth_window_s: float = 60.0,
     ) -> None:
         if len(operators) == 0:
             raise ValueError(
@@ -77,6 +79,13 @@ class BridgeDaemon:
         self.host = host
         self.port = port
         self.log = SessionLog(log_path)
+        # Failed-auth rate limiting, per source address (risk R-8). Enough
+        # failures inside the window lock that address out, correct token
+        # included, until the window passes. A success clears the slate:
+        # one typo then the right token is a person, not an attack.
+        self._auth_max_failures = auth_max_failures
+        self._auth_window_s = auth_window_s
+        self._auth_failures: dict[str, list[float]] = {}
         self.watchdog = Watchdog(timeout_s=watchdog_timeout_s)
         # Serializes watchdog transitions against their log lines: without
         # it the tick thread can trip the dog between a reader thread's
@@ -124,6 +133,16 @@ class BridgeDaemon:
                 return
             first = wsproto.read_text(conn)
             msg = _parse(first)
+            if self._rate_limited(str(addr[0])):
+                # Said plainly, not disguised as a wrong token: an operator
+                # who locked themselves out deserves to know which problem
+                # they have.
+                self.log.event("auth_rate_limited", addr=str(addr[0]))
+                try:
+                    wsproto.send_text(conn, json.dumps({"t": "error", "reason": "rate_limited"}))
+                finally:
+                    conn.close()
+                return
             # The cockpit's frame carries the secret under "password";
             # "token" is the same thing said plainly. Either way the value
             # is a per-operator token, and the shared password is gone.
@@ -131,12 +150,14 @@ class BridgeDaemon:
             operator = self.operators.lookup(token) if msg and msg.get("t") == "auth" else None
             if operator is None:
                 # The fact of the failure is logged; the secret never is.
+                self._record_auth_failure(str(addr[0]))
                 self.log.event("auth_failed", addr=str(addr[0]))
                 try:
                     wsproto.send_text(conn, json.dumps({"t": "error", "reason": "auth"}))
                 finally:
                     conn.close()
                 return
+            self._clear_auth_failures(str(addr[0]))
             conn.settimeout(None)
         except (OSError, wsproto.WsError):
             conn.close()
@@ -167,6 +188,25 @@ class BridgeDaemon:
             pass
         finally:
             self._drop(client)
+
+    # ------------------------------------------------------- auth limiting
+    def _rate_limited(self, addr: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            recent = [t for t in self._auth_failures.get(addr, []) if now - t < self._auth_window_s]
+            if recent:
+                self._auth_failures[addr] = recent
+            else:
+                self._auth_failures.pop(addr, None)
+            return len(recent) >= self._auth_max_failures
+
+    def _record_auth_failure(self, addr: str) -> None:
+        with self._lock:
+            self._auth_failures.setdefault(addr, []).append(time.monotonic())
+
+    def _clear_auth_failures(self, addr: str) -> None:
+        with self._lock:
+            self._auth_failures.pop(addr, None)
 
     # ---------------------------------------------------------------- logic
     def _role_of(self, client: _Client) -> str:

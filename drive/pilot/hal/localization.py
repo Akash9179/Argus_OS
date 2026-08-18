@@ -7,9 +7,10 @@ reads position from it and nowhere else. Which provider answers is a
 manifest choice, never a code change: dead reckoning today, GNSS or visual
 tracking or a fusion of them when that hardware exists.
 
-`LocomotionDriver.pose()` remains during the migration as the odometry a
-dead-reckoning provider wraps, and as the seam the ROS bridge still reads
-until it too is moved over. New code reads estimates, not poses.
+`LocomotionDriver.pose()` remains as the odometry a dead-reckoning
+provider wraps; nothing above the HAL reads it anymore. The ROS bridge
+moved onto the provider on 18 Aug 2026, which completed the migration.
+New code reads estimates, not poses.
 """
 
 from __future__ import annotations

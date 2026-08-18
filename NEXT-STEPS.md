@@ -89,8 +89,9 @@ throughout.
          machine gets dead reckoning by default; a manifest swaps the
          provider with no code change (CI-proven); the autonomy core and
          DirectNavigator read position only from the provider.
-   - Residual: the ROS locomotion bridge and Nav2Navigator still read
-     `pose()`; they migrate during the Jetson bring-up.
+   - Residual CLOSED 18 Aug 2026: the ROS bridge, Nav2Navigator, and the
+     container diagnostic read the provider; the containerized suite
+     proves a provider that disagrees with the wheels wins.
 3. **Persistent local store (ADR-0005). DONE 18 Aug 2026.**
    - [x] `var/argus_local.db` (SQLite WAL) plus append-only journal
          (`drive/pilot/autonomy/local_world.py`); WorldSlice reads/writes
@@ -115,8 +116,9 @@ throughout.
      scripted session from the log alone and covers per-operator tokens,
      unknown-token refusal (logged without the secret), and the
      empty-directory refusal.
-   - Residual on R-8: no auth rate limiting; the legacy relay keeps the
-     old password until convergence retires it; C2 token in localStorage.
+   - Residual on R-8 (updated 18 Aug, auth rate limiting landed): the
+     legacy relay keeps the old password until convergence retires it;
+     C2 token in localStorage.
 5. **Housekeeping that keeps the above honest. DONE 18 Aug 2026.**
    - [x] Sim capabilities derive from scenario data: supported task types
          drive both accept/refuse behavior and the wire declaration

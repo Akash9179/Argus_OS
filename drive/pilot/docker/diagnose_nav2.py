@@ -65,7 +65,7 @@ def main() -> None:
     for second in range(60):
         time.sleep(1.0)
         navigator.step(1.0)
-        pose = locomotion.pose()
+        pose = bridge.estimate()
         x, y = bridge.to_local(pose.latitude_deg, pose.longitude_deg)
         remaining = geo.distance_m(pose.latitude_deg, pose.longitude_deg, GOAL_LAT, GOAL_LON)
         last = heard[-1] if heard else None

@@ -9,12 +9,19 @@ import type { LinkStatus } from './remoTransport'
  *         {"t":"hb"}                keepalive between command frames
  *   in:   {"t":"role","role":"DRIVER"|"SPECTATOR"}
  *         {"t":"telemetry", ...Telemetry}   the vehicle's truth, 10 Hz
- *         {"t":"error","reason":"auth"}
+ *         {"t":"error","reason":"auth"}          bad token: stop, tell the user
+ *         {"t":"error","reason":"rate_limited"}  locked out: wait, then retry
  *
  * Safety lives on the VEHICLE (the daemon's watchdog latches on silence or
  * link loss), so this client's only safety duties are: send honestly, send
  * often, and surface the vehicle's telemetry unmodified.
  */
+
+// How long to hold off after the daemon says rate_limited. The daemon's
+// lockout window defaults to 60s; retrying at this pace heals the session
+// soon after it expires without hammering the locked door in the meantime.
+const RATE_LIMIT_HOLD_MS = 15_000
+
 export class BridgeTransport {
   private ws: WebSocket | null = null
   private readonly url: string
@@ -22,10 +29,12 @@ export class BridgeTransport {
   private closedByUser = false
   private authFailed = false
   private retry = 0
+  private holdMs = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   onStatus?: (s: LinkStatus) => void
   onRole?: (role: string) => void
   onAuthFail?: () => void
+  onRateLimited?: () => void
   onTelemetry?: (t: Telemetry) => void
   onPreflight?: (p: PreflightState) => void
 
@@ -50,7 +59,10 @@ export class BridgeTransport {
     }
     this.ws = ws
     ws.onopen = () => {
-      this.retry = 0
+      // retry is NOT reset here: the socket opening says nothing about
+      // whether the daemon will let us in. It resets when a role arrives,
+      // so a lockout keeps its growing backoff instead of hammering at
+      // the floor delay forever.
       ws.send(JSON.stringify({ t: 'auth', password: this.password }))
       this.onStatus?.('open')
     }
@@ -64,7 +76,15 @@ export class BridgeTransport {
       if (msg.t === 'error' && msg.reason === 'auth') {
         this.authFailed = true
         this.onAuthFail?.()
+      } else if (msg.t === 'error' && msg.reason === 'rate_limited') {
+        // Not a bad token: the daemon locked this address out for a
+        // while. Hold the next attempt back so the lockout can expire
+        // instead of being refreshed by our own retries.
+        this.holdMs = RATE_LIMIT_HOLD_MS
+        this.onRateLimited?.()
       } else if (msg.t === 'role' && typeof msg.role === 'string') {
+        this.retry = 0
+        this.holdMs = 0
         this.onRole?.(msg.role)
       } else if (msg.t === 'telemetry') {
         this.onTelemetry?.(msg as unknown as Telemetry)
@@ -83,7 +103,8 @@ export class BridgeTransport {
 
   private scheduleReconnect(): void {
     if (this.closedByUser || this.authFailed || this.reconnectTimer) return
-    const delay = Math.min(5000, 500 * 2 ** this.retry)
+    const delay = Math.max(this.holdMs, Math.min(5000, 500 * 2 ** this.retry))
+    this.holdMs = 0
     this.retry++
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null

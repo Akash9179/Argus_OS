@@ -78,7 +78,11 @@ def build_nav2_navigator(runtime):
     # The bridge starts publishing immediately: Nav2's costmaps will not
     # activate until they can resolve base_link against odom, so the
     # machine has to be talking before Nav2 can finish coming up.
-    bridge = LocomotionBridge(runtime.drivers.locomotion)
+    # Commands go to the wheels; position comes from whatever provider the
+    # manifest named (ADR-0004). The two are different drivers on purpose.
+    bridge = LocomotionBridge(
+        runtime.drivers.locomotion, localization=runtime.drivers.localization
+    )
     spin_in_background(bridge)
 
     navigator = Nav2Navigator(bridge)

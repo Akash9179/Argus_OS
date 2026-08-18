@@ -15,7 +15,7 @@ risks:
     severity: low
     affects: [edge.hal.locomotion_interface, core.localization_provider]
     summary: pose() on the locomotion driver meant "where am I" was answered by the thing that turns wheels, and the open provider choice (D-1) would have been distorted by the wrong seam.
-    mitigation: CLOSED AT THE SEAM 18 Aug 2026, before the D-1 bench comparison (ADR-0004, drive/pilot/hal/localization.py; manifest-swappable, CI-proven). Residual, tracked on core.localization_provider, the ROS bridge and Nav2 still read pose() until the Jetson bring-up.
+    mitigation: CLOSED AT THE SEAM 18 Aug 2026, before the D-1 bench comparison (ADR-0004, drive/pilot/hal/localization.py; manifest-swappable, CI-proven). Residual closed the same day, the ROS bridge, Nav2Navigator, and container diagnostic migrated to the provider; the containerized suite proves a provider that disagrees with the wheels wins.
 
   - id: R-3
     title: Two parallel vehicle stacks accreting independently
@@ -57,7 +57,7 @@ risks:
     severity: medium
     affects: [teleop.bridge, teleop.relay, teleop.cockpit]
     summary: Live drive control over Tailscale Funnel behind one static password; no per-operator identity, no rate limiting, zero logging in the daemon, C2 token in localStorage. This is now the demo path for a defence product driven over the internet.
-    mitigation: PARTLY CLOSED 18 Aug 2026, the daemon now has per-operator tokens and an append-only session log, both CI-proven (tests/test_bridge_daemon.py); the shared ARGUS_PASSWORD is gone from the daemon. Remaining, no auth rate limiting, the legacy relay still runs the old password until ADR-0009 convergence retires it, and the C2 token still sits in localStorage.
+    mitigation: DAEMON SIDE CLOSED 18 Aug 2026, per-operator tokens, an append-only session log, and per-address auth rate limiting, all CI-proven (tests/test_bridge_daemon.py); the shared ARGUS_PASSWORD is gone from the daemon. Remaining, the legacy relay still runs the old password until ADR-0009 convergence retires it; the C2 token still sits in localStorage; and the cockpit paces a rate_limited lockout correctly but shows no plain sentence for it yet, which lands with the next gated cockpit UI pass.
 
   - id: R-9
     title: The founder is the pipeline

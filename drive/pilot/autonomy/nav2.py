@@ -246,8 +246,7 @@ class Nav2Navigator:
     def _length(self, route: list[Waypoint]) -> float:
         if not route:
             return 0.0
-        pose = self._bridge._locomotion.pose()
-        x, y = self._bridge.to_local(pose.latitude_deg, pose.longitude_deg)
+        x, y = self._bridge.local_xy()
         total = 0.0
         for waypoint in route:
             wx, wy = self._bridge.to_local(waypoint.latitude_deg, waypoint.longitude_deg)

@@ -1,17 +1,24 @@
-"""The bridge between ROS2 and the locomotion driver.
+"""The bridge between ROS2 and the HAL.
 
 Nav2 plans and controls; it ends up publishing velocity commands and
 expecting odometry and a transform back. This node is the only place in the
 system that knows that, and it translates in both directions through the
-locomotion interface:
+HAL's two seams:
 
     /cmd_vel  ->  locomotion.set_velocity(linear, angular)
-    locomotion.pose()  ->  /odom and the odom -> base_link transform
+    localization.estimate()  ->  /odom and the odom -> base_link transform
+
+Commands go to the thing that turns wheels; position comes from the
+LocalizationProvider (ADR-0004), never from the wheels directly. Given no
+provider the bridge builds the dead-reckoning default around the same
+locomotion driver, which is bit-for-bit the old behavior; a manifest that
+names a better provider changes what Nav2 navigates on with no code
+change here.
 
 That direction of dependency matters. Nav2 sits above the HAL and talks to
-whatever driver the manifest named, so choosing Nav2 is not a decision that
-reaches the hardware, and swapping the hardware is not a decision that
-reaches Nav2.
+whatever drivers the manifest named, so choosing Nav2 is not a decision
+that reaches the hardware, and swapping the hardware is not a decision
+that reaches Nav2.
 
 Coordinates: Nav2 works in a local metric frame, and the contract works in
 WGS84. The datum is the machine's pose when this node starts, and the
@@ -37,19 +44,30 @@ from tf2_ros import TransformBroadcaster
 
 from pilot import geo
 from pilot.hal.interfaces import LocomotionDriver
+from pilot.hal.localization import (
+    DeadReckoningLocalization,
+    LocalizationProvider,
+    PoseEstimate,
+)
 
 log = logging.getLogger(__name__)
 
 
 class LocomotionBridge(Node):
-    """Wires a locomotion driver to the ROS2 graph."""
+    """Wires the HAL's locomotion and localization seams to the ROS2 graph."""
 
-    def __init__(self, locomotion: LocomotionDriver, rate_hz: float = 20.0):
+    def __init__(
+        self,
+        locomotion: LocomotionDriver,
+        localization: LocalizationProvider | None = None,
+        rate_hz: float = 20.0,
+    ):
         super().__init__("argus_locomotion_bridge")
         self._locomotion = locomotion
+        self._localization = localization or DeadReckoningLocalization(locomotion)
 
-        pose = locomotion.pose()
-        self._datum = (pose.latitude_deg, pose.longitude_deg)
+        estimate = self._localization.estimate()
+        self._datum = (estimate.latitude_deg, estimate.longitude_deg)
 
         self._odom = self.create_publisher(Odometry, "odom", 10)
         self._tf = TransformBroadcaster(self)
@@ -80,9 +98,9 @@ class LocomotionBridge(Node):
         if tick is not None:
             tick()
 
-        pose = self._locomotion.pose()
-        x, y = self.to_local(pose.latitude_deg, pose.longitude_deg)
-        yaw = math.radians(90.0 - pose.heading_deg)  # compass to ENU
+        estimate = self._localization.estimate()
+        x, y = self.to_local(estimate.latitude_deg, estimate.longitude_deg)
+        yaw = math.radians(90.0 - estimate.heading_deg)  # compass to ENU
         now = self.get_clock().now().to_msg()
 
         odom = Odometry()
@@ -92,7 +110,7 @@ class LocomotionBridge(Node):
         odom.pose.pose.position.x = x
         odom.pose.pose.position.y = y
         odom.pose.pose.orientation = _yaw_to_quaternion(yaw)
-        odom.twist.twist.linear.x = pose.speed_mps
+        odom.twist.twist.linear.x = estimate.speed_mps
         self._odom.publish(odom)
 
         transform = TransformStamped()
@@ -103,6 +121,17 @@ class LocomotionBridge(Node):
         transform.transform.translation.y = y
         transform.transform.rotation = _yaw_to_quaternion(yaw)
         self._tf.sendTransform(transform)
+
+    # -- position, for the things wired through this bridge ------------------
+
+    def estimate(self) -> PoseEstimate:
+        """Where the machine believes it is, from the provider."""
+        return self._localization.estimate()
+
+    def local_xy(self) -> tuple[float, float]:
+        """The current estimate in the bridge's local metric frame."""
+        estimate = self._localization.estimate()
+        return self.to_local(estimate.latitude_deg, estimate.longitude_deg)
 
     # -- coordinates --------------------------------------------------------
 

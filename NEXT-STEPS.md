@@ -16,7 +16,7 @@ Jetson, then build the brain. Not the other way around.
 1. ~~Stereolabs email (D-2)~~ **PARKED 18 Aug 2026, founder instruction.**
    Off the critical path; the ZED question reopens only when real
    perception is scheduled. The updated draft context is preserved in the
-   D-2 entry in `architecture/graph/decisions.yaml`.
+   D-2 entry in `docs/architecture/graph/decisions.yaml`.
 2. ~~Decide the near-term demo (OD-20)~~ **DECIDED 18 Aug 2026: both.**
    Manual remote-control driving AND autonomous waypoint patrol (A to B to
    C to D). Consequence: autonomous outdoor patrol needs a localization
@@ -148,7 +148,7 @@ boundaries survive real Land hardware).
 
 ## Standing discipline
 
-- Update `architecture/graph/` and regenerate `STATUS.md` in the same commit
+- Update `docs/architecture/graph/` and regenerate `STATUS.md` in the same commit
   as any state change; CI enforces it.
 - New open questions become entries in `decisions.yaml`, not assumptions.
 - Run the law-auditor after substantive changes; escalation protocol per

@@ -3,7 +3,7 @@
 Research is never decoration. For each work we record what problem it solves,
 what we take from it, what we deliberately do not assume, and which Argus
 component it influences. The machine-readable mapping is
-`architecture/graph/research.yaml`; this file carries the reasoning. If newer
+`docs/architecture/graph/research.yaml`; this file carries the reasoning. If newer
 primary research materially supersedes an entry, add the new source, explain
 the difference, and propose an ADR; do not cargo-cult papers or vendor
 architectures.

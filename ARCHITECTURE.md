@@ -6,8 +6,8 @@ which remains the full-depth source document.** Where any other document in
 this repository disagrees with this one on direction, this one wins. Where
 this document disagrees with the code on what exists, the code wins: this file
 states where we are going, the Engineering Knowledge Graph
-(`architecture/graph/`) and `STATUS.md` state where we are, and ADRs
-(`architecture/decisions/`) record why and where we deviated.
+(`docs/architecture/graph/`) and `STATUS.md` state where we are, and ADRs
+(`docs/architecture/decisions/`) record why and where we deviated.
 
 ## 1. What Argus is
 
@@ -38,7 +38,7 @@ observability, safety, testability, provenance, and controlled learning.
 Laws 1 to 10 are the original ten and bind exactly as they always have. Laws
 11 to 18 were added by the alignment. Violating one is an architecture bug
 even if the code works. Enforcement per law is tracked in
-`architecture/graph/laws.yaml`; a law marked `gap` there is guarded by review
+`docs/architecture/graph/laws.yaml`; a law marked `gap` there is guarded by review
 alone until its enforcement point exists.
 
 1. **HAL law.** No vehicle, sensor, or device specifics above the HAL. All
@@ -277,9 +277,9 @@ checkout without explicit human confirmation) stands above everything here.
 ```text
 ARCHITECTURE.md                      target architecture and the 18 laws
 ARGUS_ARCHITECTURE_ALIGNMENT_REPORT  full-depth source of the target (17 Aug 2026)
-architecture/decisions/ADR-*.md      decisions and deviations, with context
-architecture/graph/*.yaml            machine-readable component/status/dependency truth
-architecture/audits/                 point-in-time audits (2026-08-17 as-built)
+docs/architecture/decisions/ADR-*.md      decisions and deviations, with context
+docs/architecture/graph/*.yaml            machine-readable component/status/dependency truth
+docs/architecture/audits/                 point-in-time audits (2026-08-17 as-built)
 STATUS.md                            generated implementation state (never hand-edited)
 NEXT-STEPS.md                        prioritized, dependency-aware execution plan
 CLAUDE.md                            instructions for AI coding agents

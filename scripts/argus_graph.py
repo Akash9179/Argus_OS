@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Engineering Knowledge Graph compiler.
 
-Reads architecture/graph/*.yaml, validates every cross-reference against the
+Reads docs/architecture/graph/*.yaml, validates every cross-reference against the
 repository, answers queries, and generates STATUS.md. CI runs validate and
 checks STATUS.md for drift, so the graph cannot silently rot (law 18) and no
 component can claim hardware evidence it does not have (law 17).
@@ -24,7 +24,7 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-GRAPH_DIR = REPO / "architecture" / "graph"
+GRAPH_DIR = REPO / "docs" / "architecture" / "graph"
 STATUS_PATH = REPO / "STATUS.md"
 
 STATUSES = [
@@ -47,7 +47,7 @@ NEEDS_HARDWARE_EVIDENCE = {"hardware_integrated", "field_validated"}
 # new code cannot appear without the graph knowing about it.
 COVERED_DIRS = [
     "link", "track", "c2", "gateway", "voice", "drive", "sim", "bodies",
-    "scripts", "architecture", "tests",
+    "scripts", "docs", "tests",
 ]
 
 PLANE_TITLES = [
@@ -180,7 +180,7 @@ def render_status(graph: dict) -> str:
     lines.append("# ARGUS - build status")
     lines.append("")
     lines.append("Generated from the Engineering Knowledge Graph. Do not edit by hand;")
-    lines.append("edit `architecture/graph/*.yaml`, then run")
+    lines.append("edit `docs/architecture/graph/*.yaml`, then run")
     lines.append("`.venv/bin/python scripts/argus_graph.py status --write`.")
     lines.append("CI fails if this file drifts from the graph.")
     lines.append("")
@@ -248,7 +248,7 @@ def render_status(graph: dict) -> str:
     lines.append("")
 
     open_dec = [d for d in graph["decisions"] if d.get("status") == "open"]
-    lines.append("## Open decisions (founder-gated; details in architecture/graph/decisions.yaml)")
+    lines.append("## Open decisions (founder-gated; details in docs/architecture/graph/decisions.yaml)")
     lines.append("")
     for d in open_dec:
         lines.append(f"- {d['id']}: {d['title']}")

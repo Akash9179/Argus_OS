@@ -1,6 +1,6 @@
 """The Engineering Knowledge Graph consistency gate (laws 17 and 18).
 
-The graph in architecture/graph/*.yaml is the machine-readable truth about
+The graph in docs/architecture/graph/*.yaml is the machine-readable truth about
 what exists and how mature it is. These tests make architecture drift a CI
 failure: a dangling reference, a deleted module the graph still claims, a
 maturity promotion without evidence, or a stale STATUS.md all fail the build.

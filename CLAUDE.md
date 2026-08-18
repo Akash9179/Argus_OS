@@ -21,25 +21,25 @@ are on a machine that can move, and that outranks every command below.
 - **ARCHITECTURE.md** is the canonical target architecture and holds the
   eighteen laws. Read it before any architectural change. Full depth:
   `ARGUS_ARCHITECTURE_ALIGNMENT_REPORT.md`.
-- **The Engineering Knowledge Graph** (`architecture/graph/`) and the
+- **The Engineering Knowledge Graph** (`docs/architecture/graph/`) and the
   generated **STATUS.md** are the truth about what exists and how mature it
   is. Read them before claiming something exists; query
   `.venv/bin/python scripts/argus_graph.py impact <id>` before large changes.
-- **ADRs** (`architecture/decisions/`) explain every frozen boundary. Read
+- **ADRs** (`docs/architecture/decisions/`) explain every frozen boundary. Read
   the relevant ADR before touching one; changing it means writing a
   superseding ADR, never a silent edit.
 - **NEXT-STEPS.md** is the prioritized roadmap. **PROJECT.md** is product
   context. **ARGUS-OS-PLAN.md is historical**: it records the v1 stages and
   founder decisions of the plan era; where it conflicts with ARCHITECTURE.md,
   ARCHITECTURE.md wins. Decisions now live in
-  `architecture/graph/decisions.yaml`.
+  `docs/architecture/graph/decisions.yaml`.
 - Where any document conflicts with the code on what exists, the code wins.
   Where code conflicts with ARCHITECTURE.md on direction, that is a tracked
   gap, not a license.
 
 ## The laws
 Eighteen, full text in ARCHITECTURE.md section 2; enforcement map in
-`architecture/graph/laws.yaml`. The short form of what they forbid you:
+`docs/architecture/graph/laws.yaml`. The short form of what they forbid you:
 
 - Nothing hardware-specific above the HAL; nothing model-specific outside the
   gateway; applications use public interfaces only.
@@ -62,7 +62,7 @@ Eighteen, full text in ARCHITECTURE.md section 2; enforcement map in
   silently. New uncertainty becomes a decisions.yaml entry, not a guess.
 - After any substantive code change, run the law-auditor agent before
   presenting work.
-- Update `architecture/graph/*.yaml` and regenerate STATUS.md
+- Update `docs/architecture/graph/*.yaml` and regenerate STATUS.md
   (`.venv/bin/python scripts/argus_graph.py status --write`) in the same
   commit as any change to a component's state. CI fails on drift.
 - The simulated vehicle's full task loop must pass before any commit to

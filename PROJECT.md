@@ -48,7 +48,7 @@ Jetson and the real UGV, behind a hard hardware safety gate. The roadmap is
 | Cognitive Runtime | The machine-local harness: world model, memory, planning, verification, safety, skills | planned |
 | Argus Sync | Local-first incremental sync between machines and fleet storage | planned |
 | ARGUS INTEL | Product name for reports, Q&A, analytics; maps to gateway capabilities over world-model history, not a separate server | in voice Q&A today |
-| Engineering Knowledge Graph | Machine-readable truth about the codebase itself | `architecture/graph/` |
+| Engineering Knowledge Graph | Machine-readable truth about the codebase itself | `docs/architecture/graph/` |
 | ugv-01 | The first steel: a Jeep-chassis 4x4 electric UGV with a Jetson AGX Orin 64GB | `bodies/ugv-01/` |
 
 ## Glossary

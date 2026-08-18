@@ -236,7 +236,7 @@ components:
     disposition: refactor
     evidence:
       hardware_runs:
-        - "2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved."
+        - "2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in docs/architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved."
     known_gaps:
       - Exposes live drive control via Tailscale Funnel behind one static password sent as the first frame
 
@@ -508,7 +508,7 @@ components:
   - id: engineering.graph
     name: Engineering Knowledge Graph
     type: Tooling
-    path: architecture/graph/
+    path: docs/architecture/graph/
     plane: engineering
     role: This graph; YAML source, validator and query CLI, generated STATUS.md, CI consistency gate
     status: software_verified

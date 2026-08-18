@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Argus Target Architecture</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Argus Target Architecture" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Argus Target Architecture&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: var(--border-radius-lg, 12.5px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: 16px !important;
+  height: 16px !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;argus-target-architecture&quot; role=&quot;figure&quot; aria-label=&quot;Argus target architecture showing the local edge machine, optional connected fleet services, autonomy runtime, hardware abstraction, learning loop, and software delivery path.&quot;&gt;
+  &lt;style&gt;
+    #argus-target-architecture {
+      --ink: light-dark(#142033, #eef5ff);
+      --muted: light-dark(#5e6e84, #a7b7cc);
+      --line: light-dark(#cbd6e4, #34455f);
+      --surface: light-dark(#f7f9fc, #111b2a);
+      --surface-2: light-dark(#ffffff, #162337);
+      --edge: light-dark(#0569a8, #4eb7f4);
+      --edge-soft: light-dark(#e7f5ff, #102d44);
+      --fleet: light-dark(#6b4bc3, #b49aef);
+      --fleet-soft: light-dark(#f1ecff, #2a2146);
+      --safe: light-dark(#087a63, #4bd6b5);
+      --safe-soft: light-dark(#e4f8f3, #123c34);
+      --learn: light-dark(#b15a07, #ffad5d);
+      --learn-soft: light-dark(#fff2df, #3e2b17);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 4px;
+    }
+    #argus-target-architecture * { box-sizing: border-box; }
+    #argus-target-architecture .poster {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: clamp(14px, 2.4vw, 26px);
+      overflow: hidden;
+    }
+    #argus-target-architecture .title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+    #argus-target-architecture h2 {
+      font-size: clamp(22px, 3vw, 34px);
+      line-height: 1.04;
+      letter-spacing: -0.035em;
+      margin: 0;
+    }
+    #argus-target-architecture .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 7px;
+    }
+    #argus-target-architecture .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 7px 12px;
+      color: var(--muted);
+      font-size: 11px;
+      max-width: 310px;
+    }
+    #argus-target-architecture .legend span { white-space: nowrap; }
+    #argus-target-architecture .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 3px;
+      display: inline-block;
+      margin-right: 5px;
+    }
+    #argus-target-architecture .dot.edge { background: var(--edge); }
+    #argus-target-architecture .dot.fleet { background: var(--fleet); }
+    #argus-target-architecture .dot.learn { background: var(--learn); }
+    #argus-target-architecture .dot.optional { border: 1px dashed var(--muted); background: transparent; }
+    #argus-target-architecture .command-path {
+      display: grid;
+      grid-template-columns: minmax(95px,.8fr) 34px minmax(145px,1.3fr) 34px minmax(110px,.85fr) 44px minmax(185px,1.6fr);
+      align-items: stretch;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    #argus-target-architecture .node {
+      min-height: 70px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      border-radius: 12px;
+      padding: 11px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    #argus-target-architecture .node.fleet { border-color: color-mix(in srgb, var(--fleet) 55%, var(--line)); background: var(--fleet-soft); }
+    #argus-target-architecture .node.edge { border-color: color-mix(in srgb, var(--edge) 55%, var(--line)); background: var(--edge-soft); }
+    #argus-target-architecture .node strong { font-size: 13px; line-height: 1.2; }
+    #argus-target-architecture .node small { font-size: 10.5px; line-height: 1.3; color: var(--muted); margin-top: 4px; }
+    #argus-target-architecture .arrow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--muted);
+      font-size: 22px;
+      position: relative;
+    }
+    #argus-target-architecture .arrow.optional::before {
+      content: &quot;OPTIONAL&quot;;
+      position: absolute;
+      top: 4px;
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+    #argus-target-architecture .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.85fr) minmax(240px, .95fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    #argus-target-architecture .boundary {
+      border-radius: 16px;
+      padding: 15px;
+      position: relative;
+      min-width: 0;
+    }
+    #argus-target-architecture .boundary.edge {
+      border: 2px solid var(--edge);
+      background: color-mix(in srgb, var(--edge-soft) 66%, transparent);
+    }
+    #argus-target-architecture .boundary.fleet {
+      border: 2px dashed var(--fleet);
+      background: color-mix(in srgb, var(--fleet-soft) 70%, transparent);
+    }
+    #argus-target-architecture .boundary-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 11px;
+    }
+    #argus-target-architecture .boundary-label strong { font-size: 14px; letter-spacing: .03em; }
+    #argus-target-architecture .boundary-label span { font-size: 10px; color: var(--muted); text-align: right; }
+    #argus-target-architecture .os-shell {
+      border: 1px solid color-mix(in srgb, var(--edge) 60%, var(--line));
+      background: var(--surface-2);
+      border-radius: 13px;
+      padding: 13px;
+    }
+    #argus-target-architecture .os-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    #argus-target-architecture .os-head strong { color: var(--edge); font-size: 15px; }
+    #argus-target-architecture .os-head span { color: var(--muted); font-size: 10px; }
+    #argus-target-architecture .harness {
+      border: 1px solid color-mix(in srgb, var(--edge) 34%, var(--line));
+      border-radius: 12px;
+      padding: 11px;
+      background: color-mix(in srgb, var(--edge-soft) 65%, var(--surface-2));
+    }
+    #argus-target-architecture .section-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    #argus-target-architecture .section-title strong { font-size: 12px; }
+    #argus-target-architecture .section-title span { color: var(--muted); font-size: 9.5px; }
+    #argus-target-architecture .cognitive-loop {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 4px;
+      align-items: center;
+    }
+    #argus-target-architecture .stage {
+      border: 1px solid color-mix(in srgb, var(--edge) 40%, var(--line));
+      border-radius: 8px;
+      background: var(--surface-2);
+      min-height: 43px;
+      padding: 6px 3px;
+      font-size: 9.5px;
+      font-weight: 750;
+      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+    #argus-target-architecture .stage:not(:last-child)::after {
+      content: &quot;›&quot;;
+      position: absolute;
+      right: -6px;
+      color: var(--edge);
+      z-index: 2;
+      font-size: 13px;
+    }
+    #argus-target-architecture .runtime-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 8px;
+    }
+    #argus-target-architecture .module {
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      border-radius: 8px;
+      padding: 7px;
+      min-height: 47px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    #argus-target-architecture .module strong { font-size: 9.5px; line-height: 1.2; }
+    #argus-target-architecture .module small { color: var(--muted); font-size: 8.5px; line-height: 1.25; margin-top: 3px; }
+    #argus-target-architecture .module.safety { border-color: color-mix(in srgb, var(--safe) 58%, var(--line)); background: var(--safe-soft); }
+    #argus-target-architecture .store-row {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 6px;
+    }
+    #argus-target-architecture .store {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 7px 9px;
+      background: var(--surface-2);
+      font-size: 9px;
+      line-height: 1.3;
+    }
+    #argus-target-architecture .store strong { font-size: 9.5px; }
+    #argus-target-architecture .flow-down {
+      height: 19px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--edge);
+      font-size: 18px;
+    }
+    #argus-target-architecture .domain-row,
+    #argus-target-architecture .hal-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    #argus-target-architecture .domain,
+    #argus-target-architecture .hal {
+      border: 1px solid color-mix(in srgb, var(--safe) 42%, var(--line));
+      background: var(--safe-soft);
+      border-radius: 9px;
+      padding: 8px;
+      text-align: center;
+    }
+    #argus-target-architecture .domain strong,
+    #argus-target-architecture .hal strong { font-size: 10px; }
+    #argus-target-architecture .domain small,
+    #argus-target-architecture .hal small { display: block; color: var(--muted); font-size: 8.5px; margin-top: 2px; }
+    #argus-target-architecture .hal-wrap {
+      border-top: 1px solid var(--line);
+      margin-top: 9px;
+      padding-top: 9px;
+    }
+    #argus-target-architecture .fleet-stack { display: grid; gap: 9px; }
+    #argus-target-architecture .fleet-card {
+      border: 1px solid color-mix(in srgb, var(--fleet) 46%, var(--line));
+      background: var(--surface-2);
+      border-radius: 11px;
+      padding: 11px;
+    }
+    #argus-target-architecture .fleet-card strong { color: var(--fleet); font-size: 11.5px; }
+    #argus-target-architecture .fleet-card p { color: var(--muted); font-size: 9.5px; line-height: 1.35; margin: 5px 0 0; }
+    #argus-target-architecture .separation {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    #argus-target-architecture .separation::before,
+    #argus-target-architecture .separation::after { content: &quot;&quot;; height: 1px; background: var(--line); flex: 1; }
+    #argus-target-architecture .lanes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    #argus-target-architecture .lane {
+      border-radius: 13px;
+      padding: 11px;
+      min-width: 0;
+    }
+    #argus-target-architecture .lane.learn { border: 1px solid color-mix(in srgb, var(--learn) 55%, var(--line)); background: var(--learn-soft); }
+    #argus-target-architecture .lane.release { border: 1px solid color-mix(in srgb, var(--fleet) 45%, var(--line)); background: var(--fleet-soft); }
+    #argus-target-architecture .lane-title { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    #argus-target-architecture .lane-title strong { font-size: 11px; }
+    #argus-target-architecture .lane-title span { font-size: 9px; color: var(--muted); text-align: right; }
+    #argus-target-architecture .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    #argus-target-architecture .pipe-step {
+      border: 1px solid color-mix(in srgb, var(--learn) 38%, var(--line));
+      background: var(--surface-2);
+      border-radius: 8px;
+      min-height: 45px;
+      padding: 7px 5px;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      line-height: 1.2;
+      font-weight: 700;
+      position: relative;
+    }
+    #argus-target-architecture .pipe-step:not(:last-child)::after {
+      content: &quot;→&quot;;
+      position: absolute;
+      right: -11px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    #argus-target-architecture .principle {
+      margin-top: 11px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 9.5px;
+      line-height: 1.4;
+    }
+    #argus-target-architecture .principle strong { color: var(--ink); }
+    @media (max-width: 760px) {
+      #argus-target-architecture .title-row { display: block; }
+      #argus-target-architecture .legend { justify-content: flex-start; margin-top: 10px; }
+      #argus-target-architecture .command-path { grid-template-columns: 1fr 24px 1.2fr 24px 1fr; }
+      #argus-target-architecture .command-path .edge.node { grid-column: 1 / -1; margin-top: 2px; }
+      #argus-target-architecture .command-path .arrow.optional { grid-column: 1 / -1; min-height: 18px; transform: rotate(90deg); }
+      #argus-target-architecture .main-grid, #argus-target-architecture .lanes { grid-template-columns: 1fr; }
+      #argus-target-architecture .cognitive-loop { grid-template-columns: repeat(4, 1fr); }
+      #argus-target-architecture .stage:nth-child(4)::after { display: none; }
+      #argus-target-architecture .runtime-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 430px) {
+      #argus-target-architecture .poster { padding: 11px; border-radius: 12px; }
+      #argus-target-architecture .command-path { grid-template-columns: 1fr; }
+      #argus-target-architecture .command-path .arrow { min-height: 18px; transform: rotate(90deg); }
+      #argus-target-architecture .command-path .arrow.optional { grid-column: auto; }
+      #argus-target-architecture .cognitive-loop { grid-template-columns: repeat(2, 1fr); }
+      #argus-target-architecture .stage:nth-child(2n)::after { display: none; }
+      #argus-target-architecture .store-row, #argus-target-architecture .domain-row, #argus-target-architecture .hal-row { grid-template-columns: 1fr; }
+      #argus-target-architecture .pipeline { grid-template-columns: repeat(2, 1fr); }
+      #argus-target-architecture .pipe-step:nth-child(2)::after { display: none; }
+      #argus-target-architecture .principle { display: block; }
+    }
+  &lt;/style&gt;
+
+  &lt;div class=&quot;poster&quot;&gt;
+    &lt;div class=&quot;title-row&quot;&gt;
+      &lt;div&gt;
+        &lt;h2&gt;ARGUS · Target Architecture&lt;/h2&gt;
+        &lt;div class=&quot;subtitle&quot;&gt;Edge-first autonomy across Land, Air and Sea · target direction, validated against as-built evidence&lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;legend&quot; aria-label=&quot;Legend&quot;&gt;
+        &lt;span&gt;&lt;i class=&quot;dot edge&quot;&gt;&lt;/i&gt;Local edge machine&lt;/span&gt;
+        &lt;span&gt;&lt;i class=&quot;dot fleet&quot;&gt;&lt;/i&gt;Connected / fleet&lt;/span&gt;
+        &lt;span&gt;&lt;i class=&quot;dot learn&quot;&gt;&lt;/i&gt;Learning &amp; delivery&lt;/span&gt;
+        &lt;span&gt;&lt;i class=&quot;dot optional&quot;&gt;&lt;/i&gt;Optional link&lt;/span&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;command-path&quot; aria-label=&quot;Human command path&quot;&gt;
+      &lt;div class=&quot;node&quot;&gt;&lt;strong&gt;Human / Operator&lt;/strong&gt;&lt;small&gt;intent · constraints · oversight&lt;/small&gt;&lt;/div&gt;
+      &lt;div class=&quot;arrow&quot;&gt;→&lt;/div&gt;
+      &lt;div class=&quot;node fleet&quot;&gt;&lt;strong&gt;ARGUS C2&lt;/strong&gt;&lt;small&gt;Maven-like fleet intelligence · mission &amp; operational picture&lt;/small&gt;&lt;/div&gt;
+      &lt;div class=&quot;arrow&quot;&gt;→&lt;/div&gt;
+      &lt;div class=&quot;node fleet&quot;&gt;&lt;strong&gt;ARGUS LINK&lt;/strong&gt;&lt;small&gt;resilient transport · identity · policy&lt;/small&gt;&lt;/div&gt;
+      &lt;div class=&quot;arrow optional&quot;&gt;⇄&lt;/div&gt;
+      &lt;div class=&quot;node edge&quot;&gt;&lt;strong&gt;EDGE MACHINE&lt;/strong&gt;&lt;small&gt;continues safely while disconnected&lt;/small&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;main-grid&quot;&gt;
+      &lt;section class=&quot;boundary edge&quot; aria-label=&quot;Local edge machine&quot;&gt;
+        &lt;div class=&quot;boundary-label&quot;&gt;&lt;strong&gt;LOCAL EDGE MACHINE&lt;/strong&gt;&lt;span&gt;authoritative for immediate action · no cloud dependency&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;os-shell&quot;&gt;
+          &lt;div class=&quot;os-head&quot;&gt;&lt;strong&gt;ARGUS OS&lt;/strong&gt;&lt;span&gt;NVIDIA Jetson · one autonomy platform&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;harness&quot;&gt;
+            &lt;div class=&quot;section-title&quot;&gt;&lt;strong&gt;Cognitive Runtime / Harness&lt;/strong&gt;&lt;span&gt;closed-loop embodied autonomy&lt;/span&gt;&lt;/div&gt;
+            &lt;div class=&quot;cognitive-loop&quot;&gt;
+              &lt;div class=&quot;stage&quot;&gt;Perceive&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Understand&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Remember&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Imagine&lt;/div&gt;
+              &lt;div class=&quot;stage&quot;&gt;Decide&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Verify&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Act&lt;/div&gt;&lt;div class=&quot;stage&quot;&gt;Learn&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;runtime-grid&quot;&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Operational Ontology&lt;/strong&gt;&lt;small&gt;objects · relations · actions&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Local World Model&lt;/strong&gt;&lt;small&gt;state · uncertainty · predictions&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Memory&lt;/strong&gt;&lt;small&gt;working · episodic · semantic&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Reasoning / Model Gateway&lt;/strong&gt;&lt;small&gt;model-agnostic · routed locally&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Planner&lt;/strong&gt;&lt;small&gt;goals → executable plans&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module safety&quot;&gt;&lt;strong&gt;Action Verifier&lt;/strong&gt;&lt;small&gt;pre/post-condition evidence&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module safety&quot;&gt;&lt;strong&gt;Safety Governor&lt;/strong&gt;&lt;small&gt;hard constraints · veto · fallback&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;module&quot;&gt;&lt;strong&gt;Skills&lt;/strong&gt;&lt;small&gt;versioned, composable capabilities&lt;/small&gt;&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;store-row&quot;&gt;
+              &lt;div class=&quot;store&quot;&gt;&lt;strong&gt;Local Persistent Store&lt;/strong&gt; · ontology state · maps · memory · mission · audit · models&lt;/div&gt;
+              &lt;div class=&quot;store&quot;&gt;&lt;strong&gt;Sync Agent&lt;/strong&gt; · selective, resumable, policy-governed ⇄ ARGUS LINK&lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;flow-down&quot;&gt;↓&lt;/div&gt;
+          &lt;div class=&quot;domain-row&quot; aria-label=&quot;Domain execution layers&quot;&gt;
+            &lt;div class=&quot;domain&quot;&gt;&lt;strong&gt;ARGUS DRIVE&lt;/strong&gt;&lt;small&gt;ground execution&lt;/small&gt;&lt;/div&gt;
+            &lt;div class=&quot;domain&quot;&gt;&lt;strong&gt;ARGUS FLIGHT&lt;/strong&gt;&lt;small&gt;air execution&lt;/small&gt;&lt;/div&gt;
+            &lt;div class=&quot;domain&quot;&gt;&lt;strong&gt;ARGUS SEA&lt;/strong&gt;&lt;small&gt;maritime execution&lt;/small&gt;&lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;hal-wrap&quot;&gt;
+            &lt;div class=&quot;section-title&quot;&gt;&lt;strong&gt;Modular Hardware Abstraction&lt;/strong&gt;&lt;span&gt;providers are replaceable; autonomy contracts stay stable&lt;/span&gt;&lt;/div&gt;
+            &lt;div class=&quot;hal-row&quot;&gt;
+              &lt;div class=&quot;hal&quot;&gt;&lt;strong&gt;Perception&lt;/strong&gt;&lt;small&gt;ZED · TERRA · other sensors&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;hal&quot;&gt;&lt;strong&gt;Localization&lt;/strong&gt;&lt;small&gt;GNSS · VIO · SLAM · fusion&lt;/small&gt;&lt;/div&gt;
+              &lt;div class=&quot;hal&quot;&gt;&lt;strong&gt;Controls&lt;/strong&gt;&lt;small&gt;drive · flight · marine I/O&lt;/small&gt;&lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+
+      &lt;section class=&quot;boundary fleet&quot; aria-label=&quot;Connected and fleet services&quot;&gt;
+        &lt;div class=&quot;boundary-label&quot;&gt;&lt;strong&gt;CONNECTED / FLEET SERVICES&lt;/strong&gt;&lt;span&gt;optional · improves coordination, never required for safe local autonomy&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;fleet-stack&quot;&gt;
+          &lt;div class=&quot;fleet-card&quot;&gt;&lt;strong&gt;ARGUS C2&lt;/strong&gt;&lt;p&gt;Operator workflows, mission orchestration, policy, oversight, alerts and fleet-level decision support.&lt;/p&gt;&lt;/div&gt;
+          &lt;div class=&quot;fleet-card&quot;&gt;&lt;strong&gt;TRACK / Fleet World Model&lt;/strong&gt;&lt;p&gt;Operational shared picture: machines, people, observations, missions, relationships and fleet state.&lt;/p&gt;&lt;/div&gt;
+          &lt;div class=&quot;separation&quot;&gt;separate purpose · separate truth model&lt;/div&gt;
+          &lt;div class=&quot;fleet-card&quot;&gt;&lt;strong&gt;Engineering Knowledge Graph&lt;/strong&gt;&lt;p&gt;Repositories, components, interfaces, tests, dependencies, status, bugs, risks, decisions, hardware validation and releases.&lt;/p&gt;&lt;/div&gt;
+          &lt;div class=&quot;fleet-card&quot;&gt;&lt;strong&gt;Fleet Data &amp; Sync Services&lt;/strong&gt;&lt;p&gt;Selective replication, experience intake, observability, artifact distribution and offline reconciliation.&lt;/p&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;lanes&quot;&gt;
+      &lt;section class=&quot;lane learn&quot; aria-label=&quot;Experience learning loop&quot;&gt;
+        &lt;div class=&quot;lane-title&quot;&gt;&lt;strong&gt;Experience → Validated Learning Loop&lt;/strong&gt;&lt;span&gt;no direct learning-to-fleet shortcut&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;pipeline&quot;&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Experience recording&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Isaac Sim / Lab + world models&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;RL / evaluation / safety gates&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Validated signed updates → fleet&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+      &lt;section class=&quot;lane release&quot; aria-label=&quot;Software release path&quot;&gt;
+        &lt;div class=&quot;lane-title&quot;&gt;&lt;strong&gt;Software → Controlled Release Path&lt;/strong&gt;&lt;span&gt;traceable in Engineering Knowledge Graph&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;pipeline&quot;&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Git&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;CI · tests · hardware validation&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Signed release registry&lt;/div&gt;
+          &lt;div class=&quot;pipe-step&quot;&gt;Ansible today → OTA → fleet&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;principle&quot;&gt;
+      &lt;span&gt;&lt;strong&gt;Operating principle:&lt;/strong&gt; connectivity adds fleet intelligence, synchronization and improvement; the machine retains local perception, judgment, safety and action.&lt;/span&gt;
+      &lt;span&gt;&lt;strong&gt;Truth discipline:&lt;/strong&gt; code + hardware evidence = AS-BUILT · this diagram = TARGET&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

@@ -129,7 +129,7 @@ decisions:
     title: Repository reorganization scope
     status: open
     affects: [domains.drive, edge.pilot, platform.link]
-    summary: The target layout (core/, domains/, platform/, hardware/, learning/) improves boundaries, but large moves destroy history. Every module is mapped in this graph; propose a low-risk migration per slice, never a blind rename. Monorepo stays; splits only on a real security/release/audience boundary.
+    summary: The target layout (core/, domains/, platform/, hardware/, learning/) improves boundaries, but large moves destroy history. Every module is mapped in this graph; propose a low-risk migration per slice, never a blind rename. Monorepo stays; splits only on a real security/release/audience boundary. One slice done, 18 Aug 2026, founder-performed, architecture/ moved under docs/architecture/ (with the target-architecture handoff beside it) and all tooling and operative references repointed in the same commit; the code layout question stays open.
 
   - id: OD-18
     title: Containers vs host on the Jetson

@@ -1,7 +1,7 @@
 # ARGUS - build status
 
 Generated from the Engineering Knowledge Graph. Do not edit by hand;
-edit `architecture/graph/*.yaml`, then run
+edit `docs/architecture/graph/*.yaml`, then run
 `.venv/bin/python scripts/argus_graph.py status --write`.
 CI fails if this file drifts from the graph.
 
@@ -107,9 +107,9 @@ verdict: keep / refactor / replace / archive / new.
 
 ## Hardware evidence (everything else is Mac and CI containers)
 
-- `teleop.relay`: 2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved.
+- `teleop.relay`: 2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in docs/architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved.
 
-## Open decisions (founder-gated; details in architecture/graph/decisions.yaml)
+## Open decisions (founder-gated; details in docs/architecture/graph/decisions.yaml)
 
 - D-1: Localization source of truth (cuVSLAM vs ZED-native vs fused)
 - D-2: ZED SDK / TERRA air-gapped licensing

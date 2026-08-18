@@ -38,7 +38,7 @@ verdict: keep / refactor / replace / archive / new.
 | Simulated driver set (`edge.hal.simulated_drivers`) | simulated | keep | 1 known gap |
 | Autonomy core (`edge.autonomy_core`) | simulated | refactor | - |
 | Navigator (Direct and Nav2) (`edge.navigator`) | simulated | keep | 3 known gaps |
-| WorldSlice (`edge.worldslice`) | simulated | replace | 1 known gap; succeeded by `core.local_world_model` |
+| WorldSlice (`edge.worldslice`) | software_verified | keep | - |
 | Edge LINK client (`edge.link_client`) | software_verified | keep | - |
 | Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 3 known gaps |
 | Bridge relay (`teleop.relay`) | hardware_integrated | refactor | 1 known gap |
@@ -52,7 +52,7 @@ verdict: keep / refactor / replace / archive / new.
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
 | Argus Cognitive Runtime (`core.cognitive_runtime`) | planned | new | - |
-| Local World Model (`core.local_world_model`) | planned | new | - |
+| Local World Model (`core.local_world_model`) | software_verified | new | 2 known gaps |
 | Perception stream interfaces (`core.perception_interface`) | software_verified | new | 2 known gaps |
 | LocalizationProvider (`core.localization_provider`) | software_verified | new | 2 known gaps |
 | Memory manager (`core.memory`) | planned | new | - |

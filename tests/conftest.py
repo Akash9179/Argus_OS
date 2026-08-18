@@ -233,6 +233,10 @@ def make_machine(transport, settings, tmp_path):
         path = tmp_path / f"manifest-{written[0]}.yaml"
         path.write_text(yaml.safe_dump(manifest))
 
+        # Every machine gets its own store, as on real hardware, unless a
+        # test hands two boots the same path to prove a reboot recovers.
+        overrides.setdefault("state_path", tmp_path / f"state-{written[0]}.db")
+
         parsed = parse_manifest(manifest)
         comms = DirectComms(parsed, bus=transport)
         runtime = boot(

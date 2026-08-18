@@ -194,12 +194,11 @@ components:
     type: Component
     path: drive/pilot/autonomy/worldslice.py
     plane: edge
-    role: Machine-local entities, current task, home; all in memory, lost on reboot
-    status: simulated
-    disposition: replace
-    superseded_by: core.local_world_model
-    known_gaps:
-      - Memory-only; violates law 15 (offline truth is first-class). A reboot is amnesia.
+    role: The in-process view of machine-local truth; entities, current task, home, written through to the Local World Model store
+    status: software_verified
+    disposition: keep
+    tests: [tests/test_reboot.py]
+    notes: Was memory-only (risk R-10); since 18 Aug 2026 it writes through to core.local_world_model, so a reboot recovers what it held (ADR-0005). Given no store it still runs in memory, for unit tests and tools.
 
   - id: edge.link_client
     name: Edge LINK client
@@ -292,12 +291,16 @@ components:
   - id: core.local_world_model
     name: Local World Model
     type: Component
-    path: null
+    path: drive/pilot/autonomy/local_world.py
     plane: core
-    role: Persistent machine-local truth; identity, pose, mission, home, entities, plans, decisions, provenance
-    status: planned
+    role: Persistent machine-local truth; identity, home, current task, entities, and an append-only journal of decisions and transitions
+    status: software_verified
     disposition: new
-    notes: Replaces edge.worldslice. SQLite (WAL) plus an append-only event journal; reboot recovers identity, mission, home, and never auto-resumes motion (ADR-0005).
+    tests: [tests/test_reboot.py]
+    notes: SQLite (WAL) at var/argus_local.db plus an append-only journal (ADR-0005); reboot recovers identity, home, entities, and the unfinished task, and never auto-resumes motion (the section 8 reboot test, in CI). Journal format is OD-16's default direction; heavy recordings (MCAP/SVO) and sync/learning consumers are not built yet.
+    known_gaps:
+      - Plans, decisions records, and provenance columns wait on the Cognitive Runtime; today the journal carries task transitions and home changes only
+      - No consumer reads the journal yet (platform.sync and learning.experience are planned)
 
   - id: core.perception_interface
     name: Perception stream interfaces

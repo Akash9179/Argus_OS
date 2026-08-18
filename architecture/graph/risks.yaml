@@ -68,7 +68,7 @@ risks:
 
   - id: R-10
     title: A reboot is amnesia
-    severity: high
+    severity: low
     affects: [edge.worldslice, core.local_world_model]
-    summary: All machine-local state is in memory. A machine that reboots loses identity context, mission, and home; incompatible with law 15 and with any unattended deployment.
-    mitigation: ADR-0005 persistent local world store; phase 2/3.
+    summary: All machine-local state was in memory. A machine that rebooted lost identity context, mission, and home; incompatible with law 15 and with any unattended deployment.
+    mitigation: CLOSED 18 Aug 2026 (ADR-0005, drive/pilot/autonomy/local_world.py; the section 8 reboot test in CI, tests/test_reboot.py, including never auto-resuming motion). Residual, tracked on core.local_world_model, no journal consumer yet and heavy recordings wait on OD-16.

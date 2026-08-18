@@ -15,7 +15,9 @@ import yaml
 
 from pilot import hal  # noqa: F401  registers the drivers this build carries
 from pilot.autonomy.core import AutonomyCore, RuntimeConfig
+from pilot.autonomy.local_world import LocalStore
 from pilot.autonomy.navigator import DirectNavigator, Navigator
+from pilot.autonomy.worldslice import WorldSlice
 from pilot.hal.loader import DriverSet, build_drivers
 from pilot.hal.manifest import Manifest, load_manifest
 from pilot.link_client import LinkClient
@@ -24,6 +26,9 @@ log = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = Path(__file__).parent / "data" / "runtime_language.yaml"
 MANIFEST_DIR = Path(__file__).parent / "manifests"
+# One machine, one store (ADR-0005). Relative to the working directory the
+# runtime is started from, the same convention TRACK uses for its own db.
+DEFAULT_STATE_PATH = Path("var") / "argus_local.db"
 
 
 def load_language(path: str | Path = DEFAULT_LANGUAGE) -> dict[str, str]:
@@ -40,11 +45,18 @@ class Runtime:
         drivers: DriverSet,
         core: AutonomyCore,
         link: LinkClient,
+        store: LocalStore | None = None,
     ):
         self.manifest = manifest
         self.drivers = drivers
         self.core = core
         self.link = link
+        # The persistent local store (ADR-0005). Held here so it lives as
+        # long as the machine does; it is deliberately not closed in
+        # stop(), because the run loop may still be finishing a write on
+        # its own thread, and every write commits when it happens, so
+        # there is nothing to flush.
+        self.store = store
 
     def start(self) -> None:
         self.drivers.start()
@@ -69,11 +81,18 @@ def boot(
     navigator: Navigator | None = None,
     language_path: str | Path = DEFAULT_LANGUAGE,
     config: RuntimeConfig | None = None,
+    state_path: str | Path | None = None,
     **driver_overrides: Any,
 ) -> Runtime:
     """Bring one machine up from its manifest."""
     manifest = load_manifest(manifest_path)
     drivers = build_drivers(manifest, **driver_overrides)
+
+    # What this machine already knows comes up before anything that could
+    # act on it (ADR-0005, law 15).
+    store = LocalStore(state_path or DEFAULT_STATE_PATH)
+    boots = store.record_boot(manifest.asset_id, manifest.name, manifest.asset_class)
+    world = WorldSlice(store=store)
 
     cfg = config or RuntimeConfig(messages=load_language(language_path))
     if not cfg.messages:
@@ -93,14 +112,16 @@ def boot(
         navigator=navigator or DirectNavigator(drivers.locomotion, localization=drivers.localization),
         link=link,
         config=cfg,
+        world=world,
     )
     holder["core"] = core
 
     log.info(
-        "%s is up: %s, top speed %s m/s, %d sensors",
+        "%s is up: %s, top speed %s m/s, %d sensors, boot %d",
         manifest.name,
         manifest.asset_class,
         manifest.max_speed_mps,
         len(drivers.sensors),
+        boots,
     )
-    return Runtime(manifest=manifest, drivers=drivers, core=core, link=link)
+    return Runtime(manifest=manifest, drivers=drivers, core=core, link=link, store=store)

@@ -105,6 +105,11 @@ def build_nav2_navigator(runtime):
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run one machine.")
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
+    parser.add_argument(
+        "--state",
+        default=None,
+        help="Path to the persistent local store (default var/argus_local.db).",
+    )
     parser.add_argument("--prefix", default="site", help="LINK topic prefix")
     parser.add_argument("--registry-port", type=int, default=8200)
     parser.add_argument("--duration", type=float, default=None, help="Stop after N seconds.")
@@ -123,10 +128,10 @@ def main() -> None:
     if args.navigator == "nav2":
         # The drivers have to exist before the bridge can be wired to them,
         # so the machine is booted once with no navigator and given one.
-        runtime = boot(args.manifest, topic_prefix=args.prefix)
+        runtime = boot(args.manifest, topic_prefix=args.prefix, state_path=args.state)
         runtime.core.navigator = build_nav2_navigator(runtime)
     else:
-        runtime = boot(args.manifest, topic_prefix=args.prefix)
+        runtime = boot(args.manifest, topic_prefix=args.prefix, state_path=args.state)
     server = registry_server(runtime, args.registry_port)
     runtime.start()
 

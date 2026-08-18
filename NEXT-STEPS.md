@@ -91,14 +91,18 @@ throughout.
          DirectNavigator read position only from the provider.
    - Residual: the ROS locomotion bridge and Nav2Navigator still read
      `pose()`; they migrate during the Jetson bring-up.
-3. **Persistent local store (ADR-0005).**
-   - [ ] `var/argus_local.db` (SQLite WAL) plus append-only journal;
-         WorldSlice reads/writes through it.
-   - [ ] Reboot recovery: identity, home, unfinished task, world snapshot,
-         journal replay; never auto-resume motion.
-   - Acceptance: the reboot acceptance test from ARCHITECTURE.md section 8,
-     in CI (kill PILOT mid-task, restart, assert recovered state and no
-     motion command emitted without re-validation).
+3. **Persistent local store (ADR-0005). DONE 18 Aug 2026.**
+   - [x] `var/argus_local.db` (SQLite WAL) plus append-only journal
+         (`drive/pilot/autonomy/local_world.py`); WorldSlice reads/writes
+         through it.
+   - [x] Reboot recovery: identity, home, unfinished task, world snapshot;
+         never auto-resume motion (a recovered `hold` continues, anything
+         that would move the machine is reported interrupted, in words).
+   - Acceptance met: `tests/test_reboot.py` runs the ARCHITECTURE.md
+     section 8 reboot test in CI (killed mid-task, restarted elsewhere,
+     state recovered, no motion command without a fresh order).
+   - Residual on `core.local_world_model`: no journal consumer yet (sync,
+     learning); heavy recordings and journal format finalization are OD-16.
 4. **Teleop parity debts (ADR-0009, the parts that need no hardware).**
    - [ ] Structured session logging in the bridge daemon (it has none).
    - [ ] Per-operator identity replacing the single static password.

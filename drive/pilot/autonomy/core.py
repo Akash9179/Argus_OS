@@ -70,6 +70,7 @@ class AutonomyCore:
         navigator: Navigator,
         link: LinkClient,
         config: RuntimeConfig,
+        world: WorldSlice | None = None,
     ):
         self.manifest = manifest
         self.drivers = drivers
@@ -77,7 +78,7 @@ class AutonomyCore:
         self.link = link
         self.cfg = config
 
-        self.world = WorldSlice()
+        self.world = world if world is not None else WorldSlice()
         self.status = AssetStatus.ASSET_STATUS_STANDBY
         self.battery = manifest.battery_start_fraction
 
@@ -97,11 +98,17 @@ class AutonomyCore:
 
     def run(self, duration_s: float | None = None) -> None:
         started = time.monotonic()
-        # Home is where the localization provider says the machine woke
-        # up, which is the position everything else will be reported
-        # against (ADR-0004).
-        estimate = self.drivers.localization.estimate()
-        self.world.home = (estimate.latitude_deg, estimate.longitude_deg)
+        # Home is where the localization provider said the machine woke up
+        # the FIRST time (ADR-0004). A machine rebooting with a home in its
+        # store keeps it: "return home" means where it started its work,
+        # not wherever the last power cut happened (law 15).
+        if self.world.home is None:
+            estimate = self.drivers.localization.estimate()
+            self.world.home = (estimate.latitude_deg, estimate.longitude_deg)
+
+        recovered = self.world.current_task
+        if recovered is not None:
+            self._evaluate_recovered(recovered)
 
         last_heartbeat = 0.0
         last_telemetry = 0.0
@@ -144,6 +151,39 @@ class AutonomyCore:
 
     # -- orders ------------------------------------------------------------
 
+    def _evaluate_recovered(self, task: Task) -> None:
+        """Decide what happens to an order found in the store at boot.
+
+        Law 15 is absolute here: a machine never automatically resumes
+        physical motion because a task was RUNNING before the reboot.
+        An order that commands no motion may continue; anything that would
+        turn the wheels is reported interrupted, in words, and the machine
+        waits for a person to decide.
+        """
+        if task.task_type == "hold":
+            self.status = AssetStatus.ASSET_STATUS_ACTIVE
+            self._last_progress = -1.0
+            self.world.journal("task_recovered", task_id=task.task_id, task_type="hold")
+            self.link.task_status(
+                task_id=task.task_id,
+                status=TaskState.TASK_STATE_RUNNING,
+                progress=0.0,
+                message=self.cfg.say("holding"),
+            )
+            return
+
+        self.world.journal(
+            "task_interrupted", task_id=task.task_id, task_type=task.task_type
+        )
+        self.link.task_status(
+            task_id=task.task_id,
+            status=TaskState.TASK_STATE_FAILED,
+            progress=0.0,
+            message=self.cfg.say("interrupted"),
+        )
+        self.world.current_task = None
+        self.status = AssetStatus.ASSET_STATUS_STANDBY
+
     def _drain_orders(self) -> None:
         while True:
             try:
@@ -164,6 +204,10 @@ class AutonomyCore:
         if task.task_type not in self.manifest.supported_task_types:
             # Refused in words, never dropped. The contract requires it and
             # an operator left wondering is worse than one told no.
+            self.world.journal(
+                "task_refused", task_id=task.task_id, task_type=task.task_type,
+                reason="unsupported_task_type",
+            )
             self.link.task_status(
                 task_id=task.task_id,
                 status=TaskState.TASK_STATE_FAILED,
@@ -174,6 +218,10 @@ class AutonomyCore:
 
         route = self._route_for(task)
         if route is None:
+            self.world.journal(
+                "task_refused", task_id=task.task_id, task_type=task.task_type,
+                reason="no_destination",
+            )
             self.link.task_status(
                 task_id=task.task_id,
                 status=TaskState.TASK_STATE_FAILED,
@@ -187,6 +235,9 @@ class AutonomyCore:
         self._last_progress = -1.0
         self.status = AssetStatus.ASSET_STATUS_ACTIVE
         self.navigator.follow(route)
+        self.world.journal(
+            "task_accepted", task_id=task.task_id, task_type=task.task_type
+        )
 
         self.link.task_status(
             task_id=task.task_id,
@@ -198,7 +249,7 @@ class AutonomyCore:
             task_id=task.task_id,
             status=TaskState.TASK_STATE_RUNNING,
             progress=0.0,
-            message=self.cfg.say("running"),
+            message=self.cfg.say("holding" if task.task_type == "hold" else "running"),
             eta_sec=self._eta_sec(),
         )
 
@@ -304,6 +355,10 @@ class AutonomyCore:
         task = self.world.current_task
         if task is None:
             return
+        self.world.journal(
+            "task_finished", task_id=task.task_id, task_type=task.task_type,
+            status=int(state),
+        )
         self.link.task_status(
             task_id=task.task_id,
             status=state,

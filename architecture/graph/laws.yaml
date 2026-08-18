@@ -70,8 +70,8 @@ laws:
   - id: L15
     name: Offline truth law
     line: Every machine keeps enough persistent local state to recover identity, mission, home, configuration, and relevant memory after restart or reboot.
-    enforcement: [gap]
-    notes: Currently violated by design of WorldSlice (risk R-10); closing it is phase 2/3 work.
+    enforcement: [tests/test_reboot.py]
+    notes: Closed at the runtime 18 Aug 2026 (ADR-0005, risk R-10). The reboot test also proves the second half of the law, never auto-resuming motion.
   - id: L16
     name: Provenance law
     line: Argus can always answer which sensor produced an observation, when, on which machine, with what confidence, which model transformed it, which decision used it, and what versions were running.

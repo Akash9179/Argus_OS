@@ -11,6 +11,9 @@
 messages:
   accepted: "Order received."
   running: "On the way."
+  # A machine holding position is not on the way anywhere; saying so
+  # would be a small lie, and the honesty law does not do small lies.
+  holding: "Holding position."
   finished: "Finished."
   cancelled: "Order cancelled."
   # Refusals. A machine that cannot carry out an order says so; it never
@@ -20,3 +23,6 @@ messages:
   # Given up part way. Says what happened without inventing a reason the
   # machine does not have.
   could_not_finish: "Could not get there. The machine has stopped."
+  # The process restarted while an order was running. The machine never
+  # resumes motion on its own after a restart; it says so and waits.
+  interrupted: "Restarted during this order. The machine has stopped and is waiting for new orders."

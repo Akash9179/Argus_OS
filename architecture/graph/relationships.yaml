@@ -41,7 +41,7 @@ relationships:
 
   # Target core supersessions and dependencies
   - {from: core.perception_interface, type: SUPERSEDES, to: edge.hal.sensor_interface}
-  - {from: core.local_world_model, type: SUPERSEDES, to: edge.worldslice}
+  - {from: edge.worldslice, type: USES, to: core.local_world_model, note: "write-through view since 18 Aug 2026 (ADR-0005)"}
   - {from: core.cognitive_runtime, type: SUPERSEDES, to: drive.brain}
   - {from: core.localization_provider, type: PART_OF, to: edge.hal, note: "a new provider kind on the existing seam"}
   - {from: core.cognitive_runtime, type: CONSUMES, to: core.local_world_model}

@@ -25,7 +25,7 @@ components:
     role: Fleet world model server; MQTT ingest, fusion, zones, events, tasks, autonomy modes, REST/WS
     status: software_verified
     disposition: keep
-    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py]
+    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py, tests/test_preview_and_systems.py]
     known_gaps:
       - Single station, SQLite single-writer, full-scan association; fine for one site, not a dense theater
       - Provisional identity is convention only; indistinguishable from resolved identity on the wire

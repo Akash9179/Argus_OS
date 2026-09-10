@@ -39,6 +39,15 @@ from voice.world import WorldModel
 from tests.conftest import OPERATOR_TOKEN, SITE_LAT, SITE_LON, a_manifest, wait_until
 
 
+def centre_of(zone) -> dict[str, float]:
+    """Where a voice order to a zone goes: the centre, as the service computes it."""
+    points = list(zone.geometry.exterior)
+    return {
+        "latitude_deg": pytest.approx(sum(p.latitude_deg for p in points) / len(points)),
+        "longitude_deg": pytest.approx(sum(p.longitude_deg for p in points) / len(points)),
+    }
+
+
 # -- a language service that says exactly what a test tells it to say ------
 
 
@@ -177,6 +186,7 @@ async def test_an_operator_can_ask_what_is_happening(voice, world, make_machine)
     assert exchange.spoken == "Scout 1 is standing by. Nothing else is happening."
     assert exchange.kind == intents.KIND_QUESTION
     assert exchange.needs_confirmation is False
+    assert exchange.action is None
 
     # The language service was given the world in plain words, with no
     # schema terms and no raw confidence numbers to round away.
@@ -226,10 +236,14 @@ async def test_a_voice_order_waits_for_a_readback_then_goes_through_the_map_endp
     assert exchange.kind == intents.KIND_ORDER
     assert exchange.needs_confirmation is True
     assert exchange.spoken == "Send Scout 1 to Gate 3?"
+    # The action carries the resolved order, so C2 can draw the route and
+    # preview it before the operator answers.
     assert exchange.action == {
         "machine": "Scout 1",
         "task_type": "navigate",
         "place": "Gate 3",
+        "asset_id": machine.asset_id,
+        "waypoints": [centre_of(gate_zone)],
     }
     assert world.store.list_tasks() == [], "an order was issued before it was confirmed"
 
@@ -453,6 +467,8 @@ async def test_a_readback_survives_the_request_that_proposed_it(app, world, make
         assert proposed.status_code == 200
         body = proposed.json()
         assert body["needs_confirmation"] is True
+        assert body["action"]["asset_id"] == machine.asset_id
+        assert body["action"]["waypoints"] == [centre_of(gate_zone)]
         assert world.store.list_tasks() == []
 
         answered = await caller.post(

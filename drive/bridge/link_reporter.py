@@ -14,6 +14,13 @@ the daemon is started with --report.
 Manual-mode honesty: a vehicle under teleoperation does not execute tasks,
 so incoming orders are logged and left unaccepted rather than silently
 swallowed or falsely acknowledged.
+
+Naming: a machine's display name comes from its capability manifest, and
+the reporter declares one the way the sim does (a telemetry whose payload
+carries registry.manifest, D-8) only when the daemon was started with
+--name. With no name it declares nothing and TRACK keeps its readable
+fallback ("Ground vehicle 0001"): a real vehicle's name is a fact the
+person at the vehicle states, never one this code assumes.
 """
 from __future__ import annotations
 
@@ -49,6 +56,7 @@ class LinkReporter:
         mqtt_host: str = "127.0.0.1",
         mqtt_port: int = 1883,
         topic_prefix: str = "argus",
+        name: str | None = None,
     ) -> None:
         # Imported here so the bridge stays stdlib-only unless reporting is on.
         from sim.link_client import LinkClient
@@ -57,6 +65,7 @@ class LinkReporter:
         self.vehicle = vehicle
         self.lat = latitude_deg
         self.lon = longitude_deg
+        self.name = name
         self._link = MqttVehicleLink(mqtt_host, mqtt_port, client_id=f"bridge-{asset_id}")
         self._client = LinkClient(asset_id, self._link, topic_prefix, on_task=self._refuse_task)
         self._stop = threading.Event()
@@ -93,6 +102,24 @@ class LinkReporter:
         if m_per_deg_lon > 1.0:
             self.lon += (d * math.sin(rad)) / m_per_deg_lon
 
+    def declare(self) -> None:
+        """Tell TRACK what this machine is called, once, if we were told.
+
+        One telemetry carrying registry.manifest, the same declaration the
+        sim makes. The client remembers it and repeats it on every
+        connect, so a broker that is down when reporting starts still
+        learns the name later. No name, no declaration: the fallback
+        naming in TRACK is honest about a machine nobody named.
+        """
+        if not self.name:
+            return
+        self._client.telemetry(
+            position=self._position(),
+            heading_deg=0.0,
+            speed_mps=0.0,
+            payload={"registry": {"manifest": {"name": self.name}}},
+        )
+
     def step(self, dt: float, send_heartbeat: bool) -> None:
         """One reporting step; separated from the thread loop for tests."""
         tel = self.vehicle.read()
@@ -110,6 +137,7 @@ class LinkReporter:
             )
 
     def _run(self) -> None:
+        self.declare()
         last = time.monotonic()
         next_heartbeat = 0.0
         while not self._stop.is_set():

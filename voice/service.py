@@ -280,10 +280,21 @@ class VoiceService:
                 created_at=time.monotonic(),
             )
             exchange.needs_confirmation = True
+            # The resolved order, so C2 can draw the proposed route and ask
+            # TRACK to preview it before the operator answers. Describing
+            # it is not issuing it: only confirm() acts.
             exchange.action = {
                 "machine": decided.asset_name,
                 "task_type": decided.task_type,
                 "place": decided.place_name,
+                "asset_id": decided.asset_id,
+                "waypoints": [
+                    {
+                        "latitude_deg": point["latitude_deg"],
+                        "longitude_deg": point["longitude_deg"],
+                    }
+                    for point in decided.waypoints
+                ],
             }
         return exchange
 

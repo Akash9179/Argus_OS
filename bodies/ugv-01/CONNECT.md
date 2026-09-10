@@ -62,14 +62,16 @@ Proves the network path and the cockpit link with the wheels never involved
 On the Jetson:
 ```bash
 cd argus
-python3 -m drive.bridge                                      # listens 0.0.0.0:8090
+python3 -m drive.bridge --name Tessy                         # listens 0.0.0.0:8090
 ```
 First run creates `var/bridge_operators.json` with one starter operator;
 read the token out of that file (or add a line per person). The old
 `ARGUS_PASSWORD` shared secret is gone (ADR-0009). Sessions log to
-`var/bridge_sessions.jsonl`. Add `--port N` / `--watchdog-ms N` if needed. Do **not** pass `--report` on the
-Jetson: it needs paho-mqtt and a reachable broker, which is a laptop-side
-concern.
+`var/bridge_sessions.jsonl`. Add `--port N` / `--watchdog-ms N` if needed.
+`--name` is what TRACK will call this machine once it reports; without it
+TRACK shows a fallback label ("Ground vehicle 0001"), because nothing
+guesses a vehicle's name. Do **not** pass `--report` on the Jetson yet: it
+needs paho-mqtt and a reachable broker, which is a laptop-side concern.
 
 On the laptop, cockpit dev server on :5174:
 ```

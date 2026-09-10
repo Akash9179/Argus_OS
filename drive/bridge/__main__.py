@@ -2,6 +2,12 @@
 
     python3 -m drive.bridge                          # mock vehicle, :8090
     python3 -m drive.bridge --port 9000 --watchdog-ms 700
+    python3 -m drive.bridge --report --name Tessy    # on the vehicle: on the map, by name
+
+--name is what TRACK shows for this machine (its manifest name, declared
+once over LINK when --report is on). Without it TRACK falls back to a
+readable label built from the asset class and id; nothing here guesses a
+real vehicle's name.
 
 Operators authenticate with per-operator tokens from the operators file
 (default var/bridge_operators.json, created with one starter operator on
@@ -39,6 +45,9 @@ def main() -> int:
     ap.add_argument("--report", action="store_true",
                     help="announce this vehicle to TRACK over LINK (needs the OS venv, not stdlib-only)")
     ap.add_argument("--asset-id", default="01BENCHUGV0000000000000001")
+    ap.add_argument("--name", default=None,
+                    help="this vehicle's display name, declared to TRACK with --report "
+                         "(no default: an unnamed machine gets TRACK's fallback label)")
     ap.add_argument("--latitude", type=float, default=51.5055)
     ap.add_argument("--longitude", type=float, default=-0.118)
     ap.add_argument("--mqtt-host", default="127.0.0.1")
@@ -64,11 +73,12 @@ def main() -> int:
 
         reporter = LinkReporter(
             vehicle, args.asset_id, args.latitude, args.longitude,
-            mqtt_host=args.mqtt_host, mqtt_port=args.mqtt_port,
+            mqtt_host=args.mqtt_host, mqtt_port=args.mqtt_port, name=args.name,
         )
         reporter.start()
     print(f"bridge up on ws://{args.host}:{args.port} vehicle={args.vehicle} "
           f"watchdog={args.watchdog_ms}ms report={'on' if reporter else 'off'} "
+          f"name={args.name or '(none)'} "
           f"operators={args.operators} log={args.log}")
 
     stop = signal.SIGTERM, signal.SIGINT

@@ -326,12 +326,13 @@ class FakeLink:
         return True
 
 
-def make_reporter(vehicle):
+def make_reporter(vehicle, name=None):
     from bridge.link_reporter import LinkReporter
     r = LinkReporter.__new__(LinkReporter)
     from sim.link_client import LinkClient
     r.vehicle = vehicle
     r.lat, r.lon = 51.5055, -0.118
+    r.name = name
     r._link = FakeLink()
     r._client = LinkClient("01BENCHUGV0000000000000001", r._link, "argus", on_task=lambda t: None)
     import threading
@@ -381,6 +382,47 @@ def test_reporter_standby_when_not_driving():
     hb_raw = [p for t, p in r._link.published if t.endswith("heartbeat")][0]
     hb = Heartbeat(); hb.ParseFromString(hb_raw)
     assert hb.status == ASSET_STATUS_STANDBY
+
+
+def declarations(r):
+    """The telemetry messages the reporter sent that carry a payload."""
+    from link.v1.messages_pb2 import Telemetry as LinkTelemetry
+
+    out = []
+    for topic, raw in r._link.published:
+        if not topic.endswith("telemetry"):
+            continue
+        tel = LinkTelemetry(); tel.ParseFromString(raw)
+        if tel.HasField("payload"):
+            out.append(tel)
+    return out
+
+
+def test_reporter_with_a_name_declares_it_in_a_registry_manifest():
+    """The same declaration the sim makes, so TRACK shows the name."""
+    from google.protobuf.json_format import MessageToDict
+
+    r = make_reporter(MockVehicle(), name="Tessy")
+    r.declare()
+    r.step(dt=0.5, send_heartbeat=True)
+
+    declared = declarations(r)
+    assert len(declared) == 1
+    payload = MessageToDict(declared[0].payload)
+    assert payload == {"registry": {"manifest": {"name": "Tessy"}}}
+    assert declared[0].asset_id == "01BENCHUGV0000000000000001"
+
+
+def test_reporter_without_a_name_declares_nothing():
+    """No name was given, so none is invented: TRACK keeps its fallback."""
+    r = make_reporter(MockVehicle())
+    r.declare()
+    r.step(dt=0.5, send_heartbeat=True)
+
+    assert declarations(r) == []
+    # Ordinary reporting is unaffected.
+    assert any(t.endswith("telemetry") for t, _ in r._link.published)
+    assert any(t.endswith("heartbeat") for t, _ in r._link.published)
 
 
 # ------------------------------------- identity and the session log (ADR-0009)

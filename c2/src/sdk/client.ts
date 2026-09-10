@@ -10,22 +10,12 @@
 
 import type { Asset, Principal, Task, TaskRequest, Track, WorldEvent, Zone } from './types'
 
+import { savedToken, signOut } from './session'
+
+export { forgetToken, saveToken, savedToken } from './session'
+
 export class NotSignedIn extends Error {}
 export class Refused extends Error {}
-
-const TOKEN_KEY = 'argus.token'
-
-export function savedToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? ''
-}
-
-export function saveToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-export function forgetToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
-}
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = savedToken()
@@ -38,7 +28,13 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   })
 
-  if (response.status === 401) throw new NotSignedIn(await refusalText(response))
+  if (response.status === 401) {
+    // The token we hold is no longer accepted. Drop it and let the shell
+    // return to sign-in; the caller still gets the refusal it asked for.
+    const text = await refusalText(response)
+    signOut()
+    throw new NotSignedIn(text)
+  }
   if (!response.ok) throw new Refused(await refusalText(response))
   if (response.status === 204) return undefined as T
   return (await response.json()) as T

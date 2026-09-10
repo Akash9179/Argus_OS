@@ -8,12 +8,13 @@
  */
 
 import { useEffect, useState } from 'react'
-import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
+import { saveToken, savedToken, track as api } from '../sdk/client'
+import { onSignedOut, signOut } from '../sdk/session'
 import { isAnswering, useWorld } from '../state/world'
 import { Operate } from './Operate'
 import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
 import { say } from './wording'
-import { clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
+import { clockDate, clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
 
 type Theme = 'dark' | 'day'
 
@@ -25,11 +26,13 @@ export function App() {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
+  // A token refused by any interface ends the session here, so a revoked
+  // key shows sign-in rather than a station that has apparently lost the
+  // site.
+  useEffect(() => onSignedOut(() => setSignedIn(false)), [])
+
   if (!signedIn) return <SignIn onSignedIn={() => setSignedIn(true)} />
-  return <Station theme={theme} onTheme={setTheme} onSignOut={() => {
-    forgetToken()
-    setSignedIn(false)
-  }} />
+  return <Station theme={theme} onTheme={setTheme} onSignOut={signOut} />
 }
 
 function Station({
@@ -91,42 +94,47 @@ function Station({
     }
   }, [])
 
-  const appName =
-    screen === 'desktop'
-      ? say.shell.desktop
-      : screen === 'drive'
-        ? say.shell.apps.drive
-        : screen === 'settings'
-          ? say.shell.settings.title
-          : say.shell.apps.operate
   const glanceLine =
     link === 'lost' ? say.shell.glance.linkDown : say.shell.glance.allQuiet(answeringCount)
 
   return (
     <div className="station">
-      <header className="menubar">
+      <header className="topbar">
         <button className="mark as-button" onClick={() => setScreen('desktop')} title={say.shell.desktop}>
-          ARGUS
+          <span className="mark-name">ARGUS</span>
+          <span className="mark-sub">{say.shell.station}</span>
         </button>
-        <span className="app-name">{appName}</span>
-        <nav className="menubar-items">
-          {say.menus.map((item) => (
-            <span key={item} className="menu-item is-inert" title={say.notBuiltYet}>
-              {item}
+        <nav className="tabs" aria-label={say.shell.apps.operate}>
+          <button className={`tab${screen === 'operate' ? ' on' : ''}`} onClick={() => openApp('operate')}>
+            {say.shell.apps.operate}
+          </button>
+          <button className={`tab${screen === 'drive' ? ' on' : ''}`} onClick={() => openApp('drive')}>
+            {say.shell.apps.drive}
+          </button>
+          {[say.shell.apps.review, say.shell.apps.intel, say.shell.apps.fleet].map((name) => (
+            <span key={name} className="tab soon" title={say.notBuiltYet}>
+              {name}
             </span>
           ))}
         </nav>
-        <div className="menubar-right">
-          <span className={`stat is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>
+        <div className="topbar-right">
+          <span className={`pill is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>
             <span className="dot" />
             {link === 'good' ? say.link.good : link === 'lost' ? say.link.lost : say.link.connecting}
+            {link === 'good' && ` · ${say.counts.answering(answeringCount, world.assets.size)}`}
           </span>
-          <span className="stat">{say.counts.answering(answeringCount, world.assets.size)}</span>
-          <button className="chip" onClick={() => onTheme(theme === 'dark' ? 'day' : 'dark')}>
-            {theme === 'dark' ? say.theme.dark : say.theme.day}
+          <span className="clock">
+            {clockDate(now, clockPrefs)}&nbsp;&nbsp;{clockTime(now, clockPrefs)} {zoneLabel(now, clockPrefs)}
+          </span>
+          <button className="who as-button" onClick={() => openApp('settings')} title={say.shell.tips.settings}>
+            <span className="avatar" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="8.5" r="3.6" />
+                <path d="M5 19.5c1.4-3.2 4-4.6 7-4.6s5.6 1.4 7 4.6" />
+              </svg>
+            </span>
+            {who && <span className="who-name">{who}</span>}
           </button>
-          {who && <span className="stat">{who}</span>}
-          <span className="stat mono">{clockTime(now, clockPrefs)} {zoneLabel(now, clockPrefs)}</span>
           <button className="chip" onClick={onSignOut}>
             {say.signOut}
           </button>

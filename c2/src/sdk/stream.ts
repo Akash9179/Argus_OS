@@ -13,9 +13,12 @@
  */
 
 import type { Envelope } from './types'
-import { savedToken } from './client'
+import { savedToken, signOut } from './session'
 
 export type Link = 'connecting' | 'good' | 'lost'
+
+/** The server's close code for a token it does not accept (track/api.py). */
+export const CLOSE_NOT_SIGNED_IN = 4401
 
 export interface StreamHandlers {
   onEnvelope: (envelope: Envelope) => void
@@ -51,8 +54,16 @@ export function openStream({ onEnvelope, onLink }: StreamHandlers): () => void {
       }
     }
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (closedByUs) return
+      if (event.code === CLOSE_NOT_SIGNED_IN) {
+        // Not a link failure: the site is there and refused our token.
+        // Retrying would only be refused again, and calling it "site link
+        // lost" would be untrue. The session ends; the shell shows sign-in.
+        closedByUs = true
+        signOut()
+        return
+      }
       onLink('lost')
       // Keep trying, slower each time, because a site link comes back.
       retry = window.setTimeout(connect, backoffMs)

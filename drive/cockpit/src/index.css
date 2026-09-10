@@ -1,32 +1,40 @@
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-sans/700.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '../../../design/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ARGUS design tokens — mirror of DESIGN.md §2. CSS-var source of truth;
-   Tailwind theme references the same hex values. */
+/* The cockpit reads the one visual language shared with c2/
+   (design/tokens.css). The names below are the cockpit's older vocabulary,
+   kept as aliases of the shared tokens until the Drive rebuild (M3 of the
+   C2 build plan) retires them. Tailwind's palette reads the same
+   variables (tailwind.config.js), so a utility class and a var() agree. */
 :root {
-  --bg: #0B0C0E;
-  --surface-1: #121417;
-  --surface-2: #16181C;
-  --surface-3: #1C1F24;
-  --surface-inset: #0E0F12;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --text: #F5F7FA;
-  --text-2: #A4ABB4;
-  --text-3: #6B727B;
-  --accent: #2E8FFF;
-  --accent-strong: #1E73E6;
-  --accent-weak: rgba(46, 143, 255, 0.14);
-  --accent-ring: rgba(46, 143, 255, 0.45);
-  --critical: #FF4D4D;
-  --critical-weak: rgba(255, 77, 77, 0.12);
-  --warning: #F5A623;
-  --warning-weak: rgba(245, 166, 35, 0.14);
-  --info: #3B9EFF;
-  --info-weak: rgba(59, 158, 255, 0.14);
-  --success: #22C55E;
-  --success-weak: rgba(34, 197, 94, 0.14);
+  --surface-1: var(--card);
+  --surface-2: var(--card-2);
+  --surface-3: var(--card-3);
+  --surface-inset: var(--bg);
+  --line-strong: var(--line-2);
+  --text: var(--ink);
+  --text-2: var(--ink-2);
+  --text-3: var(--ink-3);
+  --accent: var(--sel);
+  --accent-strong: var(--sel);
+  --accent-weak: var(--sel-bg);
+  --accent-ring: var(--sel-ring);
+  --critical: var(--act);
+  --critical-weak: var(--act-bg);
+  --warning: var(--warn);
+  --warning-weak: var(--warn-bg);
+  --info: var(--sel);
+  --info-weak: var(--sel-bg);
+  --success: var(--ok);
+  --success-weak: var(--ok-bg);
 }
 
 html, body, #root { height: 100%; }
@@ -34,7 +42,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Geist, system-ui, -apple-system, sans-serif;
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 

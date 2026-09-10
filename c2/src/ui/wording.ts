@@ -30,6 +30,8 @@ export const say = {
   /** The operating system's own furniture: desktop, dock, application names. */
   shell: {
     desktop: 'Desktop',
+    /** Under the mark in the top bar: what kind of station this is. */
+    station: 'Ground operations',
     apps: {
       operate: 'Operate',
       drive: 'Drive',

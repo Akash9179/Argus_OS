@@ -23,6 +23,8 @@ whether direct or not.
 
 | Component | Version | Licence | Where | Verdict |
 |---|---|---|---|---|
+| IBM Plex Sans (via @fontsource/ibm-plex-sans) | 5.3.0 | SIL Open Font License 1.1 | c2/, drive/cockpit/ (bundled, self-hosted) | Permissive; embedding and redistribution allowed; no CDN at runtime (law 8). |
+| JetBrains Mono (via @fontsource/jetbrains-mono) | 5.3.0 | SIL Open Font License 1.1 | c2/, drive/cockpit/ (bundled, self-hosted) | Permissive; same terms as above. |
 | ROS2 Humble core (`rclpy`, `tf2_ros`, message packages) | Humble Hawksbill | Apache 2.0 | PILOT container | Clear. Permissive, no field-of-use restriction. |
 | Navigation2 (`navigation2`, `nav2_bringup`, `nav2_simple_commander`, MPPI controller) | Humble | Apache 2.0 | PILOT container | Clear. Permissive, no field-of-use restriction. |
 | `tf_transformations` | Humble packaging | BSD 3-Clause | PILOT container | Clear. |

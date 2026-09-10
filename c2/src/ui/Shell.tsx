@@ -183,11 +183,13 @@ const DOCK: DockEntry[] = [
 ]
 
 export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean; onOpen: (app: ShellApp) => void }) {
+  // While an application is open the dock is put away entirely (no hover
+  // strip to bring it back): at 1280 wide it used to cover Drive's control
+  // bar. The top bar's tabs, the ARGUS mark and Esc all return to the
+  // desktop, so nothing is lost.
   return (
     <>
-      {/* hot strip: brushing the bottom edge brings the dock back while an app is open */}
-      {away && <div className="dock-reveal" aria-hidden />}
-      <div className={`dock${away ? ' is-away' : ''}`}>
+      <div className={`dock${away ? ' is-away' : ''}`} aria-hidden={away}>
         {DOCK.map((entry) => (
           <span key={entry.id} style={{ display: 'contents' }}>
           {entry.sep && <span className="dock-sep" aria-hidden />}

@@ -13,6 +13,7 @@ from track.config import Settings, settings as default_settings
 from track.identity import TokenDirectory
 from track.live import MemoryLiveBus, RedisLiveBus
 from track.store import Store
+from track.tiles import TileStore
 from track.transport import MqttTransport, Transport
 from track.worldmodel import WorldModel
 
@@ -38,6 +39,8 @@ def create_app(
         app.state.transport = transport or MqttTransport(
             cfg.mqtt_host, cfg.mqtt_port, client_id=f"{cfg.topic_prefix}-worldmodel"
         )
+        # Local imagery. A missing directory is an empty cache, not a fault.
+        app.state.tiles = TileStore(cfg.tiles_dir)
 
         await app.state.bus.start()
         app.state.world = WorldModel(
@@ -56,6 +59,7 @@ def create_app(
         finally:
             await app.state.world.stop()
             await app.state.bus.stop()
+            app.state.tiles.close()
             app.state.store.close()
 
     app = FastAPI(title="World model", version="1.0.0", lifespan=lifespan)

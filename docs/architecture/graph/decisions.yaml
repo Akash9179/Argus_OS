@@ -156,3 +156,11 @@ decisions:
     status: open
     affects: [platform.link, platform.track, platform.sync]
     summary: Asset-assigned entity IDs are indistinguishable from resolved ones; TRACK treats them as provisional by convention. First thing that breaks under federation or sync-after-long-disconnection. Needs a wire representation plan that respects the frozen contract.
+
+  - id: D-22
+    title: Where satellite imagery in the operator application comes from
+    status: decided
+    date: 2026-09-10
+    decided_by: founder
+    affects: [platform.track, platform.c2]
+    summary: Noted at the 8 Sep 2026 Gate-2 walkthrough, decided 10 Sep 2026. Imagery comes from a local MBTiles cache on the station, served by TRACK (GET /v1/tiles and /v1/tiles/{layer}/{z}/{x}/{y}, TILES_DIR, default var/tiles), never from a cloud tile server. Shipped empty; the operator application draws procedural terrain until a layer exists. Sourcing the tiles for a site is a founder action, not something the software does.

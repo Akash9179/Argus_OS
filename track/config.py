@@ -64,6 +64,10 @@ class Settings:
     )
     tokens_path: str = os.getenv("TOKENS_PATH", str(REPO_ROOT / "var" / "tokens.yaml"))
 
+    # The local imagery cache: a directory of *.mbtiles files (D-22). Empty
+    # until tiles are sourced for the site, and never fetched from anywhere.
+    tiles_dir: str = os.getenv("TILES_DIR", str(REPO_ROOT / "var" / "tiles"))
+
     # The contract versions this server speaks.
     link_version: int = 1
     ontology_version: int = 1

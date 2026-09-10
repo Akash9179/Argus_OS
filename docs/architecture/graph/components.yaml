@@ -29,7 +29,7 @@ components:
     known_gaps:
       - Single station, SQLite single-writer, full-scan association; fine for one site, not a dense theater
       - Provisional identity is convention only; indistinguishable from resolved identity on the wire
-    notes: Target direction expands it toward Maven-like fleet intelligence (phase 7) without making it required for local execution.
+    notes: Target direction expands it toward Maven-like fleet intelligence (phase 7) without making it required for local execution. TRACK serves a local MBTiles cache (empty until tiles are sourced).
 
   - id: platform.c2
     name: ARGUS C2

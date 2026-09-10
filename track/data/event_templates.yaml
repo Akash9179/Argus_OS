@@ -209,3 +209,5 @@ errors:
   no_such_autonomy_mode: "There is no setting called that. The choices are {choices}."
   asset_not_answering: "{asset} is not answering right now."
   task_already_finished: "That order has already finished."
+  no_such_layer: "There is no map imagery called that on this station."
+  no_tile: "There is no imagery for that part of the map."

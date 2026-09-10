@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from google.protobuf.json_format import MessageToDict
 from link.v1.ontology_pb2 import Asset, Issuer, Polygon, Position, TaskParameters, Zone, ZoneRule
 from pydantic import BaseModel, Field
@@ -393,6 +393,74 @@ async def create_zone(body: ZoneIn, request: Request, _: Admin) -> dict:
 @router.get("/missions")
 async def list_missions(request: Request, _: Operator) -> list[dict]:
     return to_dicts(_world(request).store.list_missions())
+
+
+# -- the ground ------------------------------------------------------------
+
+
+@router.get("/tiles")
+async def list_tile_layers(request: Request, _: Operator) -> dict:
+    """The imagery this station holds.
+
+    An empty list is the normal state of a fresh install: the cache ships
+    empty and the operator application draws procedural terrain until a
+    layer is sourced for the site (D-22). Nothing here is ever fetched
+    from a network.
+    """
+    return {"layers": [layer.to_dict() for layer in request.app.state.tiles.layers()]}
+
+
+async def tile_principal(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    token: str = Query(default=""),
+) -> Principal:
+    """The caller of a tile request.
+
+    A browser cannot put an Authorization header on the <img> requests a
+    map layer makes, so on this route only the token may also arrive as
+    `?token=`, the same way it does on /v1/stream for the same reason. The
+    header wins when both are present. Same tokens, same roles.
+    """
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    candidate = bearer or token.strip()
+    principal = request.app.state.tokens.lookup(candidate) if candidate else None
+    if principal is None:
+        raise HTTPException(status_code=401, detail=_say(request, "not_signed_in"))
+    if not principal.has_role(ROLE_OPERATOR):
+        raise HTTPException(status_code=403, detail=_say(request, "not_allowed"))
+    return principal
+
+
+@router.get("/tiles/{layer_id}/{z}/{x}/{y}")
+async def get_tile(
+    layer_id: str,
+    z: int,
+    x: int,
+    y: int,
+    request: Request,
+    _: Annotated[Principal, Depends(tile_principal)],
+) -> Response:
+    """One imagery tile, XYZ addressed, from the local cache.
+
+    The cache is read-only and site-specific, so a day in the browser cache
+    is safe; `private` keeps it out of any shared cache between the station
+    and the operator's screen.
+    """
+    tiles = request.app.state.tiles
+    layer = tiles.layer(layer_id)
+    if layer is None:
+        raise HTTPException(status_code=404, detail=_say(request, "no_such_layer"))
+    data = tiles.tile(layer_id, z, x, y)
+    if data is None:
+        raise HTTPException(status_code=404, detail=_say(request, "no_tile"))
+    return Response(
+        content=data,
+        media_type=layer.content_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 # -- what happened ---------------------------------------------------------

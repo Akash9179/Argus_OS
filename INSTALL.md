@@ -343,6 +343,22 @@ server, or run `npm run dev` for development.
 
 Sign in with the operator token from `var/tokens.yaml`.
 
+**Satellite imagery.** The map draws procedural terrain until the station
+holds imagery of its own. There is no tile server to call: imagery is a
+local cache, decided by the founder on 10 Sep 2026 (D-22), and sourcing
+the tiles for a site is a founder action outside this document. When you
+have an `.mbtiles` file for the site, put it in `var/tiles/` (or the
+directory named by `TILES_DIR`) and the world model serves it as a layer
+named after the file, no restart needed:
+
+```bash
+mkdir -p var/tiles && cp /path/to/site.mbtiles var/tiles/
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8100/v1/tiles
+```
+
+**Verify:** the listing names the layer with its bounds and zoom range. An
+empty list means no imagery, which is the normal state of a fresh install.
+
 ### 2.10 Prove the platform works
 
 ```bash

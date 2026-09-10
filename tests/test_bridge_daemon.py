@@ -646,3 +646,36 @@ def test_a_successful_auth_clears_the_slate(tmp_path):
         again.close()
     finally:
         d.stop()
+
+
+# --------------------------------------------------------- session facts
+
+
+def test_role_carries_the_session_facts_a_cockpit_shows(daemon):
+    """Driver name, the machine's name (none here), and the watchdog window,
+    so the cockpit states link-loss behaviour with the daemon's own figure."""
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    role = c.recv_until("role")
+    assert role["role"] == "DRIVER"
+    assert role["driver"] == "Akash"
+    assert role["vehicle"] is None
+    assert role["watchdog_ms"] == 300
+    c.close()
+
+
+def test_preflight_checks_carry_a_sentence(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+    cmd = Command(gear="F", ignition=True).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    pf = c.recv_until("preflight")
+    labels = {chk["name"]: chk["label"] for chk in pf["checks"]}
+    assert labels["mcu_link"] == "Control link answers"
+    assert labels["watchdog"] == "Watchdog armed"
+    # the firmware's own fields survive beside the sentence
+    assert all({"name", "ok", "detail", "label"} <= set(chk) for chk in pf["checks"])
+    c.close()

@@ -1,4 +1,4 @@
-import type { Command, PreflightState, Telemetry } from '../contract'
+import type { Command, PreflightState, SessionFacts, Telemetry } from '../contract'
 import type { LinkStatus } from './remoTransport'
 
 /**
@@ -7,7 +7,7 @@ import type { LinkStatus } from './remoTransport'
  *   out:  {"t":"auth","password"}   first frame, always
  *         {"t":"cmd", ...Command}   the full cockpit command, verbatim
  *         {"t":"hb"}                keepalive between command frames
- *   in:   {"t":"role","role":"DRIVER"|"SPECTATOR"}
+ *   in:   {"t":"role","role":"DRIVER"|"SPECTATOR","driver","vehicle","watchdog_ms"}
  *         {"t":"telemetry", ...Telemetry}   the vehicle's truth, 10 Hz
  *         {"t":"error","reason":"auth"}          bad token: stop, tell the user
  *         {"t":"error","reason":"rate_limited"}  locked out: wait, then retry
@@ -33,6 +33,7 @@ export class BridgeTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   onStatus?: (s: LinkStatus) => void
   onRole?: (role: string) => void
+  onSession?: (facts: SessionFacts) => void
   onAuthFail?: () => void
   onRateLimited?: () => void
   onTelemetry?: (t: Telemetry) => void
@@ -86,6 +87,15 @@ export class BridgeTransport {
         this.retry = 0
         this.holdMs = 0
         this.onRole?.(msg.role)
+        if (msg.role === 'DRIVER' || msg.role === 'SPECTATOR') {
+          this.onSession?.({
+            role: msg.role,
+            driver: typeof msg.driver === 'string' ? msg.driver : '',
+            vehicle: typeof msg.vehicle === 'string' ? msg.vehicle : null,
+            watchdogMs: typeof msg.watchdog_ms === 'number' ? msg.watchdog_ms : null,
+            since: Date.now(),
+          })
+        }
       } else if (msg.t === 'telemetry') {
         this.onTelemetry?.(msg as unknown as Telemetry)
       } else if (msg.t === 'preflight') {

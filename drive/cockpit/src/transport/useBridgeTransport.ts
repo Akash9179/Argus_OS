@@ -3,6 +3,7 @@ import { useVehicleStore } from '../state/store'
 import { BridgeTransport } from './bridgeTransport'
 import type { LinkStatus } from './remoTransport'
 import type { DriveRole, RemoLink } from './useRemoTransport'
+import type { SessionFacts } from '../contract'
 
 /**
  * Live link to the ARGUS DRIVE bridge daemon. Activated by a URL param so the
@@ -33,6 +34,7 @@ export function useBridgeTransport(password: string | null, live: boolean, hz = 
   const [status, setStatus] = useState<LinkStatus>('connecting')
   const [role, setRole] = useState<DriveRole>(null)
   const [authFailed, setAuthFailed] = useState(false)
+  const [session, setSession] = useState<SessionFacts | null>(null)
 
   const liveRef = useRef(live)
   useEffect(() => {
@@ -47,11 +49,13 @@ export function useBridgeTransport(password: string | null, live: boolean, hz = 
       setStatus(s)
       if (s === 'connecting') {
         setRole(null)
+        setSession(null)
         setAuthFailed(false)
       }
       store.getState().setRemote(s === 'open')
     }
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
+    t.onSession = setSession
     t.onAuthFail = () => setAuthFailed(true)
     t.onTelemetry = (tel) => store.getState().applyRemoteTelemetry(tel)
     t.onPreflight = (p) => store.getState().applyPreflight(p)
@@ -87,5 +91,5 @@ export function useBridgeTransport(password: string | null, live: boolean, hz = 
     }
   }, [target, password, hz])
 
-  return { active: !!target, label: target?.label ?? '', status, role, authFailed }
+  return { active: !!target, label: target?.label ?? '', status, role, authFailed, session, hz }
 }

@@ -1,0 +1,161 @@
+/*
+ * The Drive screen, in the card language shared with the rest of Argus
+ * (design/tokens.css). This file only arranges the tokens; it names no
+ * colour of its own.
+ *
+ * Safety state and link latency are the loudest things on the video, on
+ * purpose: they are the two facts a driver must never have to look for.
+ */
+
+.drive {
+  display: grid; height: 100%; min-height: 0;
+  grid-template-columns: clamp(220px, 17vw, 262px) minmax(0, 1fr) clamp(240px, 21vw, 300px) 56px;
+  gap: var(--gap); padding: var(--gap) 20px;
+  background: var(--bg); color: var(--ink-body); font-family: var(--sans);
+}
+.drive-col { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; min-width: 0; }
+.drive-col.is-scroll { overflow-y: auto; scrollbar-width: thin; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); }
+.card.pad { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.h { font-size: var(--fs-h); font-weight: 600; color: var(--ink); }
+.sub { font-size: var(--fs-sub); color: var(--ink-3); line-height: 1.45; }
+.line { font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.row { display: flex; align-items: center; gap: 8px; }
+.right { margin-left: auto; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+  border-radius: var(--r-pill); font-size: var(--fs-sub); font-weight: 500; white-space: nowrap;
+  background: var(--off-bg); color: var(--off-ink);
+}
+.pill.is-ok { background: var(--ok-bg); color: var(--ok-ink); }
+.pill.is-warn { background: var(--warn-bg); color: var(--warn-ink); }
+.pill.is-act { background: var(--act-bg); color: var(--act-ink); }
+.pill.is-sel { background: var(--sel-bg); color: var(--sel-ink); }
+.pill.is-loud { height: 30px; padding: 0 12px; font-size: 13px; font-weight: 700; letter-spacing: 0.4px; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--off); }
+.ico { width: 18px; height: 18px; border-radius: 50%; flex: none; display: inline-block; background: var(--off); }
+.ico.is-ok { background: var(--ok); } .ico.is-act { background: var(--act); } .ico.is-warn { background: var(--warn); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 12px;
+  border-radius: var(--r); white-space: nowrap; font-size: var(--fs-small); font-weight: 600;
+  border: 1px solid var(--line-2); background: var(--card-2); color: var(--ink-2); cursor: pointer; font-family: inherit;
+}
+.btn:hover:not(:disabled) { color: var(--ink); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.is-sel { border-color: var(--sel); color: var(--sel-ink); }
+.btn.is-primary { background: var(--sel); border-color: var(--sel); color: #fff; }
+.btn.is-stop { background: var(--act); border-color: var(--act); color: #fff; height: 44px; padding: 0 22px; font-size: 14px; letter-spacing: 0.5px; }
+.btn.is-tall { height: 44px; padding: 0 18px; }
+.lbtn {
+  width: 40px; height: 40px; border-radius: var(--r); display: grid; place-items: center;
+  background: var(--card); border: 1px solid var(--line); color: var(--ink-2); cursor: pointer;
+}
+.lbtn:hover { color: var(--ink); border-color: var(--line-2); }
+.lbtn.on { border-color: var(--sel); color: var(--sel-ink); }
+.lbtn.on.is-act { border-color: var(--act); color: var(--act-ink); }
+.lbtn svg { width: 17px; height: 17px; }
+
+/* the machine card */
+.vcard { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px; border-radius: var(--r); border: 1px solid var(--sel); background: var(--card-sel); box-shadow: 0 0 0 1px var(--sel-ring); }
+.vcard.is-quiet { border-color: var(--line); background: var(--card-2); box-shadow: none; }
+.thumb { width: 48px; height: 40px; border-radius: var(--r); background: var(--card-3); display: grid; place-items: center; flex: none; color: var(--ink-2); }
+.thumb svg { width: 30px; height: 22px; }
+.vbody { display: flex; flex-direction: column; gap: 4px; flex: 1 1 100px; min-width: 0; }
+.vname { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.vtype { font-size: var(--fs-sub); color: var(--ink-3); }
+.vstate { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sub); font-weight: 500; white-space: nowrap; }
+.vstate.is-ok { color: var(--ok-ink); } .vstate.is-warn { color: var(--warn-ink); } .vstate.is-act { color: var(--act-ink); } .vstate.is-off { color: var(--off-ink); }
+.vstate.is-ok .dot { background: var(--ok); } .vstate.is-warn .dot { background: var(--warn); } .vstate.is-act .dot { background: var(--act); }
+.batt { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sub); color: var(--ink-2); font-weight: 500; white-space: nowrap; }
+.battbox { position: relative; width: 24px; height: 12px; border: 1.5px solid var(--ink-3); border-radius: 3px; }
+.battbox::after { content: ''; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: var(--ink-3); border-radius: 1px; }
+.battfill { position: absolute; left: 2px; top: 2px; bottom: 2px; border-radius: 1px; background: var(--ok); max-width: calc(100% - 4px); }
+.battfill.is-warn { background: var(--warn); } .battfill.is-act { background: var(--act); }
+
+/* checks and facts */
+.chk { display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
+.chk > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.chk small { font-size: 10.5px; color: var(--ink-3); }
+.kv { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 7px 10px; font-size: var(--fs-sub); }
+.kv .k { color: var(--ink-3); }
+.kv .v { color: var(--ink-2); }
+.kv .v.is-ok { color: var(--ok-ink); } .kv .v.is-act { color: var(--act-ink); } .kv .v.is-off { color: var(--off-ink); }
+
+/* the video and its HUD */
+.video { position: relative; flex: 1; min-height: 240px; overflow: hidden; background: var(--bg); }
+.video-ground { position: absolute; inset: 0; background: linear-gradient(180deg, var(--card-2) 0%, var(--card-2) 55%, var(--card-3) 55%, var(--bg) 100%); }
+.video-horizon { position: absolute; left: 0; right: 0; top: 55%; height: 1px; background: var(--line); }
+.video-empty { position: absolute; inset: 0; display: grid; place-items: center; }
+.video-empty > div { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; max-width: 360px; padding: 0 24px; }
+.video-empty span { font-size: var(--fs-body); color: var(--ink-3); line-height: 1.5; }
+.hud-tl { position: absolute; left: 14px; top: 12px; display: flex; align-items: center; gap: 8px; }
+.hud-tr { position: absolute; right: 14px; top: 12px; display: flex; align-items: center; gap: 8px; }
+.hud-bl { position: absolute; left: 18px; bottom: 16px; display: flex; align-items: baseline; gap: 8px; }
+.hud-bc { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.hud-br { position: absolute; right: 18px; bottom: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.hud-cam { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.speed { font-size: 54px; font-weight: 600; color: var(--ink); line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.speed-unit { font-size: 13px; color: var(--off-ink); font-weight: 500; }
+.gear-hud { margin-left: 14px; font-size: 22px; font-weight: 700; color: var(--ink); }
+.steer-arc { width: 120px; height: 34px; }
+.hud-small { font-size: 11px; color: var(--off-ink); }
+.heading { font-size: 20px; font-weight: 600; color: var(--ink); }
+.heading small { font-size: 13px; color: var(--off-ink); font-weight: 500; margin-left: 4px; }
+.hud-k { font-size: 11px; color: var(--ink-3); }
+.hud-btn { width: 28px; height: 28px; border-radius: var(--r); display: grid; place-items: center; background: var(--glass); border: 1px solid var(--line-2); color: var(--ink); cursor: pointer; }
+.hud-btn svg { width: 14px; height: 14px; }
+.rec { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-sub); font-weight: 600; border: none; cursor: pointer; font-family: var(--mono); }
+.rec.is-on { background: var(--act-bg); color: var(--act-ink); }
+.rec.is-off { background: var(--off-bg); color: var(--off-ink); }
+.rec .dot { background: currentColor; }
+.rec.is-on .dot { animation: argus-blink 1s steps(2, start) infinite; }
+
+/* the drive bar */
+.drivebar { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 16px; padding: 14px 16px; flex: none; }
+.gears { display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: var(--r); background: var(--card-2); border: 1px solid var(--line); }
+.gears button { width: 40px; height: 40px; border-radius: 3px; display: grid; place-items: center; font-size: 15px; font-weight: 700; color: var(--ink-3); background: none; border: 0; cursor: pointer; font-family: inherit; }
+.gears button.on { color: #fff; background: #1e3a8a; }
+.bars { display: flex; flex-direction: column; gap: 8px; width: 200px; }
+.bar-row { display: flex; align-items: center; gap: 8px; }
+.bar-row span:first-child { font-size: var(--fs-sub); color: var(--ink-3); width: 52px; }
+.bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); position: relative; }
+.bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--sel); }
+.bar-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--ink-4); }
+.bar-knob { position: absolute; top: -2px; width: 10px; height: 10px; border-radius: 50%; background: var(--sel); transform: translateX(-50%); }
+.bar-row .num { width: 44px; text-align: right; font-size: var(--fs-sub); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.aux { display: flex; align-items: center; gap: 6px; }
+.safety { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.ign { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-right: 6px; font-size: var(--fs-sub); color: var(--ink-3); }
+.ign button { height: 22px; border: 0; cursor: pointer; font-family: inherit; }
+.inputs { display: flex; align-items: center; gap: 12px; }
+.input-tag { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-3); background: none; border: 0; cursor: pointer; font-family: inherit; }
+.input-tag .dot { width: 6px; height: 6px; }
+.input-tag .dot.is-ok { background: var(--ok); }
+
+/* compass, cameras, watching */
+.compass { position: relative; height: 200px; display: grid; place-items: center; }
+.compass svg { width: 150px; height: 150px; }
+.compass-note { position: absolute; left: 10px; bottom: 10px; font-size: 10.5px; color: var(--ink-2); }
+.compass-tag { position: absolute; left: 10px; top: 10px; display: flex; align-items: center; gap: 6px; }
+.tile { flex: 1; margin: 0 12px 12px; border-radius: var(--r); background: var(--card-2); border: 1px solid var(--line); display: grid; place-items: center; font-size: var(--fs-small); color: var(--ink-3); text-align: center; padding: 0 16px; min-height: 90px; }
+.camera-card { display: flex; flex-direction: column; height: 210px; flex: none; overflow: hidden; }
+.camera-card .row { padding: 10px 12px; }
+
+/* the assistant rail: shown, and plainly not built for Drive yet */
+.argus-rail { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; min-height: 0; color: var(--ink-4); }
+.argus-rail .glyph { width: 34px; height: 34px; border-radius: 50%; background: var(--card-3); display: grid; place-items: center; }
+.argus-rail .glyph svg { width: 20px; height: 20px; }
+.argus-rail .vert { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10.5px; letter-spacing: 1.2px; font-weight: 600; margin-top: 6px; }
+
+@keyframes argus-blink { 50% { opacity: 0.25; } }
+
+@media (max-width: 1100px) {
+  .drive { grid-template-columns: 1fr; height: auto; overflow-y: auto; }
+  .drive-col.is-scroll { overflow: visible; }
+  .argus-rail { flex-direction: row; padding: 0 12px; }
+  .argus-rail .vert { writing-mode: horizontal-tb; transform: none; margin: 0; }
+}

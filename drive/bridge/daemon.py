@@ -69,6 +69,7 @@ class BridgeDaemon:
         log_path=None,
         auth_max_failures: int = 5,
         auth_window_s: float = 60.0,
+        name: str | None = None,
     ) -> None:
         if len(operators) == 0:
             raise ValueError(
@@ -76,6 +77,9 @@ class BridgeDaemon:
             )
         self.vehicle = vehicle
         self.operators = operators
+        # What the cockpit calls this machine. None means the machine has no
+        # declared name and the cockpit says so rather than inventing one.
+        self.name = name
         self.host = host
         self.port = port
         self.log = SessionLog(log_path)
@@ -173,7 +177,7 @@ class BridgeDaemon:
             "session_open", session=client.session,
             operator_id=operator.operator_id, addr=str(addr[0]), role=role,
         )
-        client.send({"t": "role", "role": role})
+        client.send(self._role_message(client, role))
 
         try:
             while not self._stop.is_set():
@@ -211,6 +215,19 @@ class BridgeDaemon:
     # ---------------------------------------------------------------- logic
     def _role_of(self, client: _Client) -> str:
         return "DRIVER" if client is self._driver else "SPECTATOR"
+
+    def _role_message(self, client: _Client, role: str) -> dict:
+        """The session facts a cockpit shows a driver: their role, their own
+        name as the operator file spells it, the machine's declared name (or
+        none), and the watchdog window in milliseconds, so the cockpit can
+        state what happens on link loss without guessing the figure."""
+        return {
+            "t": "role",
+            "role": role,
+            "driver": client.operator.display_name,
+            "vehicle": self.name,
+            "watchdog_ms": int(round(self.watchdog.timeout_s * 1000)),
+        }
 
     def _handle(self, client: _Client, msg: dict) -> None:
         t = msg.get("t")
@@ -293,7 +310,7 @@ class BridgeDaemon:
         if promoted:
             self.log.event("role_promoted", session=promoted.session,
                            operator_id=promoted.operator.operator_id)
-            promoted.send({"t": "role", "role": "DRIVER"})
+            promoted.send(self._role_message(promoted, "DRIVER"))
 
     # ----------------------------------------------------------------- tick
     def _tick_loop(self) -> None:
@@ -324,7 +341,7 @@ class BridgeDaemon:
         self.preflight = {
             "ran": True,
             "pass": all(c["ok"] for c in checks),
-            "checks": checks,
+            "checks": [self._check_in_words(c) for c in checks],
         }
         self.log.event(
             "preflight", session=client.session,
@@ -332,6 +349,25 @@ class BridgeDaemon:
             failed=[c["name"] for c in checks if not c["ok"]],
         )
         self._broadcast_preflight()
+
+    # What each check is called on a screen. The adapter's names are the
+    # firmware's vocabulary (waterline law: an operator reads sentences).
+    # A check this table does not know is shown by its own name, never
+    # dropped.
+    CHECK_WORDS = {
+        "mcu_link": ("Control link answers", "The controller did not answer"),
+        "battery": ("Battery is enough", "Battery is too low to drive"),
+        "steering": ("Steering sweeps freely", "Steering did not sweep"),
+        "throttle": ("Throttle is at rest", "Throttle is not at rest"),
+        "estop_circuit": ("Stop circuit closed", "Stop circuit is open"),
+        "watchdog": ("Watchdog armed", "Watchdog is not armed"),
+    }
+
+    def _check_in_words(self, check: dict) -> dict:
+        ok_words, bad_words = self.CHECK_WORDS.get(
+            check["name"], (check["name"].replace("_", " ").capitalize(),) * 2
+        )
+        return {**check, "label": ok_words if check["ok"] else bad_words}
 
     def _broadcast_preflight(self) -> None:
         msg = {"t": "preflight", **self.preflight}

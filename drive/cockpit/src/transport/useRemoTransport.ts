@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVehicleStore } from '../state/store'
 import { RemoTransport, type LinkStatus } from './remoTransport'
+import type { SessionFacts } from '../contract'
 
 /**
  * Opt-in live transport. Activated by a URL param so the deployed/mock app is
@@ -22,6 +23,10 @@ export interface RemoLink {
   status: LinkStatus
   role: DriveRole
   authFailed: boolean
+  /** The bridge's session facts; a Remo link has none. */
+  session?: SessionFacts | null
+  /** Command frames per second this link sends while open. */
+  hz?: number
 }
 
 interface DriveTarget {

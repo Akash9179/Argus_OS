@@ -65,6 +65,7 @@ def main() -> int:
     daemon = BridgeDaemon(
         vehicle, operators, host=args.host, port=args.port,
         watchdog_timeout_s=args.watchdog_ms / 1000.0, log_path=args.log,
+        name=args.name,
     )
     daemon.start()
     reporter = None

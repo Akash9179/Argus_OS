@@ -8,7 +8,9 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import L from 'leaflet'
+import { imageryLayer } from '../map/imagery'
 import { TERRAIN_DARK, TERRAIN_DAY, TerrainLayer } from '../map/terrain'
+import type { Position, TileLayerInfo } from '../sdk/types'
 import { lastHeardAt, positionOf, type World } from '../state/world'
 import { assetStatus, clockAt, outOfTen, say } from './wording'
 
@@ -34,6 +36,14 @@ interface Props {
   onSelectAsset: (assetId: string) => void
   onSelectTrack: (trackId: string) => void
   onSendTo: (lat: number, lon: number) => void
+  /** A proposed route the assistant has drawn, not yet approved. */
+  proposalPath?: Position[] | null
+  /** Imagery from the station's cache; null keeps the drawn terrain. */
+  imagery?: TileLayerInfo | null
+  showZones?: boolean
+  showMachines?: boolean
+  /** Fly here. The key changes on every request so the same place can be asked for twice. */
+  focus?: { lat: number; lon: number; key: number } | null
 }
 
 /**
@@ -80,11 +90,25 @@ function contactIcon(label: string, selected: boolean): L.DivIcon {
 }
 
 export function MapView(props: Props) {
-  const { world, theme, selectedAssetId, selectedTrackId, answering, canSend } = props
+  const {
+    world,
+    theme,
+    selectedAssetId,
+    selectedTrackId,
+    answering,
+    canSend,
+    proposalPath = null,
+    imagery = null,
+    showZones = true,
+    showMachines = true,
+    focus = null,
+  } = props
   const holder = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map>()
   const terrain = useRef<TerrainLayer>()
+  const imageryRef = useRef<L.TileLayer>()
   const layers = useRef<L.LayerGroup>()
+  const proposal = useRef<L.LayerGroup>()
   const fitted = useRef(false)
 
   // Handlers change every render; keeping them in a ref means the map is
@@ -106,6 +130,7 @@ export function MapView(props: Props) {
     terrain.current = new TerrainLayer(theme === 'day' ? TERRAIN_DAY : TERRAIN_DARK)
     terrain.current.addTo(created)
     layers.current = L.layerGroup().addTo(created)
+    proposal.current = L.layerGroup().addTo(created)
     L.control.zoom({ position: 'topright' }).addTo(created)
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(created)
 
@@ -125,6 +150,40 @@ export function MapView(props: Props) {
     terrain.current?.setColours(theme === 'day' ? TERRAIN_DAY : TERRAIN_DARK)
   }, [theme])
 
+  // Imagery sits over the drawn terrain, so outside the cached area the
+  // ground is still drawn rather than blank. Swapping the layer changes
+  // nothing else: the same interface, as the terrain layer promised.
+  useEffect(() => {
+    const created = map.current
+    if (!created) return
+    imageryRef.current?.remove()
+    imageryRef.current = undefined
+    if (imagery) {
+      imageryRef.current = imageryLayer(imagery).addTo(created)
+    }
+  }, [imagery])
+
+  // The proposed route: drawn in the selection colour because it is an
+  // affordance, a thing to approve, and not a status of anything.
+  useEffect(() => {
+    const group = proposal.current
+    if (!group) return
+    group.clearLayers()
+    const ring = (proposalPath ?? [])
+      .filter((p) => p.latitude_deg !== undefined && p.longitude_deg !== undefined)
+      .map((p) => [p.latitude_deg!, p.longitude_deg!] as [number, number])
+    if (ring.length < 2) return
+    L.polyline(ring, { color: 'var(--sel)', weight: 3, opacity: 0.9, dashArray: '10 6', interactive: false }).addTo(group)
+    for (const point of ring.slice(1)) {
+      L.circleMarker(point, { radius: 5, color: 'var(--sel)', weight: 2, fillColor: 'var(--bg)', fillOpacity: 1, interactive: false }).addTo(group)
+    }
+    map.current?.fitBounds(L.latLngBounds(ring).pad(0.4), { maxZoom: 17 })
+  }, [proposalPath])
+
+  useEffect(() => {
+    if (focus && map.current) map.current.flyTo([focus.lat, focus.lon], Math.max(map.current.getZoom(), 17))
+  }, [focus])
+
   useEffect(() => {
     const container = map.current?.getContainer()
     if (container) container.style.cursor = canSend ? 'crosshair' : ''
@@ -143,14 +202,18 @@ export function MapView(props: Props) {
     if (!group || !created) return
     group.clearLayers()
 
-    for (const zone of zones) {
+    for (const zone of showZones ? zones : []) {
       const ring = (zone.geometry?.exterior ?? [])
         .filter((p) => p.latitude_deg !== undefined && p.longitude_deg !== undefined)
         .map((p) => [p.latitude_deg!, p.longitude_deg!] as [number, number])
       if (ring.length < 3) continue
+      const keepOut =
+        zone.zone_type === 'restricted' ||
+        zone.zone_type === 'protected' ||
+        (zone.rules ?? []).some((r) => r.rule_type === 'alert_on_entry')
       L.polygon(ring, {
         className: 'zone',
-        color: 'var(--warn)',
+        color: keepOut ? 'var(--act)' : 'var(--sel)',
         weight: 1.2,
         opacity: 0.6,
         fillOpacity: 0.04,
@@ -161,7 +224,7 @@ export function MapView(props: Props) {
         .addTo(group)
     }
 
-    for (const asset of machines) {
+    for (const asset of showMachines ? machines : []) {
       const at = positionOf(world, asset)
       if (!at) continue
       const live = world.telemetry.get(asset.asset_id)
@@ -242,7 +305,7 @@ export function MapView(props: Props) {
         created.fitBounds(L.latLngBounds(points).pad(1.2), { maxZoom: 16, animate: false })
       }
     }
-  }, [world, machines, contacts, zones, selectedAssetId, selectedTrackId, answering])
+  }, [world, machines, contacts, zones, selectedAssetId, selectedTrackId, answering, showZones, showMachines])
 
   return <div className="map" ref={holder} />
 }

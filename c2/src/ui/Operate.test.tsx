@@ -16,13 +16,16 @@ import type { Asset, Task, Track } from '../sdk/types'
 import type { World } from '../state/world'
 
 vi.mock('./MapView', () => ({ MapView: () => null }))
-vi.mock('./VoiceBar', () => ({ VoiceBar: () => null }))
+vi.mock('./Assistant', () => ({ Assistant: () => null }))
 vi.mock('../sdk/client', () => ({
   Refused: class Refused extends Error {},
   track: {
     issueTask: vi.fn(),
     cancelTask: vi.fn(),
     setAutonomy: vi.fn(),
+    tiles: vi.fn(async () => ({ layers: [] })),
+    systems: vi.fn(async () => ({ asset_id: 'M1', reported_at: null, rows: [], cameras: [], position_source: null, note: '' })),
+    previewTask: vi.fn(),
   },
 }))
 

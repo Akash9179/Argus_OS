@@ -11,3 +11,4 @@ var/
 dist/
 # Scratch from web research, never part of the build.
 .firecrawl/
+.claude/worktrees/

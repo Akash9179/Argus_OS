@@ -37,7 +37,8 @@ export function openStream({ onEnvelope, onLink }: StreamHandlers): () => void {
     // A browser cannot set headers when opening a WebSocket, so the token
     // travels as a query parameter. The server applies the same tokens and
     // the same roles as on every other interface.
-    const url = `${scheme}://${location.host}/v1/stream?token=${encodeURIComponent(savedToken())}`
+    const token = savedToken()
+    const url = `${scheme}://${location.host}/v1/stream?token=${encodeURIComponent(token)}`
     socket = new WebSocket(url)
 
     socket.onopen = () => {
@@ -61,7 +62,7 @@ export function openStream({ onEnvelope, onLink }: StreamHandlers): () => void {
         // Retrying would only be refused again, and calling it "site link
         // lost" would be untrue. The session ends; the shell shows sign-in.
         closedByUs = true
-        signOut()
+        signOut(token)
         return
       }
       onLink('lost')

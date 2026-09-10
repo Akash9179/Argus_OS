@@ -470,3 +470,20 @@ async def test_the_systems_summary_needs_a_caller_and_the_registry_still_needs_a
     ) as anonymous:
         assert (await anonymous.get(f"/v1/assets/{ready_asset.asset_id}/systems")).status_code == 401
     assert (await client.get(f"/v1/assets/{ready_asset.asset_id}/registry")).status_code == 403
+
+
+# -- issuing follows the preview -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_order_is_refused_for_a_machine_that_has_gone_quiet(client, store, ready_asset):
+    """What the preview calls a failed "answering" check, issue refuses too."""
+    ready_asset.last_heartbeat.CopyFrom(_stale())
+    store.put_asset(ready_asset)
+    body = {"asset_id": ready_asset.asset_id, "task_type": "navigate",
+            "waypoints": [{"latitude_deg": SITE_LAT + 0.001, "longitude_deg": SITE_LON}]}
+    response = await client.post("/v1/tasks", json=body, headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    assert response.status_code == 409
+    assert "not answering" in response.json()["detail"]
+    preview = await _preview(client, ready_asset.asset_id)
+    assert _by_id(preview)["answering"]["state"] == "fail"

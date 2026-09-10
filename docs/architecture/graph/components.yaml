@@ -43,6 +43,7 @@ components:
     known_gaps:
       - Gate-2 closed 10 Sep 2026; the approved redesign is being built (Argus_Wiki/program/c2-build-plan.md, M1 done, M2 Operate next)
       - Bearer token stored in localStorage (a refused token now returns to sign-in; storage itself unchanged)
+      - Imagery tiles carry the bearer token as a query parameter (browsers cannot set headers on images); it lands in request logs and the browser cache. Same debt as the stream's token.
       - No video pane; WebRTC documented but nonexistent anywhere
     notes: Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite runs in its own CI job.
 

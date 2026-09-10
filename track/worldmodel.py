@@ -691,6 +691,16 @@ class WorldModel:
             raise TaskRejected(
                 self.language.error("asset_not_answering", asset=self.language.asset_name(asset))
             )
+        # The same silence test the preview's "answering" check applies, so
+        # an order can never be issued that the preview would have refused.
+        # A machine that has never reported is not refused here: it may be
+        # newly registered, and the machine itself will refuse or fail an
+        # order it cannot take.
+        ago, _ = self._heard_ago(asset)
+        if ago is not None and ago > ANSWERING_WINDOW_S:
+            raise TaskRejected(
+                self.language.error("asset_not_answering", asset=self.language.asset_name(asset))
+            )
 
         task = Task(
             task_id=new_id(),

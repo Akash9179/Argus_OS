@@ -36,10 +36,16 @@ export function onSignedOut(listener: Listener): () => void {
 /**
  * The token was refused by the server (or the operator signed out). The
  * token is dropped first so that nothing racing this call can reuse it.
+ *
+ * `refused` names the token the server turned down. A refusal that
+ * arrives late, after the operator has already signed in again with a
+ * different key, is about the old key and must not end the new session.
+ * With no argument the sign-out is the operator's own and unconditional.
  */
-export function signOut(): void {
-  const had = savedToken() !== ''
+export function signOut(refused?: string): void {
+  const current = savedToken()
+  if (current === '') return
+  if (refused !== undefined && refused !== current) return
   forgetToken()
-  if (!had) return
   for (const listener of [...listeners]) listener()
 }

@@ -8,7 +8,18 @@
  * That is the SDK honesty law, and this file is where it is kept.
  */
 
-import type { Asset, Principal, Task, TaskRequest, Track, WorldEvent, Zone } from './types'
+import type {
+  Asset,
+  Principal,
+  SystemsView,
+  Task,
+  TaskPreview,
+  TaskRequest,
+  TileLayerInfo,
+  Track,
+  WorldEvent,
+  Zone,
+} from './types'
 
 import { savedToken, signOut } from './session'
 
@@ -34,7 +45,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     // This assumes the server answers 401 only for a bad token, which
     // track/api.py does; a proxy that invented 401s would end sessions.
     const text = await refusalText(response)
-    signOut()
+    signOut(token)
     throw new NotSignedIn(text)
   }
   if (!response.ok) throw new Refused(await refusalText(response))
@@ -75,6 +86,21 @@ export const track = {
 
   issueTask: (body: TaskRequest) =>
     call<Task>('/v1/tasks', { method: 'POST', body: JSON.stringify(body) }),
+
+  /**
+   * What would happen if this order were sent: the path, the checks the
+   * world model ran, and whether it can go. Nothing is issued by asking.
+   * The checks are the server's, so every application sees the same ones.
+   */
+  previewTask: (body: TaskRequest) =>
+    call<TaskPreview>('/v1/tasks/preview', { method: 'POST', body: JSON.stringify(body) }),
+
+  /** What a machine has reported about its own systems, in operator words. */
+  systems: (assetId: string) =>
+    call<SystemsView>(`/v1/assets/${encodeURIComponent(assetId)}/systems`),
+
+  /** Imagery held in this station's local cache. Empty until tiles are sourced. */
+  tiles: () => call<{ layers: TileLayerInfo[] }>('/v1/tiles'),
 
   /**
    * The frozen contract has no cancel message, so a cancellation travels as

@@ -103,6 +103,47 @@ describe('a token the site refuses', () => {
   })
 })
 
+describe('a refusal that arrives late', () => {
+  // The operator signed in again with a new key while an old request or
+  // an old stream was still out. Its refusal is about the old key and
+  // must not end the new session.
+  it('about an old token does not sign out a fresh session', async () => {
+    let answer401: (() => void) | undefined
+    const slow = new Promise<Response>((resolve) => {
+      answer401 = () => resolve(refused(401))
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        // The very first /v1/me call hangs; everything after answers well.
+        typeof url === 'string' && url.endsWith('/v1/me') && answer401 && !(slow as unknown as { done?: boolean }).done
+          ? ((slow as unknown as { done?: boolean }).done = true, slow)
+          : okJson({ display_name: 'Akash', roles: ['operator'] }),
+      ),
+    )
+    render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    // A fresh sign-in with a different key, as if the operator typed it.
+    window.localStorage.setItem('argus.token', 'fresh')
+    answer401!()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(screen.queryByRole('heading', { name: say.signIn.title })).toBeNull()
+    expect(window.localStorage.getItem('argus.token')).toBe('fresh')
+  })
+
+  it('on an old stream does not sign out a fresh session', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    const old = FakeSocket.last!
+    window.localStorage.setItem('argus.token', 'fresh')
+    old.onclose?.({ code: CLOSE_NOT_SIGNED_IN })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(screen.queryByRole('heading', { name: say.signIn.title })).toBeNull()
+    expect(window.localStorage.getItem('argus.token')).toBe('fresh')
+  })
+})
+
 describe('the dock', () => {
   it('is put away while an application is open, and has no hover strip', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))

@@ -1,15 +1,20 @@
 /**
  * Operate: the one screen.
  *
- * Force on the left, map in the middle, what happened on the right, what
- * the machines are doing along the bottom. Nothing nests. Anything that
- * needs more room opens over the map and closes back.
+ * Fleet on the left, the site in the middle (map, then the selected
+ * machine's camera and readings, then what happened and what the machine
+ * says about itself), and the assistant on the right. Nothing nests.
+ * Anything that needs more room opens over the map and closes back.
+ *
+ * Everything on it is something a service said. Where a service has said
+ * nothing, the screen says so in words rather than drawing a placeholder
+ * that could be mistaken for a reading.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { track as api, Refused } from '../sdk/client'
 import type { Link } from '../sdk/stream'
-import type { Asset, Track } from '../sdk/types'
+import type { Asset, Position, SystemsView, Task, TileLayerInfo, Track, WorldEvent } from '../sdk/types'
 import {
   isAnswering,
   lastHeardAt,
@@ -19,8 +24,8 @@ import {
   useMachines,
   type World,
 } from '../state/world'
+import { Assistant } from './Assistant'
 import { MapView } from './MapView'
-import { VoiceBar } from './VoiceBar'
 import {
   agoInWords,
   assetStatus,
@@ -31,6 +36,7 @@ import {
   say,
   severityStatus,
   statusInWords,
+  type Status,
 } from './wording'
 
 /**
@@ -54,11 +60,15 @@ export function Operate({ world, link, theme }: Props) {
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string>('')
   const [now, setNow] = useState(() => Date.now() / 1000)
-  // Both rails start open. A section an operator collapsed stays collapsed,
-  // but nothing about the force is ever hidden by default.
+  const [classFilter, setClassFilter] = useState<string>('')
+  const [showZones, setShowZones] = useState(true)
   const [showMachines, setShowMachines] = useState(true)
-  const [showContacts, setShowContacts] = useState(true)
-  const [showEvents, setShowEvents] = useState(true)
+  const [tileLayers, setTileLayers] = useState<TileLayerInfo[]>([])
+  const [imageryOn, setImageryOn] = useState(true)
+  const [systems, setSystems] = useState<SystemsView | null>(null)
+  const [proposalPath, setProposalPath] = useState<Position[] | null>(null)
+  const [focus, setFocus] = useState<{ lat: number; lon: number; key: number } | null>(null)
+  const [assistantAway, setAssistantAway] = useState(false)
 
   // One clock for the whole screen, so every "how long ago" agrees.
   useEffect(() => {
@@ -72,6 +82,40 @@ export function Operate({ world, link, theme }: Props) {
     if (selectedAssetId === null && machines.length > 0) setSelectedAssetId(machines[0].asset_id)
   }, [machines, selectedAssetId])
 
+  // Imagery is whatever this station has cached. Asked once; an empty
+  // answer keeps the drawn terrain and says so on the map.
+  useEffect(() => {
+    let alive = true
+    api
+      .tiles()
+      .then((found) => alive && setTileLayers(found.layers))
+      .catch(() => alive && setTileLayers([]))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // What the selected machine has said about itself. Refreshed slowly:
+  // registries change on boot, not every second.
+  useEffect(() => {
+    if (!selectedAssetId) {
+      setSystems(null)
+      return
+    }
+    let alive = true
+    const ask = () =>
+      api
+        .systems(selectedAssetId)
+        .then((view) => alive && setSystems(view))
+        .catch(() => alive && setSystems(null))
+    void ask()
+    const timer = window.setInterval(ask, 30_000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [selectedAssetId])
+
   const answering = useCallback(
     (assetId: string) => isAnswering(world, assetId, now, link === 'lost'),
     [world, now, link],
@@ -83,17 +127,12 @@ export function Operate({ world, link, theme }: Props) {
   /**
    * The selected machine's mode, as the server holds it. Never local
    * state: a toggle that moved before the server agreed would be showing
-   * an operator a setting that is not in force anywhere. Shown as sent,
-   * so an unrecognised mode reads as itself rather than as Manual, which
-   * would display a setting that is not in force and quietly re-enable
-   * tasking under it.
+   * an operator a setting that is not in force anywhere.
    */
   const mode: Mode = selected?.autonomy ?? ''
   /**
    * Whether this machine can be sent somewhere from here, and if not, the
-   * true reason. Computed once: three separate places used to work it out
-   * for themselves and gave three different answers, including telling an
-   * operator a machine was not answering when it plainly was.
+   * true reason. Computed once so every place that mentions it agrees.
    */
   const sending: { can: boolean; why: string } = !selected
     ? { can: false, why: say.map.noMachineSelected }
@@ -105,8 +144,7 @@ export function Operate({ world, link, theme }: Props) {
           ? { can: false, why: say.map.cannotSendUnknownMode(modeInWords(mode)) }
           : // Manual, or a server too old to say. Tasking stays available in
             // both cases: refusing would strand an operator against a server
-            // that works. Naming a mode we were not told is a separate
-            // question, answered below by naming none.
+            // that works.
             { can: true, why: say.map.clickToSend }
   const canSend = sending.can
 
@@ -130,26 +168,19 @@ export function Operate({ world, link, theme }: Props) {
     [selected],
   )
 
-  /** Returns whether the order actually stopped, so no caller announces one that did not. */
-  const stop = useCallback(async (): Promise<boolean> => {
-    if (!openTask) return false
+  const stop = useCallback(async () => {
+    if (!openTask) return
     try {
       await api.cancelTask(openTask.task_id)
-      return true
     } catch (error) {
       setNotice(error instanceof Refused && error.message ? error.message : say.errors.orderFailed)
-      return false
     }
   }, [openTask])
 
   /**
-   * Ask the platform to change this machine's mode.
-   *
-   * Nothing is cancelled here and nothing is issued here. Switching the
-   * mode is itself the act: the platform sends machines to look, and the
-   * platform withdraws what it started. A station that also did those
-   * things would be a second authority on a question only one thing can
-   * enforce, which is what this whole change replaced.
+   * Ask the platform to change this machine's mode. Nothing is cancelled
+   * here and nothing is issued here: switching the mode is itself the act,
+   * and the platform withdraws what it started.
    */
   const switchMode = async (next: Mode) => {
     if (!selected || next === mode) return
@@ -161,236 +192,339 @@ export function Operate({ world, link, theme }: Props) {
     }
   }
 
+  /** Find a place or a machine by name and fly there. */
+  const find = (text: string) => {
+    const needle = text.trim().toLowerCase()
+    if (!needle) return
+    const machine = machines.find((m) => m.display_name.toLowerCase().includes(needle))
+    const at = machine ? positionOf(world, machine) : null
+    if (machine && at) {
+      setSelectedAssetId(machine.asset_id)
+      setFocus({ ...at, key: Date.now() })
+      return
+    }
+    const zone = [...world.zones.values()].find((z) => (z.name ?? '').toLowerCase().includes(needle))
+    const ring = zone?.geometry?.exterior?.filter((p) => p.latitude_deg !== undefined) ?? []
+    if (ring.length > 0) {
+      const lat = ring.reduce((s, p) => s + p.latitude_deg!, 0) / ring.length
+      const lon = ring.reduce((s, p) => s + p.longitude_deg!, 0) / ring.length
+      setFocus({ lat, lon, key: Date.now() })
+    }
+  }
+
+  const imagery = imageryOn && tileLayers.length > 0 ? tileLayers[0] : null
+  const zoneNames = useMemo(
+    () => [...world.zones.values()].map((z) => z.name ?? '').filter(Boolean),
+    [world.zones],
+  )
+
   return (
-    <div className="operate">
-      <Toolbar mode={mode} onMode={switchMode} link={link} />
+    <div className={`operate${assistantAway ? ' is-assistant-away' : ''}`}>
+      <FleetRail
+        world={world}
+        machines={machines}
+        contacts={contacts}
+        now={now}
+        answering={answering}
+        classFilter={classFilter}
+        onClassFilter={setClassFilter}
+        selectedAssetId={selectedAssetId}
+        selectedTrackId={selectedTrackId}
+        onSelectAsset={setSelectedAssetId}
+        onSelectTrack={setSelectedTrackId}
+      />
 
-      <aside className="rail rail-left">
-        <div className="filter-row">
-          <div className="find">
+      <div className="col-centre">
+        <div className="card map-card">
+          <MapView
+            world={world}
+            theme={theme}
+            selectedAssetId={selectedAssetId}
+            selectedTrackId={selectedTrackId}
+            answering={answering}
+            canSend={canSend}
+            onSelectAsset={setSelectedAssetId}
+            onSelectTrack={setSelectedTrackId}
+            onSendTo={(lat, lon) => void send(lat, lon, 'map')}
+            proposalPath={proposalPath}
+            imagery={imagery}
+            showZones={showZones}
+            showMachines={showMachines}
+            focus={focus}
+          />
+          <form
+            className="map-find"
+            onSubmit={(event) => {
+              event.preventDefault()
+              find((new FormData(event.currentTarget).get('q') as string) ?? '')
+            }}
+          >
             <SearchGlyph />
-            {say.find.filter}
+            <input name="q" placeholder={say.find.placeholder} aria-label={say.find.placeholder} />
+          </form>
+          <div className="map-layers" role="group">
+            {tileLayers.length > 0 && (
+              <button className={`lbtn${imageryOn ? ' on' : ''}`} onClick={() => setImageryOn(!imageryOn)}>
+                {say.operate.map.imagery}
+              </button>
+            )}
+            <button className={`lbtn${showZones ? ' on' : ''}`} onClick={() => setShowZones(!showZones)}>
+              <span className="dot is-act" />
+              {say.operate.map.zones}
+            </button>
+            <button className={`lbtn${showMachines ? ' on' : ''}`} onClick={() => setShowMachines(!showMachines)}>
+              <span className="dot is-ok" />
+              {say.operate.map.machines}
+            </button>
+            <span className="lbtn is-inert" title={say.notBuiltYet}>
+              <span className="dot is-sel" />
+              {say.operate.map.marks}
+            </span>
           </div>
-          <span className="chip on">{say.find.all}</span>
-        </div>
-
-        <SectionHeading
-          label={say.rails.machines}
-          count={machines.length}
-          open={showMachines}
-          onToggle={() => setShowMachines(!showMachines)}
-        />
-        {showMachines && machines.length === 0 && <p className="empty">{say.rails.noMachines}</p>}
-        {showMachines &&
-          machines.map((machine) => (
-            <MachineRow
-              key={machine.asset_id}
-              machine={machine}
+          <div className="map-credit">
+            {imagery ? [say.operate.map.credit, imagery.attribution].filter(Boolean).join(' · ') : say.operate.map.noImagery}
+          </div>
+          {/* A map that quietly ignores clicks teaches an operator that the
+              system is unreliable, so it always states where it stands. */}
+          {selected && <div className="map-hint">{sending.why}</div>}
+          {link === 'lost' && <div className="map-warning">{say.link.lostDetail}</div>}
+          {notice && <div className="map-notice">{notice}</div>}
+          {selectedTrack && (
+            <ContactDetail
+              contact={selectedTrack}
               world={world}
               now={now}
-              answering={answering(machine.asset_id)}
-              selected={machine.asset_id === selectedAssetId}
-              onSelect={() => setSelectedAssetId(machine.asset_id)}
+              canSend={canSend}
+              cannotSendWhy={sending.why}
+              machineName={selected?.display_name ?? ''}
+              onSend={() =>
+                void send(
+                  selectedTrack.position!.latitude_deg!,
+                  selectedTrack.position!.longitude_deg!,
+                  'map',
+                  selectedTrack.track_id,
+                )
+              }
+              onClose={() => setSelectedTrackId(null)}
             />
-          ))}
+          )}
+        </div>
 
-        <SectionHeading
-          label={say.rails.contacts}
-          count={contacts.length}
-          open={showContacts}
-          onToggle={() => setShowContacts(!showContacts)}
-        />
-        {showContacts && contacts.length === 0 && <p className="empty">{say.rails.noContacts}</p>}
-        {showContacts &&
-          contacts.map((contact) => (
+        <div className="row-camera">
+          <CameraCard machine={selected} systems={systems} />
+          <ReadingsCard
+            machine={selected}
+            world={world}
+            now={now}
+            answering={selected ? answering(selected.asset_id) : false}
+            systems={systems}
+            mode={mode}
+            task={openTask}
+            onMode={switchMode}
+            onStop={() => void stop()}
+          />
+        </div>
+
+        <div className="row-activity">
+          <ActivityCard events={world.events} />
+          <CamerasCard machine={selected} systems={systems} />
+          <SystemsCard machine={selected} systems={systems} />
+        </div>
+      </div>
+
+      <Assistant
+        machineName={selected?.display_name ?? ''}
+        lookingAt={[...(selectedTrack ? [selectedTrack.display_name || say.detail.contact] : []), ...zoneNames.slice(0, 2)]}
+        collapsed={assistantAway}
+        onToggle={() => setAssistantAway(!assistantAway)}
+        onProposal={setProposalPath}
+        onOrdered={() => setNotice('')}
+      />
+    </div>
+  )
+}
+
+/* ------------------------------ the fleet ------------------------------ */
+
+/** A machine's class, in the letters an operator uses. Unknown reads as itself. */
+function classLabel(assetClass: string | undefined): string {
+  if (!assetClass) return ''
+  const known: Record<string, string> = { ugv: 'UGV', uav: 'UAV', usv: 'USV', uuv: 'UUV' }
+  return known[assetClass.toLowerCase()] ?? plain(assetClass)
+}
+
+function FleetRail({
+  world,
+  machines,
+  contacts,
+  now,
+  answering,
+  classFilter,
+  onClassFilter,
+  selectedAssetId,
+  selectedTrackId,
+  onSelectAsset,
+  onSelectTrack,
+}: {
+  world: World
+  machines: Asset[]
+  contacts: Track[]
+  now: number
+  answering: (assetId: string) => boolean
+  classFilter: string
+  onClassFilter: (c: string) => void
+  selectedAssetId: string | null
+  selectedTrackId: string | null
+  onSelectAsset: (id: string) => void
+  onSelectTrack: (id: string) => void
+}) {
+  const [allOrders, setAllOrders] = useState(false)
+  const [allAlerts, setAllAlerts] = useState(false)
+  const classes = useMemo(
+    () => [...new Set(machines.map((m) => (m.asset_class ?? '').toLowerCase()).filter(Boolean))],
+    [machines],
+  )
+  const shown = classFilter ? machines.filter((m) => (m.asset_class ?? '').toLowerCase() === classFilter) : machines
+  const orders = useMemo(() => sortedTasks([...world.tasks.values()]), [world.tasks])
+  const alerts = useMemo(() => world.events.filter((e) => severityStatus(e.severity) !== 'ok'), [world.events])
+
+  return (
+    <aside className="col-left">
+      <section className="stack">
+        <div className="stack-head">
+          <span className="title">{say.operate.fleet}</span>
+          <span className="lbtn is-inert" title={say.notBuiltYet}>
+            {say.operate.addMachine}
+          </span>
+        </div>
+        {classes.length > 1 && (
+          <div className="segments" role="group">
+            <button className={classFilter === '' ? 'on' : ''} onClick={() => onClassFilter('')}>
+              {say.operate.all} {machines.length}
+            </button>
+            {classes.map((c) => (
+              <button key={c} className={classFilter === c ? 'on' : ''} onClick={() => onClassFilter(c)}>
+                {classLabel(c)} {machines.filter((m) => (m.asset_class ?? '').toLowerCase() === c).length}
+              </button>
+            ))}
+          </div>
+        )}
+        {shown.length === 0 && <p className="empty">{say.rails.noMachines}</p>}
+        {shown.map((machine) => (
+          <MachineCard
+            key={machine.asset_id}
+            machine={machine}
+            world={world}
+            now={now}
+            answering={answering(machine.asset_id)}
+            selected={machine.asset_id === selectedAssetId}
+            onSelect={() => onSelectAsset(machine.asset_id)}
+          />
+        ))}
+      </section>
+
+      <section className="stack">
+        <div className="stack-head">
+          <span className="h">{say.operate.orders}</span>
+          {orders.length > 2 && (
+            <button className="link" onClick={() => setAllOrders(!allOrders)}>
+              {allOrders ? say.operate.fewer : say.operate.viewAll}
+            </button>
+          )}
+        </div>
+        {orders.length === 0 && <p className="empty">{say.operate.noOrders}</p>}
+        {(allOrders ? orders : orders.slice(0, 2)).map((task) => (
+          <OrderCard key={task.task_id} task={task} world={world} />
+        ))}
+      </section>
+
+      <section className="stack">
+        <div className="stack-head">
+          <span className="h">{say.operate.alerts}</span>
+          {alerts.length > 3 && (
+            <button className="link" onClick={() => setAllAlerts(!allAlerts)}>
+              {allAlerts ? say.operate.fewer : say.operate.viewAll}
+            </button>
+          )}
+        </div>
+        <div className="card list">
+          {alerts.length === 0 && <p className="empty">{say.operate.noAlerts}</p>}
+          {(allAlerts ? alerts : alerts.slice(0, 3)).map((event) => (
+            <div key={event.event_id} className="act">
+              <span className={`ico is-${severityStatus(event.severity)}`} aria-hidden />
+              {/* Already a plain sentence when it arrives. C2 never rewrites it. */}
+              <span className="act-text">{event.text}</span>
+              <span className="act-ago">{agoInWords(now - event.ts)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {contacts.length > 0 && (
+        <section className="stack">
+          <div className="stack-head">
+            <span className="h">{say.rails.contacts}</span>
+          </div>
+          {contacts.map((contact) => (
             <ContactRow
               key={contact.track_id}
               contact={contact}
               world={world}
               now={now}
               selected={contact.track_id === selectedTrackId}
-              onSelect={() => setSelectedTrackId(contact.track_id)}
+              onSelect={() => onSelectTrack(contact.track_id)}
             />
           ))}
-      </aside>
+        </section>
+      )}
+    </aside>
+  )
+}
 
-      <div className="map-holder">
-        <MapView
-          world={world}
-          theme={theme}
-          selectedAssetId={selectedAssetId}
-          selectedTrackId={selectedTrackId}
-          answering={answering}
-          canSend={canSend}
-          onSelectAsset={setSelectedAssetId}
-          onSelectTrack={setSelectedTrackId}
-          onSendTo={(lat, lon) => void send(lat, lon, 'map')}
-        />
-        {/* A map that quietly ignores clicks teaches an operator that the
-            system is unreliable, so it always states where it stands. With
-            no machine selected there is nothing to state. */}
-        {selected && <div className="map-hint">{sending.why}</div>}
-        {link === 'lost' && <div className="map-warning">{say.link.lostDetail}</div>}
-        {selectedTrack && (
-          <ContactDetail
-            contact={selectedTrack}
-            world={world}
-            now={now}
-            canSend={canSend}
-            cannotSendWhy={sending.why}
-            machineName={selected?.display_name ?? ''}
-            onSend={() =>
-              void send(
-                selectedTrack.position!.latitude_deg!,
-                selectedTrack.position!.longitude_deg!,
-                'map',
-                selectedTrack.track_id,
-              )
-            }
-            onClose={() => setSelectedTrackId(null)}
-          />
-        )}
+const OPEN_STATES = new Set(['TASK_STATE_PENDING', 'TASK_STATE_ACCEPTED', 'TASK_STATE_RUNNING'])
+
+function taskTime(task: Task): number {
+  const history = task.status_history ?? []
+  const last = history[history.length - 1]?.timestamp
+  return last ? Date.parse(last) / 1000 : 0
+}
+
+/** Open orders first, then the most recently changed. */
+function sortedTasks(tasks: Task[]): Task[] {
+  return tasks.sort((a, b) => {
+    const openA = OPEN_STATES.has(a.status ?? '') ? 1 : 0
+    const openB = OPEN_STATES.has(b.status ?? '') ? 1 : 0
+    return openB - openA || taskTime(b) - taskTime(a)
+  })
+}
+
+/** An order's state in words. Anything unknown reads as itself. */
+function taskStateInWords(status: string | undefined): { text: string; status: Status } {
+  const rest = (status ?? '').replace(/^TASK_STATE_/, '')
+  const text = say.operate.taskState[rest] ?? (rest ? plain(rest) : '')
+  const tone: Status =
+    rest === 'DONE' ? 'ok' : rest === 'FAILED' ? 'act' : rest === 'CANCELLED' ? 'off' : rest === 'RUNNING' ? 'ok' : 'warn'
+  return { text, status: tone }
+}
+
+function OrderCard({ task, world }: { task: Task; world: World }) {
+  const state = taskStateInWords(task.status)
+  const machine = world.assets.get(task.asset_id)?.display_name ?? ''
+  const at = taskTime(task)
+  return (
+    <div className={`card order${OPEN_STATES.has(task.status ?? '') ? ' is-open' : ''}`}>
+      <div className="order-top">
+        <strong>{orderInWords(task)}</strong>
+        <span className={`pill is-${state.status} is-small`}>{state.text}</span>
       </div>
-
-      <aside className="rail rail-right">
-        <SectionHeading
-          label={say.rails.happened}
-          open={showEvents}
-          onToggle={() => setShowEvents(!showEvents)}
-        />
-        {showEvents && world.events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
-        {showEvents &&
-          world.events.map((event) => (
-            <article key={event.event_id} className={`event is-${severityStatus(event.severity)}`}>
-              <time>{clockAt(event.ts, true)}</time>
-              {/* Already a plain sentence when it arrives. C2 never rewrites it. */}
-              <p>{event.text}</p>
-              <small>{event.source}</small>
-            </article>
-          ))}
-      </aside>
-
-      <PlanStrip
-        mode={mode}
-        machine={selected}
-        task={openTask}
-        onStop={() => void stop()}
-        onTakeControl={() => switchMode('manual')}
-      />
-
-      <VoiceBar notice={notice} onOrdered={() => setNotice('')} />
+      <span className="sub">
+        {[machine, task.ordered_by, at ? clockAt(at) : ''].filter(Boolean).join(' · ')}
+      </span>
     </div>
   )
 }
 
-function SectionHeading({
-  label,
-  count,
-  open,
-  onToggle,
-}: {
-  label: string
-  count?: number
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button className={`section ${open ? 'is-open' : ''}`} onClick={onToggle} aria-expanded={open}>
-      <Chevron />
-      {label}
-      {count !== undefined && <span className="count">{count}</span>}
-    </button>
-  )
-}
-
-function Chevron() {
-  return (
-    <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
-}
-
-/**
- * The map tools. Only selection is built, so the other two are shown and
- * plainly disabled rather than hidden: an operator who cannot see that
- * measuring exists cannot ask for it, and a tool that looks live but does
- * nothing is worse than one that says it is not ready.
- */
-const TOOLS = [
-  { key: 'select', label: say.tools.select, built: true, path: 'M5 3l14 8-6 1.6L10 19z' },
-  {
-    key: 'measure',
-    label: say.tools.measure,
-    built: false,
-    path: 'M3 15L15 3l6 6L9 21z M7.5 10.5l2 2 M11 7l2 2 M14.5 3.5l2 2',
-  },
-  {
-    key: 'mark',
-    label: say.tools.mark,
-    built: false,
-    path: 'M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11z',
-  },
-] as const
-
-function Toolbar({ mode, onMode, link }: { mode: Mode; onMode: (m: Mode) => void; link: Link }) {
-  return (
-    <div className="toolbar">
-      <div className="tools" role="group">
-        {TOOLS.map((tool) => (
-          <button
-            key={tool.key}
-            className={`tool ${tool.built ? 'on' : 'is-inert'}`}
-            title={tool.built ? tool.label : `${tool.label}. ${say.notBuiltYet}`}
-            aria-label={tool.label}
-            disabled={!tool.built}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-              {tool.path.split(' M').map((segment, i) => (
-                <path key={i} d={i === 0 ? segment : `M${segment}`} />
-              ))}
-            </svg>
-          </button>
-        ))}
-      </div>
-      <div className="bar-sep" />
-      <div className="find">
-        <SearchGlyph />
-        {say.find.placeholder}
-      </div>
-      <div className="segmented" role="group">
-        {(['manual', 'automatic'] as const).map((option) => (
-          <button
-            key={option}
-            className={mode === option ? 'on' : ''}
-            onClick={() => onMode(option)}
-            title={option === 'manual' ? say.mode.manualMeans : say.mode.automaticMeans}
-          >
-            <span className="pip" />
-            {option === 'manual' ? say.mode.manual : say.mode.automatic}
-          </button>
-        ))}
-      </div>
-      {/* The site link is stated once, in the menu bar. This says only
-          whether the picture on screen is moving. */}
-      <div className={`live is-${link === 'good' ? 'ok' : 'warn'}`}>
-        <span className="dot" />
-        {link === 'good' ? say.live : say.link.connecting}
-      </div>
-    </div>
-  )
-}
-
-function SearchGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
-      <circle cx="11" cy="11" r="7" />
-      <path d="M20 20l-4-4" />
-    </svg>
-  )
-}
-
-function MachineRow({
+function MachineCard({
   machine,
   world,
   now,
@@ -405,63 +539,49 @@ function MachineRow({
   selected: boolean
   onSelect: () => void
 }) {
-  const live = world.telemetry.get(machine.asset_id)
   const status = assetStatus(machine.status, answering)
   const battery = machine.battery_fraction
-  const task = openTaskFor(world, machine.asset_id)
-  // Heartbeats count as being heard, not just motion samples. Reading this
-  // from telemetry alone claimed a machine had gone unheard when the server
-  // had in fact heard from it moments ago.
   const heard = lastHeardAt(world, machine)
-
   return (
-    <button className={`row ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
-      <div className="row-top">
-        <span className={`dot is-${status}`} />
-        <span className="row-name">{machine.display_name}</span>
-        <span className={`row-state is-${status}`}>{statusInWords(machine.status, answering)}</span>
-      </div>
-      <p className="row-line">
-        {answering
-          ? task
-            ? `${say.plan.heading}: ${orderInWords(task)}`
-            : say.plan.nothingFor
-          : // Two separate facts: when we last heard, and whether there is
-            // anything on the map to caveat. They come apart, because a
-            // machine can heartbeat without ever sending a position, and
-            // then it draws no marker. Warning about a pin that is not
-            // there invents the same "was" as claiming one for a machine
-            // that never reported at all.
-            `${heard ? `${say.map.lastHeard} ${agoInWords(now - heard)}` : say.map.notHeard}. ${
-              positionOf(world, machine) ? say.machine.stale : say.machine.neverReported
-            }`}
-      </p>
-      <div className="row-nums">
-        {/*
-          A machine we cannot hear cannot tell us its charge, so its last
-          reading is stated in the past tense and without the live meter.
-          A green bar beside a silent machine reads as a machine that is
-          fine, which is the one thing it is not known to be.
-        */}
+    <button className={`vcard${selected ? ' sel' : ''}`} onClick={onSelect} aria-pressed={selected}>
+      <span className="thumb" aria-hidden>
+        <VehicleGlyph />
+      </span>
+      <span className="vbody">
+        <span className="vname">{machine.display_name}</span>
+        <span className="vtype">{classLabel(machine.asset_class)}</span>
+        <span className={`vstate is-${status}`}>
+          <span className="dot" />
+          {statusInWords(machine.status, answering)}
+        </span>
+      </span>
+      <span className="vright">
         {battery !== undefined &&
           (answering ? (
-            <span>
-              <span className="bar">
+            <span className="batt">
+              <span className="battbox">
                 <span
-                  className={`fill is-${battery < 0.15 ? 'act' : battery < 0.3 ? 'warn' : 'ok'}`}
+                  className={`battfill is-${battery < 0.15 ? 'act' : battery < 0.3 ? 'warn' : 'ok'}`}
                   style={{ width: `${Math.round(battery * 100)}%` }}
                 />
               </span>
               {Math.round(battery * 100)}%
             </span>
           ) : (
-            <span className="was">{say.machine.batteryWas(Math.round(battery * 100))}</span>
+            // A reading from a machine we cannot hear is a reading from the
+            // past, and is said so.
+            <span className="batt was">{say.machine.batteryWas(Math.round(battery * 100))}</span>
           ))}
-        {answering && live?.speed_mps !== undefined && <span>{live.speed_mps.toFixed(1)} m/s</span>}
-        {answering && live?.heading_deg !== undefined && (
-          <span>{say.machine.heading(live.heading_deg)}</span>
-        )}
-      </div>
+      </span>
+      {!answering && (
+        <span className="vnote">
+          {/* Two separate facts: when we last heard, and whether there is
+              anything on the map to caveat. */}
+          {`${heard ? `${say.map.lastHeard} ${agoInWords(now - heard)}` : say.map.notHeard}. ${
+            positionOf(world, machine) ? say.machine.stale : say.machine.neverReported
+          }`}
+        </span>
+      )}
     </button>
   )
 }
@@ -481,31 +601,265 @@ function ContactRow({
 }) {
   const lastSeen = lastSeenSeconds(contact, now)
   const seenBy = observersOf(contact, world)
-
-  // Where it is, then who saw it and when. Each part is left out rather than
-  // guessed at: the server sends no place when the contact is in no zone we
-  // know, and an observation can arrive without a machine we can name.
   const line = [
     contact.place ? `${contact.place}.` : '',
-    seenBy
-      ? say.detail.seenByAgo(seenBy, agoInWords(lastSeen))
-      : `${say.detail.lastSeen} ${agoInWords(lastSeen)}.`,
+    seenBy ? say.detail.seenByAgo(seenBy, agoInWords(lastSeen)) : `${say.detail.lastSeen} ${agoInWords(lastSeen)}.`,
   ]
     .filter(Boolean)
     .join(' ')
-
   return (
-    <button className={`row ${selected ? 'is-selected' : ''}`} onClick={onSelect}>
-      <div className="row-top">
-        <span className="diamond" />
+    <button className={`vcard is-contact${selected ? ' sel' : ''}`} onClick={onSelect}>
+      <span className="diamond" />
+      <span className="vbody">
         {/* Named by the server, hedge included. C2 never composes this. */}
-        <span className="row-name">{contact.display_name || say.detail.contact}</span>
-        <span className="row-state is-warn">{confidenceInWords(contact.confidence)}</span>
-      </div>
-      <p className="row-line">{line}</p>
+        <span className="vname">{contact.display_name || say.detail.contact}</span>
+        <span className="vnote">{line}</span>
+      </span>
+      <span className="vstate is-warn">{confidenceInWords(contact.confidence)}</span>
     </button>
   )
 }
+
+/* ----------------------------- the centre ------------------------------ */
+
+function CameraCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+  const camera = systems?.cameras[0]
+  return (
+    <div className="card camera-card">
+      <div className="card-head">
+        <span className="h">{machine?.display_name ?? ''}</span>
+        {machine && <span className="sep">·</span>}
+        <span className="card-sub">{camera ? camera.name : say.operate.camera.front}</span>
+        <span className={`pill is-off is-small right`}>
+          <span className="dot" />
+          {camera ? say.operate.camera.noVideo : say.operate.camera.noCamera}
+        </span>
+      </div>
+      <div className="video-tile">
+        <CameraGlyph />
+        <span>
+          {!machine
+            ? say.operate.noneSelected
+            : camera
+              ? `${camera.text} ${say.operate.camera.videoLater}`
+              : say.operate.camera.noCameraText(machine.display_name)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function ReadingsCard({
+  machine,
+  world,
+  now,
+  answering,
+  systems,
+  mode,
+  task,
+  onMode,
+  onStop,
+}: {
+  machine: Asset | null
+  world: World
+  now: number
+  answering: boolean
+  systems: SystemsView | null
+  mode: Mode
+  task: Task | undefined
+  onMode: (m: Mode) => void
+  onStop: () => void
+}) {
+  const live = machine ? world.telemetry.get(machine.asset_id) : undefined
+  const heard = machine ? lastHeardAt(world, machine) : undefined
+  const battery = machine?.battery_fraction
+  const latest = useMemo(() => {
+    const history = task?.status_history ?? []
+    for (let i = history.length - 1; i >= 0; i--) if (history[i]?.message) return history[i].message
+    return undefined
+  }, [task])
+  const orderState = task ? taskStateInWords(task.status) : null
+
+  return (
+    <div className="card readings-card">
+      <div className="card-head">
+        <span className="h">{machine?.display_name ?? ''}</span>
+        {machine && <span className="sep">·</span>}
+        <span className="card-sub">{say.operate.readings.title}</span>
+        {machine && (
+          <span className={`pill is-${answering ? 'ok' : 'off'} is-small right`}>
+            <span className="dot" />
+            {answering ? say.operate.readings.live : say.operate.readings.quiet}
+          </span>
+        )}
+      </div>
+      {!machine ? (
+        <p className="empty">{say.operate.noneSelected}</p>
+      ) : (
+        <>
+          <div className="stats">
+            <div className="stat">
+              <span className={`v${answering ? '' : ' was'}`}>
+                {live?.speed_mps !== undefined ? live.speed_mps.toFixed(1) : '·'}
+                <span>m/s</span>
+              </span>
+              <span className="k">{say.operate.readings.speed}</span>
+            </div>
+            <div className="stat">
+              <span className={`v${answering ? '' : ' was'}`}>
+                {battery !== undefined ? Math.round(battery * 100) : '·'}
+                <span>%</span>
+              </span>
+              <span className="k">{say.operate.readings.battery}</span>
+            </div>
+            <div className="stat">
+              <span className={`v is-text ${answering ? 'is-ok' : 'is-off'}`}>
+                {answering ? say.operate.readings.good : say.machine.notAnswering}
+                <span>
+                  {heard ? say.operate.readings.heard(agoInWords(now - heard)) : say.map.notHeard}
+                </span>
+              </span>
+              <span className="k">{say.operate.readings.link}</span>
+            </div>
+            <div className="stat">
+              <span className="v is-text is-off">{systems?.position_source ?? say.operate.readings.unverified}</span>
+              <span className="k">{say.operate.readings.positionSource}</span>
+            </div>
+          </div>
+
+          <div className="order-row">
+            <span className="order-label">{say.operate.readings.currentOrder}</span>
+            {mode && <span className="plan-mode">{modeInWords(mode)}</span>}
+            <span className={`pill is-${orderState ? orderState.status : 'off'} is-small right`}>
+              {orderState ? orderState.text : say.operate.readings.nothingOrdered}
+            </span>
+          </div>
+          <p className="order-line">
+            {task ? (
+              <>
+                {orderInWords(task)}
+                {task.reason ? `, ${task.reason}` : ''}
+                {latest ? `. ${latest}` : '.'}
+                {mode === 'manual' ? ` ${say.mode.manualAssurance}` : ''}
+                {mode === 'automatic' ? ` ${say.mode.automaticAssurance}` : ''}
+              </>
+            ) : mode === 'automatic' ? (
+              say.mode.automaticMeans
+            ) : mode === 'manual' ? (
+              say.plan.nothing
+            ) : (
+              say.plan.nothingFor
+            )}
+          </p>
+
+          <div className="order-actions">
+            <div className="segmented" role="group">
+              {(['manual', 'automatic'] as const).map((option) => (
+                <button
+                  key={option}
+                  className={mode === option ? 'on' : ''}
+                  onClick={() => onMode(option)}
+                  title={option === 'manual' ? say.mode.manualMeans : say.mode.automaticMeans}
+                >
+                  <span className="pip" />
+                  {option === 'manual' ? say.mode.manual : say.mode.automatic}
+                </button>
+              ))}
+            </div>
+            {task && (
+              <button className="mini stop" onClick={onStop}>
+                {say.plan.stop}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ActivityCard({ events }: { events: WorldEvent[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? events : events.slice(0, 6)
+  return (
+    <div className="card activity-card">
+      <div className="card-head">
+        <span className="h">{say.operate.activity}</span>
+        {events.length > 6 && (
+          <button className="link right" onClick={() => setAll(!all)}>
+            {all ? say.operate.fewer : say.operate.viewAll}
+          </button>
+        )}
+      </div>
+      <div className="activity">
+        {events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
+        {shown.map((event) => (
+          <div key={event.event_id} className="act">
+            <span className={`ico is-${severityStatus(event.severity)}`} aria-hidden />
+            <time>{clockAt(event.ts)}</time>
+            <span className="act-text">{event.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CamerasCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+  const cameras = systems?.cameras ?? []
+  return (
+    <div className="card cameras-card">
+      <div className="card-head">
+        <span className="h">{say.operate.cameras}</span>
+      </div>
+      {cameras.length > 0 ? (
+        <>
+          <div className="cams">
+            {cameras.map((camera) => (
+              <div key={camera.name} className="cam">
+                <span className={`cam-tile is-${camera.state}`}>
+                  <CameraGlyph small />
+                </span>
+                <span>{camera.name}</span>
+              </div>
+            ))}
+          </div>
+          <span className="sub">{cameras.map((c) => c.text).join(' ')}</span>
+        </>
+      ) : (
+        <p className="empty">{machine ? say.operate.camera.noCameraText(machine.display_name) : say.operate.noneSelected}</p>
+      )}
+    </div>
+  )
+}
+
+function SystemsCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+  return (
+    <div className="card systems-card">
+      <div className="card-head">
+        <span className="h">{say.operate.systems}</span>
+      </div>
+      {!machine ? (
+        <p className="empty">{say.operate.noneSelected}</p>
+      ) : !systems ? (
+        <p className="empty">{say.operate.asking}</p>
+      ) : (
+        <>
+          {systems.rows.map((row) => (
+            <div key={row.name} className="sys">
+              <span className={`dot is-${row.state === 'unknown' ? 'off' : row.state}`} />
+              {row.name}
+              <span className={`r is-${row.state === 'unknown' ? 'off' : row.state}`}>{row.text}</span>
+            </div>
+          ))}
+          {systems.note && <span className="sub">{systems.note}</span>}
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------- helpers ------------------------------- */
 
 /** The machines that saw a contact, in the names an operator reads. */
 function observersOf(contact: Track, world: World): string {
@@ -516,9 +870,9 @@ function observersOf(contact: Track, world: World): string {
 }
 
 /**
- * What was ordered, in the server's words. The task type is contract
- * vocabulary; the server's language file already turns it into a sentence,
- * and an order added after this build shipped still reads as English.
+ * What was ordered, in the server's words. The server's language file
+ * already turns the task type into a sentence, and an order added after
+ * this build shipped still reads as English.
  */
 function orderInWords(task: { phrase?: string; task_type: string }): string {
   return task.phrase ? plain(task.phrase) : plain(task.task_type)
@@ -559,7 +913,7 @@ function ContactDetail({
   const seenBy = observersOf(contact, world)
 
   return (
-    <section className="detail">
+    <section className="detail card">
       <header>
         <span className="diamond" />
         <h3>{contact.display_name || say.detail.contact}</h3>
@@ -593,7 +947,7 @@ function ContactDetail({
       </dl>
 
       <footer>
-        <button className="primary" onClick={onSend} disabled={!canSend}>
+        <button className="btn primary" onClick={onSend} disabled={!canSend}>
           {canSend ? say.detail.sendNamed(machineName) : cannotSendWhy}
         </button>
       </footer>
@@ -601,81 +955,31 @@ function ContactDetail({
   )
 }
 
-function PlanStrip({
-  mode,
-  machine,
-  task,
-  onStop,
-  onTakeControl,
-}: {
-  mode: Mode
-  machine: Asset | null
-  task: ReturnType<typeof openTaskFor>
-  onStop: () => void
-  onTakeControl: () => void
-}) {
-  // The latest thing the machine said about the order, in its own words.
-  const latest = useMemo(() => {
-    const history = task?.status_history ?? []
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i]?.message) return history[i].message
-    }
-    return undefined
-  }, [task])
-
-  /**
-   * Why the machine is doing this. The server composes it, because working
-   * it out here would mean enumerating the channel vocabulary and deciding
-   * whose order it was, and getting either wrong attributes an order to
-   * somebody who never gave it. Empty when nothing honest can be said.
-   */
-  const reason = task?.reason ?? ''
-
+function SearchGlyph() {
   return (
-    <div className="plan">
-      {/* The mode is a machine's setting. With no machine selected, or a
-          server that did not say, there is no mode to name and naming one
-          would describe a machine that is not there. */}
-      {machine && mode && <span className="plan-mode">{modeInWords(mode)}</span>}
-      <div className="plan-body">
-        {task && machine ? (
-          <>
-            <span className="step on">
-              {orderInWords(task)}
-              {reason ? `, ${reason}` : ''}
-              {latest ? `. ${latest}` : '.'}
-              {mode === 'manual' ? ` ${say.mode.manualAssurance}` : ''}
-              {mode === 'automatic' ? ` ${say.mode.automaticAssurance}` : ''}
-            </span>
-            <span className="step">{machine.display_name}</span>
-          </>
-        ) : (
-          <span className="plan-empty">
-            {!machine
-              ? // Nothing selected. The rails already say whether any
-                // machine has connected; repeating a guess here would
-                // describe a fleet this strip cannot see.
-                ''
-              : mode === 'automatic'
-                ? say.mode.automaticMeans
-                : mode === 'manual'
-                  ? say.plan.nothing
-                  : say.plan.nothingFor}
-          </span>
-        )}
-      </div>
-      <div className="plan-actions">
-        {task && (
-          <button className="mini stop" onClick={onStop}>
-            {say.plan.stop}
-          </button>
-        )}
-        {mode === 'automatic' && (
-          <button className="mini" onClick={onTakeControl}>
-            {say.mode.takeControl}
-          </button>
-        )}
-      </div>
-    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-4-4" />
+    </svg>
+  )
+}
+
+function VehicleGlyph() {
+  return (
+    <svg viewBox="0 0 40 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M4 18h32v-6l-6-6H14l-6 6z" />
+      <circle cx="12" cy="20" r="3.5" fill="var(--card-3)" />
+      <circle cx="28" cy="20" r="3.5" fill="var(--card-3)" />
+      <path d="M14 6v6h12V6" opacity="0.6" />
+    </svg>
+  )
+}
+
+function CameraGlyph({ small = false }: { small?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" width={small ? 16 : 28} height={small ? 16 : 28}>
+      <rect x="3" y="7" width="13" height="10" rx="1.5" />
+      <path d="M16 10l5-2.5v9L16 14" />
+    </svg>
   )
 }

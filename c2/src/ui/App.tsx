@@ -104,7 +104,7 @@ function Station({
           <span className="mark-name">ARGUS</span>
           <span className="mark-sub">{say.shell.station}</span>
         </button>
-        <nav className="tabs" aria-label={say.shell.apps.operate}>
+        <nav className="tabs" aria-label={say.shell.launcher}>
           <button className={`tab${screen === 'operate' ? ' on' : ''}`} onClick={() => openApp('operate')}>
             {say.shell.apps.operate}
           </button>

@@ -19,6 +19,7 @@ verdict: keep / refactor / replace / archive / new.
 | ARGUS LINK (`platform.link`) | software_verified | keep | - |
 | ARGUS TRACK (`platform.track`) | software_verified | keep | 2 known gaps |
 | ARGUS C2 (`platform.c2`) | software_verified | keep | 3 known gaps |
+| Design tokens (`platform.design`) | software_verified | keep | - |
 | AI Gateway (`platform.gateway`) | software_verified | keep | 1 known gap |
 | Voice service (`platform.voice`) | software_verified | keep | 1 known gap |
 | Argus Sync (`platform.sync`) | planned | new | - |

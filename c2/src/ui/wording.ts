@@ -32,6 +32,8 @@ export const say = {
     desktop: 'Desktop',
     /** Under the mark in the top bar: what kind of station this is. */
     station: 'Ground operations',
+    /** The name of the top bar's application strip, for assistive technology. */
+    launcher: 'Applications',
     apps: {
       operate: 'Operate',
       drive: 'Drive',

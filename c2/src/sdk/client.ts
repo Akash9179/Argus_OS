@@ -31,6 +31,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 401) {
     // The token we hold is no longer accepted. Drop it and let the shell
     // return to sign-in; the caller still gets the refusal it asked for.
+    // This assumes the server answers 401 only for a bad token, which
+    // track/api.py does; a proxy that invented 401s would end sessions.
     const text = await refusalText(response)
     signOut()
     throw new NotSignedIn(text)

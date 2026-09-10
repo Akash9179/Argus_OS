@@ -12,6 +12,8 @@ relationships:
 
   # Platform plane
   - {from: platform.c2, type: CONSUMES, to: platform.track, note: "public REST/WS only (SDK honesty law)"}
+  - {from: platform.c2, type: USES, to: platform.design, note: "design/tokens.css"}
+  - {from: teleop.cockpit, type: USES, to: platform.design, note: "design/tokens.css; Tailwind palette reads the same variables"}
   - {from: platform.voice, type: CONSUMES, to: platform.track, note: "HTTP with the operator's own token"}
   - {from: platform.voice, type: USES, to: platform.gateway}
   - {from: platform.sync, type: SYNC_WITH, to: platform.track}

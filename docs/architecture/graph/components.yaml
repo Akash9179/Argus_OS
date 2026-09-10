@@ -39,12 +39,23 @@ components:
     role: Operator application; map, force rail, event feed, voice bar, autonomy modes
     status: software_verified
     disposition: keep
-    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
+    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/App.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
     known_gaps:
-      - Gate-2 founder review of the built surface still pending
-      - Bearer token stored in localStorage
+      - Gate-2 closed 10 Sep 2026; the approved redesign is being built (Argus_Wiki/program/c2-build-plan.md, M1 done, M2 Operate next)
+      - Bearer token stored in localStorage (a refused token now returns to sign-in; storage itself unchanged)
       - No video pane; WebRTC documented but nonexistent anywhere
     notes: Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite runs in its own CI job.
+
+  - id: platform.design
+    name: Design tokens
+    type: Component
+    path: design/
+    plane: platform
+    role: The one visual language (colours, radii, type) shared by every application; a CSS file both c2/ and drive/cockpit/ import
+    status: software_verified
+    disposition: keep
+    known_gaps: []
+    notes: Source is the Gate-2 canvas confirmed 10 Sep 2026. Day variant included. Fonts are bundled from @fontsource (OFL), no CDN.
 
   - id: platform.gateway
     name: AI Gateway

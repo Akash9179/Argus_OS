@@ -216,6 +216,23 @@ async def get_asset_registry(asset_id: str, request: Request, _: Admin) -> dict:
     return registry
 
 
+@router.get("/assets/{asset_id}/systems")
+async def get_asset_systems(asset_id: str, request: Request, _: Operator) -> dict:
+    """What a machine has said about its own systems, in plain words.
+
+    Operator, unlike the registry it is derived from: an operator on watch
+    needs to know whether the camera is working and the control link is
+    up, not which driver version is loaded. Rows come only from what the
+    machine reported; a machine that has reported nothing gets a single
+    control-link row and a sentence saying so.
+    """
+    world = _world(request)
+    try:
+        return world.systems_view(asset_id)
+    except TaskRejected as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 class AssetIn(BaseModel):
     """Administrative facts about a machine.
 
@@ -354,6 +371,24 @@ async def create_task(body: TaskIn, request: Request, principal: Operator) -> di
     except TaskRejected as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return world.task_view(task)
+
+
+@router.post("/tasks/preview")
+async def preview_task(body: TaskIn, request: Request, _: Operator) -> dict:
+    """What would happen if this order were sent. Nothing is issued or kept.
+
+    The operator application shows this as a proposal with its checks
+    before the person approves it. Same body as issuing, so an application
+    cannot preview one order and send another.
+
+    A machine we do not have is a 404 rather than the 409 issuing gives,
+    because nothing was refused: there was nothing to look at.
+    """
+    world = _world(request)
+    try:
+        return world.preview_task(body.asset_id, body.task_type, body.to_parameters())
+    except TaskRejected as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/tasks/{task_id}/cancel")

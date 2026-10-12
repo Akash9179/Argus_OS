@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useVehicleStore } from '../state/store'
+import { armPending, useVehicleStore } from '../state/store'
 import { BridgeTransport } from './bridgeTransport'
 import type { LinkStatus } from './remoTransport'
 import type { DriveRole, RemoLink } from './useRemoTransport'
@@ -51,9 +51,18 @@ export interface BridgeLink extends RemoLink {
  * cockpit holds control: Drive active, the operator past the connect step,
  * the link open with fresh telemetry, and no relinquish since the operator
  * last pressed arm. Telemetry never asserts it.
+ *
+ * While an arm request is pending (not yet confirmed by a DRIVING
+ * reading), the frame carries zero throttle whatever the stick says, and
+ * steer unchanged. A frame can sit in a stalled socket and drain after
+ * the request has expired; a pending request is not control.
  */
-export function outgoing(cmd: Command, mayArm: boolean): Command {
-  return { ...cmd, safety: { arm: mayArm && cmd.safety.arm, estop: cmd.safety.estop } }
+export function outgoing(cmd: Command, mayArm: boolean, pending: boolean): Command {
+  return {
+    ...cmd,
+    throttle: pending ? 0 : cmd.throttle,
+    safety: { arm: mayArm && cmd.safety.arm, estop: cmd.safety.estop },
+  }
 }
 
 /**
@@ -105,6 +114,9 @@ export function useBridgeTransport(
     let staleMs = DEFAULT_STALE_MS
     let signedOut = false
     const mayArm = () => liveRef.current && driveActiveNow() && linkOpen && fresh && !relinquished
+    // Every command frame goes out through here, so none can skip the
+    // zero throttle of a pending arm request.
+    const frame = (arm: boolean, s = store.getState()) => outgoing(s.command, arm, armPending(s))
     const loseLink = () => {
       relinquished = true
       fresh = false
@@ -162,7 +174,7 @@ export function useBridgeTransport(
       store.getState().relinquish()
       // A cmd frame without arm disarms the daemon's watchdog to STOPPED
       // (no latch). It goes now, not on the next interval.
-      if (linkOpen) t.send(outgoing(store.getState().command, false))
+      if (linkOpen) t.send(frame(false))
     })
 
     // Sign-out: disarm explicitly, then close cleanly so the daemon logs
@@ -172,7 +184,7 @@ export function useBridgeTransport(
       if (signedOut) return
       relinquished = true
       store.getState().relinquish()
-      if (linkOpen) t.send(outgoing(store.getState().command, false))
+      if (linkOpen) t.send(frame(false))
       signedOut = true
       linkOpen = false
       fresh = false
@@ -190,11 +202,11 @@ export function useBridgeTransport(
         // A stalled socket that never closed: treat it as link loss.
         const hadControl = fresh || !relinquished
         loseLink()
-        if (hadControl && driveActiveNow()) t.send(outgoing(store.getState().command, false))
+        if (hadControl && driveActiveNow()) t.send(frame(false))
         lastHeard = Date.now()
       }
       store.getState().settleArm()
-      if (driveActiveNow()) t.send(outgoing(store.getState().command, mayArm()))
+      if (driveActiveNow()) t.send(frame(mayArm()))
       if (++n % framesPerBeat === 0) t.heartbeat()
     }, 1000 / hz)
 
@@ -203,7 +215,7 @@ export function useBridgeTransport(
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
       else if (state.armPresses !== prev.armPresses && driveActiveNow() && liveRef.current && linkOpen && fresh) {
         relinquished = false // the operator's fresh arm
-        t.send(outgoing(state.command, mayArm()))
+        t.send(frame(mayArm(), state))
       }
     })
 

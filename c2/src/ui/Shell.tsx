@@ -11,8 +11,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { clockDate, clockTime, setClockPrefs, useClockPrefs, zoneChoices } from './clockPrefs'
-import { onSignedOut } from '../sdk/session'
-import { driveUrl, isDriveEscape, postDriveActive, postDriveSignout } from './driveUrl'
+import { driveUrl, holdDriveFrame, isDriveEscape, postDriveActive } from './driveUrl'
 import { say } from './wording'
 
 export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
@@ -254,17 +253,10 @@ export function DriveApp({ open, onEscape }: { open: boolean; onEscape: () => vo
     onEscapeRef.current = onEscape
   }, [onEscape])
   // Signing out (by hand, or by a refused token) tells the cockpit first:
-  // Drive is no longer active, then the session is over. The session's
-  // listeners run before React takes the frame down, so the frame is still
-  // there to hear both.
-  useEffect(
-    () =>
-      onSignedOut(() => {
-        postDriveActive(frame.current, false)
-        postDriveSignout(frame.current)
-      }),
-    [],
-  )
+  // Drive is no longer active, then the session is over. The station keeps
+  // this frame mounted until the cockpit answers (signOutDrive), so it is
+  // named where the sign-out can find it.
+  useEffect(() => holdDriveFrame(frame.current), [])
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (isDriveEscape(event, frame.current)) onEscapeRef.current()

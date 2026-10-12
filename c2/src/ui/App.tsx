@@ -13,6 +13,7 @@ import { isAnswering, useWorld } from '../state/world'
 import { ArgusWordmark } from './ArgusMark'
 import { Operate } from './Operate'
 import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
+import { signOutDrive } from './driveUrl'
 import { say } from './wording'
 import { clockDate, clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
 
@@ -28,8 +29,9 @@ export function App() {
 
   // A token refused by any interface ends the session here, so a revoked
   // key shows sign-in rather than a station that has apparently lost the
-  // site.
-  useEffect(() => onSignedOut(() => setSignedIn(false)), [])
+  // site. A mounted Drive frame is told first, and kept until the cockpit
+  // answers or a short wait passes, so its disarm and key cleanup finish.
+  useEffect(() => onSignedOut(() => signOutDrive(() => setSignedIn(false))), [])
 
   if (!signedIn) return <SignIn onSignedIn={() => setSignedIn(true)} />
   // signOut takes an optional refused token. The operator's own sign-out

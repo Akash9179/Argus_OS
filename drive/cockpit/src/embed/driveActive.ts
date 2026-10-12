@@ -33,6 +33,14 @@ export const DRIVE_ESCAPE = 'argus.drive.escape'
  */
 export const DRIVE_SIGNOUT = 'argus.drive.signout'
 
+/**
+ * The cockpit's answer to DRIVE_SIGNOUT, posted once every sign-out
+ * listener has run: the disarm frame is sent, the key is forgotten, and
+ * the socket is closed. C2 keeps the frame mounted until it hears this,
+ * or for a short wait, so the cleanup is never cut short.
+ */
+export const DRIVE_SIGNOUT_DONE = 'argus.drive.signout.done'
+
 export interface DriveActiveMessage {
   type: typeof DRIVE_ACTIVE
   active: boolean
@@ -82,7 +90,11 @@ export function readSignOut(e: MessageEvent): boolean {
 
 function onMessage(e: MessageEvent): void {
   if (readSignOut(e)) {
+    // The listeners run synchronously, so the cleanup is done by the time
+    // the answer goes. A listener that fails is logged by notify(); the
+    // answer still goes, or C2 would only wait out its fallback.
     notify(signOutListeners)
+    postToFramer({ type: DRIVE_SIGNOUT_DONE })
     return
   }
   const active = readDriveActive(e)
@@ -109,10 +121,15 @@ if (typeof window !== 'undefined') window.addEventListener('message', onMessage)
  * own origin; when that origin is unknown, nothing is sent.
  */
 export function postEscape(): void {
+  postToFramer({ type: DRIVE_ESCAPE })
+}
+
+/** Post to the framing page at its own origin only; never '*'. */
+function postToFramer(message: { type: string }): void {
   if (!isEmbedded()) return
   const origin = framerOrigin()
   if (origin === null) return
-  window.parent.postMessage({ type: DRIVE_ESCAPE }, origin)
+  window.parent.postMessage(message, origin)
 }
 
 /** True when this cockpit may command the vehicle as the active screen. */

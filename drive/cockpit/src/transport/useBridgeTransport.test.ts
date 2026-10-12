@@ -67,7 +67,7 @@ vi.mock('./bridgeTransport', () => ({
 }))
 
 import { useBridgeTransport } from './useBridgeTransport'
-import { enterFrame, leaveFrame, parentSays, parentSignsOut } from '../embed/testFrame'
+import { enterFrame, FRAMER_ORIGIN, leaveFrame, parentSays, parentSignsOut } from '../embed/testFrame'
 import { getDriveKey, setDriveKey } from './auth'
 import { ARM_CONFIRM_MS, useVehicleStore } from '../state/store'
 
@@ -431,6 +431,71 @@ describe('an arm request', () => {
     expect(wire.sent.filter(armed).length).toBeLessThanOrEqual(ARM_CONFIRM_MS / TICK_MS)
     expect(st().command.safety.arm).toBe(false)
   })
+
+  // Codex P1: an unconfirmed request is not control. Throttle held during
+  // the window must not reach a queue that may drain after the request
+  // has expired.
+  it('sends zero throttle while pending, steer unchanged, and the real throttle once DRIVING', () => {
+    bridge()
+    ready()
+    act(() => st().arm())
+    act(() => st().setStick(0.3, 0.6))
+    wire.sent = []
+    steady('STOPPED', 3)
+    expect(wire.sent.length).toBe(3)
+    expect(wire.sent.every(armed)).toBe(true)
+    expect(wire.sent.every((f) => f.cmd.throttle === 0 && f.cmd.steer === 0.3)).toBe(true)
+
+    driving()
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    expect(wire.sent.at(-1)?.cmd).toMatchObject({ steer: 0.3, throttle: 0.6, safety: { arm: true } })
+  })
+
+  it('never sends the throttle of a request that expired unconfirmed', () => {
+    bridge()
+    ready()
+    act(() => st().arm())
+    act(() => st().setStick(0, 0.8))
+    wire.sent = []
+    steady('STOPPED', ARM_CONFIRM_MS / TICK_MS + 3)
+    expect(st().command.safety.arm).toBe(false)
+    expect(wire.sent.filter(armed).every((f) => f.cmd.throttle === 0)).toBe(true)
+  })
+
+  it('ends at once when the vehicle reads LATCHED while it is pending', () => {
+    bridge()
+    ready()
+    act(() => st().arm())
+    reading('LATCHED')
+    expect(st().command.safety.arm).toBe(false)
+    expect(st().armDeadline).toBeNull()
+    wire.sent = []
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    expect(wire.sent.some(armed)).toBe(false)
+  })
+
+  it('ends at once on a safety state this cockpit does not know', () => {
+    bridge()
+    ready()
+    act(() => st().arm())
+    reading('FAULTED')
+    expect(st().command.safety.arm).toBe(false)
+    expect(st().armDeadline).toBeNull()
+  })
+
+  it('re-arming from a latch is not ended by the latch it is clearing', () => {
+    bridge()
+    act(() => wire.preflight(PASS))
+    reading('LATCHED')
+    act(() => st().arm())
+    // the vehicle has not read the press yet
+    steady('LATCHED', 2)
+    expect(st().command.safety.arm).toBe(true)
+    expect(armed(wire.sent.at(-1))).toBe(true)
+    driving()
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    expect(armed(wire.sent.at(-1))).toBe(true)
+  })
 })
 
 describe('telemetry freshness', () => {
@@ -503,21 +568,45 @@ describe('sign-out from C2', () => {
 
     // no act(): all three happen before anything else can run
     parentSignsOut()
-    expect(wire.log).toEqual(['cmd disarmed', 'close'])
+    expect(wire.log.slice(0, 2)).toEqual(['cmd disarmed', 'close'])
     expect(st().command.safety.arm).toBe(false)
     expect(getDriveKey()).toBeNull()
 
     // nothing more goes out
     vi.advanceTimersByTime(TICK_MS * 5)
-    expect(wire.log).toEqual(['cmd disarmed', 'close'])
+    expect(wire.log.slice(0, 2)).toEqual(['cmd disarmed', 'close'])
+  })
+
+  // Codex P2: C2 keeps the frame until it hears this, so the cleanup
+  // cannot be cut short by the frame going away.
+  it('tells the parent at its own origin once the cleanup is done', () => {
+    setDriveKey('operator-a')
+    bridge()
+    ready()
+    act(() => st().arm())
+    driving()
+    wire.log = []
+    const post = vi.spyOn(window.parent, 'postMessage').mockImplementation(((message: unknown, origin: string) => {
+      wire.log.push(`ack ${JSON.stringify(message)} ${origin} key=${getDriveKey()}`)
+    }) as typeof window.postMessage)
+
+    parentSignsOut()
+    expect(wire.log).toEqual([
+      'cmd disarmed',
+      'close',
+      `ack {"type":"argus.drive.signout.done"} ${FRAMER_ORIGIN} key=null`,
+    ])
+    expect(post).toHaveBeenCalledTimes(1)
   })
 
   it('is heard only from the parent at its own origin', () => {
     setDriveKey('operator-a')
     bridge()
+    const post = vi.spyOn(window.parent, 'postMessage').mockImplementation(() => {})
     parentSignsOut(window.parent, 'http://evil.test')
     expect(getDriveKey()).toBe('operator-a')
     expect(wire.closes).toBe(0)
+    expect(post).not.toHaveBeenCalled()
   })
 })
 

@@ -259,10 +259,15 @@ class BridgeDaemon:
         with self._wd_lock:
             before = self.watchdog.state
             may_drive = self.watchdog.command(cmd.arm, cmd.estop, cmd.throttle, ready=ready)
+            stalled = self.watchdog.stalled
+            if stalled:
+                # A stall is safety-relevant in every state, latch or not:
+                # the frames that follow it are a drain and cannot arm.
+                self.log.event("stall", session=client.session, state=before)
             if self.watchdog.state == "DRIVING" and not effective_arm:
                 self.watchdog.disarm()
                 may_drive = False
-            self._log_transition(client, before, self.watchdog.state, cmd.estop)
+            self._log_transition(client, before, self.watchdog.state, cmd.estop, stalled)
         if not may_drive:
             # state controls (ignition, lights, gear) still apply; motion does not
             cmd = Command(
@@ -273,7 +278,9 @@ class BridgeDaemon:
             )
         self.vehicle.apply(cmd)
 
-    def _log_transition(self, client: _Client, before: str, after: str, estop: bool) -> None:
+    def _log_transition(
+        self, client: _Client, before: str, after: str, estop: bool, stalled: bool = False,
+    ) -> None:
         """One watchdog transition, one line, with the reason stated."""
         if before == after:
             return
@@ -281,10 +288,8 @@ class BridgeDaemon:
             event = "rearmed" if before == "LATCHED" else "armed"
             self.log.event(event, session=client.session)
         elif after == "LATCHED":
-            self.log.event(
-                "latched", session=client.session,
-                reason="estop" if estop else "operator_silence",
-            )
+            reason = "estop" if estop else "stall" if stalled else "operator_silence"
+            self.log.event("latched", session=client.session, reason=reason)
         elif after == "STOPPED":
             self.log.event("disarmed", session=client.session)
 

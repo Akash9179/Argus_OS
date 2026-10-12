@@ -2,11 +2,13 @@
  * Drive asserts nothing about a machine that it was not told.
  * The daemon's session facts carry no vehicle class, so none is shown.
  */
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CockpitScreen } from './CockpitScreen'
+import { useVehicleStore } from '../state/store'
 
 afterEach(cleanup)
+beforeEach(() => useVehicleStore.getState().reset())
 
 describe('the machine card', () => {
   it('shows no vehicle class the daemon never reported', () => {
@@ -15,4 +17,60 @@ describe('the machine card', () => {
     expect(screen.queryByText(/\bUGV\b/)).toBeNull()
   })
 
+})
+
+describe('Esc inside the frame', () => {
+  const postMessage = vi.fn()
+
+  beforeEach(() => {
+    postMessage.mockReset()
+    Object.defineProperty(window, 'parent', { value: { postMessage }, configurable: true })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'parent', { value: window, configurable: true })
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true })
+  })
+
+  it('asks the page that framed it to return to the desktop, at that origin only', () => {
+    Object.defineProperty(document, 'referrer', { value: 'http://c2.test:5173/some/path', configurable: true })
+    render(<CockpitScreen />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(postMessage).toHaveBeenCalledWith({ type: 'argus.drive.escape' }, 'http://c2.test:5173')
+  })
+
+  it('posts nothing when it cannot tell who framed it', () => {
+    render(<CockpitScreen />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(postMessage).not.toHaveBeenCalled()
+  })
+
+  it('posts nothing when it is not in a frame', () => {
+    Object.defineProperty(window, 'parent', { value: window, configurable: true })
+    Object.defineProperty(document, 'referrer', { value: 'http://c2.test:5173/', configurable: true })
+    const spy = vi.spyOn(window, 'postMessage')
+    render(<CockpitScreen />)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+})
+
+describe('the ARM button', () => {
+  it('says to release the throttle when that is why arming did nothing', () => {
+    render(<CockpitScreen />)
+    const st = useVehicleStore.getState()
+    act(() => {
+      st.estop()
+      st.tick(0.05)
+    })
+    act(() => st.setStick(0, 0.5))
+    fireEvent.click(screen.getByRole('button', { name: 'ARM' }))
+    expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+    expect(screen.getByText('Release throttle and steering to arm.')).toBeTruthy()
+
+    act(() => st.setStick(0, 0))
+    expect(screen.queryByText('Release throttle and steering to arm.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'ARM' })).toBeTruthy()
+  })
 })

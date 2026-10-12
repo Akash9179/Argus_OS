@@ -50,6 +50,8 @@ export const say = {
     },
     settings: {
       title: 'Settings',
+      close: 'Close settings',
+      closeHint: 'Close (Esc)',
       nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', time: 'Time', ai: 'AI policy' },
       appearance: {
         heading: 'Appearance',
@@ -272,6 +274,8 @@ export const say = {
   /** The Operate screen's own furniture, in the approved card layout. */
   operate: {
     fleet: 'Fleet',
+    /** A machine's class, in the letters an operator uses. Unknown reads as itself. */
+    classes: { ugv: 'UGV', uav: 'UAV', usv: 'USV', uuv: 'UUV' } as Record<string, string>,
     addMachine: 'Add machine',
     all: 'All',
     orders: 'Orders',

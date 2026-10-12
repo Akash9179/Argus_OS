@@ -7,7 +7,8 @@
  * { type: 'argus.drive.active', active } to this frame on every change of
  * the active screen, and once when the frame loads.
  *
- * Only the parent window may say this. An embedded cockpit that has heard
+ * Only the parent window may say this, and only from the origin of the page
+ * that framed us (document.referrer). An embedded cockpit that has heard
  * nothing yet is inactive. A standalone cockpit is always active.
  *
  * The listener is attached when this module loads, before React renders,
@@ -16,6 +17,9 @@
 import { useSyncExternalStore } from 'react'
 
 export const DRIVE_ACTIVE = 'argus.drive.active'
+
+/** The cockpit asks C2 to return to the desktop: Esc inside the frame. */
+export const DRIVE_ESCAPE = 'argus.drive.escape'
 
 export interface DriveActiveMessage {
   type: typeof DRIVE_ACTIVE
@@ -30,9 +34,22 @@ export function isEmbedded(): boolean {
   return typeof window !== 'undefined' && window.parent !== window
 }
 
+/** The origin of the page that framed us, or null when it cannot be told. */
+export function framerOrigin(): string | null {
+  if (typeof document === 'undefined' || !document.referrer) return null
+  try {
+    const origin = new URL(document.referrer).origin
+    return origin === 'null' ? null : origin
+  } catch {
+    return null
+  }
+}
+
 /** The parent's verdict carried by this event, or null if the event is not one. */
 export function readDriveActive(e: MessageEvent): boolean | null {
   if (!isEmbedded() || e.source !== window.parent) return null
+  const origin = framerOrigin()
+  if (origin === null || e.origin !== origin) return null
   const d = e.data as Partial<DriveActiveMessage> | null
   if (!d || typeof d !== 'object' || d.type !== DRIVE_ACTIVE || typeof d.active !== 'boolean') return null
   return d.active
@@ -46,6 +63,17 @@ function onMessage(e: MessageEvent): void {
 }
 
 if (typeof window !== 'undefined') window.addEventListener('message', onMessage)
+
+/**
+ * Ask the framing page to return to the desktop. Sent only to the framer's
+ * own origin; when that origin is unknown, nothing is sent.
+ */
+export function postEscape(): void {
+  if (!isEmbedded()) return
+  const origin = framerOrigin()
+  if (origin === null) return
+  window.parent.postMessage({ type: DRIVE_ESCAPE }, origin)
+}
 
 /** True when this cockpit may command the vehicle as the active screen. */
 export function driveActiveNow(): boolean {

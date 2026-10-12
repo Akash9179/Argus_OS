@@ -13,12 +13,18 @@ interface Update {
   driving: boolean
 }
 
-const wire = vi.hoisted(() => ({ updates: [] as Update[], beats: 0, estops: 0 }))
+const wire = vi.hoisted(() => ({
+  updates: [] as Update[],
+  beats: 0,
+  estops: 0,
+  status: null as unknown as (s: string) => void,
+}))
 
 vi.mock('./remoTransport', () => ({
   RemoTransport: class {
     onStatus?: (s: string) => void
     connect() {
+      wire.status = (s) => this.onStatus?.(s)
       this.onStatus?.('open')
     }
     update(i: Update) {
@@ -60,9 +66,10 @@ describe('leaving Drive on a Remo link', () => {
       ({ active }) => useRemoTransport('pw', true, { hz: HZ, active }),
       { initialProps: { active: true } },
     )
+    act(() => useVehicleStore.getState().arm())
     act(() => useVehicleStore.getState().setStick(0.4, 0.6))
     act(() => vi.advanceTimersByTime(TICK_MS * 2))
-    // the local sim starts armed, so the link is driving
+    // the operator armed, so the link is driving
     expect(wire.updates.at(-1)).toMatchObject({ driving: true, throttle: 0.6 })
 
     wire.updates = []
@@ -76,6 +83,33 @@ describe('leaving Drive on a Remo link', () => {
     rerender({ active: true })
     act(() => vi.advanceTimersByTime(TICK_MS * 2))
     expect(wire.updates.slice(1).every((u) => !u.driving)).toBe(true)
+
+    act(() => useVehicleStore.getState().arm())
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    expect(wire.updates.at(-1)?.driving).toBe(true)
+  })
+})
+
+describe('the Remo link', () => {
+  it('does not drive on the local sim reading alone', () => {
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
+    act(() => vi.advanceTimersByTime(TICK_MS * 3))
+    expect(wire.updates.some((u) => u.driving)).toBe(false)
+  })
+
+  it('drops the arm when the link drops, and waits for a fresh arm on reconnect', () => {
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
+    act(() => useVehicleStore.getState().arm())
+    act(() => vi.advanceTimersByTime(TICK_MS * 2))
+    expect(wire.updates.at(-1)?.driving).toBe(true)
+
+    act(() => wire.status('closed'))
+    expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+    act(() => wire.status('connecting'))
+    act(() => wire.status('open'))
+    wire.updates = []
+    act(() => vi.advanceTimersByTime(TICK_MS * 3))
+    expect(wire.updates.some((u) => u.driving)).toBe(false)
 
     act(() => useVehicleStore.getState().arm())
     act(() => vi.advanceTimersByTime(TICK_MS))

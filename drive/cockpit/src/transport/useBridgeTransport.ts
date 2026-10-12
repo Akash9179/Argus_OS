@@ -3,7 +3,7 @@ import { useVehicleStore } from '../state/store'
 import { BridgeTransport } from './bridgeTransport'
 import type { LinkStatus } from './remoTransport'
 import type { DriveRole, RemoLink } from './useRemoTransport'
-import type { SessionFacts } from '../contract'
+import type { Command, SessionFacts } from '../contract'
 
 /**
  * Live link to the ARGUS DRIVE bridge daemon. Activated by a URL param so the
@@ -42,16 +42,33 @@ export interface BridgeOptions {
   active?: boolean
 }
 
+export interface BridgeLink extends RemoLink {
+  /** The last session facts the vehicle gave, kept after the link drops. */
+  lastSession: SessionFacts | null
+}
+
+/**
+ * The arm bit on the wire is the operator's arm, and only while this
+ * cockpit holds control: Drive active, the operator past the connect step,
+ * the link open, and no relinquish since the operator last pressed arm.
+ * Telemetry never asserts it.
+ */
+export function outgoing(cmd: Command, mayArm: boolean): Command {
+  return { ...cmd, safety: { arm: mayArm && cmd.safety.arm, estop: cmd.safety.estop } }
+}
+
 export function useBridgeTransport(
   password: string | null,
   live: boolean,
   { hz = 15, active = true }: BridgeOptions = {},
-): RemoLink {
+): BridgeLink {
   const target = useMemo(() => parseBridgeParam(), [])
   const [status, setStatus] = useState<LinkStatus>('connecting')
   const [role, setRole] = useState<DriveRole>(null)
   const [authFailed, setAuthFailed] = useState(false)
   const [session, setSession] = useState<SessionFacts | null>(null)
+  const [lastSession, setLastSession] = useState<SessionFacts | null>(null)
+  const [everOpen, setEverOpen] = useState(false)
 
   const liveRef = useRef(live)
   useEffect(() => {
@@ -68,52 +85,66 @@ export function useBridgeTransport(
     if (!target || !password) return
     const store = useVehicleStore
     const t = new BridgeTransport(target.url, password)
+
+    // True from the moment control is given up (Drive left, or the link
+    // lost) until the operator arms again while active on an open link.
+    // While true this cockpit never asserts arm, whatever the store or the
+    // telemetry says.
+    let relinquished = true
+    let linkOpen = false
+    const mayArm = () => liveRef.current && activeRef.current && linkOpen && !relinquished
+    const giveUp = () => {
+      relinquished = true
+      store.getState().relinquish()
+    }
+
     t.onStatus = (s) => {
       setStatus(s)
-      if (s === 'connecting') {
+      const wasOpen = linkOpen
+      linkOpen = s === 'open'
+      if (linkOpen) setEverOpen(true)
+      else {
         setRole(null)
         setSession(null)
-        setAuthFailed(false)
+        // Link loss is a relinquish: the new session waits for a fresh arm.
+        if (wasOpen) giveUp()
+        relinquished = true
       }
-      store.getState().setRemote(s === 'open')
+      if (s === 'connecting') setAuthFailed(false)
+      store.getState().setRemote(linkOpen)
     }
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
-    t.onSession = setSession
+    t.onSession = (facts) => {
+      setSession(facts)
+      setLastSession(facts)
+    }
     t.onAuthFail = () => setAuthFailed(true)
     t.onTelemetry = (tel) => store.getState().applyRemoteTelemetry(tel)
     t.onPreflight = (p) => store.getState().applyPreflight(p)
-    t.connect()
 
-    // True from the moment Drive is left until the operator arms again.
-    // While true this cockpit never asserts arm, whatever the telemetry
-    // says: a DRIVING reading that arrives late must not re-arm.
-    let relinquished = !activeRef.current
     onActiveChange.current = (nowActive) => {
       if (nowActive) return // the arm stays down until the operator arms
-      relinquished = true
-      store.getState().relinquish()
+      giveUp()
       // A cmd frame without arm disarms the daemon's watchdog to STOPPED
       // (no latch). It goes now, not on the next interval.
-      t.send(store.getState().command, false)
+      t.send(outgoing(store.getState().command, false))
     }
+
+    t.connect()
 
     const framesPerBeat = Math.max(1, Math.round(hz / 5))
     let n = 0
     const id = setInterval(() => {
-      if (activeRef.current) {
-        const s = store.getState()
-        const driving = liveRef.current && !relinquished && s.telemetry.safetyState === 'DRIVING'
-        t.send(s.command, driving)
-      }
+      if (activeRef.current) t.send(outgoing(store.getState().command, mayArm()))
       if (++n % framesPerBeat === 0) t.heartbeat()
     }, 1000 / hz)
 
     // momentary edges must not fall between interval samples
     const unsub = store.subscribe((state, prev) => {
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
-      else if (state.command.safety.arm && !prev.command.safety.arm && activeRef.current) {
+      else if (state.armPresses !== prev.armPresses && activeRef.current && liveRef.current && linkOpen) {
         relinquished = false // the operator's fresh arm
-        t.send(state.command, false)
+        t.send(outgoing(state.command, mayArm()))
       }
     })
 
@@ -140,5 +171,15 @@ export function useBridgeTransport(
     onActiveChange.current?.(active)
   }, [active])
 
-  return { active: !!target, label: target?.label ?? '', status, role, authFailed, session, hz }
+  return {
+    active: !!target,
+    label: target?.label ?? '',
+    status,
+    role,
+    authFailed,
+    session,
+    lastSession,
+    everOpen,
+    hz,
+  }
 }

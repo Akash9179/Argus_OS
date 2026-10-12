@@ -113,7 +113,7 @@ Prerequisites: buf, protoc, node/npm, python3 (all on PATH). One-time setup:
 - Run all tests (sim loop, pilot criteria, voice, laws, graph; no broker, ~12s): `.venv/bin/python -m pytest -q`
 - Engineering graph: `.venv/bin/python scripts/argus_graph.py validate | status --write | incomplete | blockers | component <id> | impact <id> | decisions --open | risks`
 - Operator app tests: `cd c2 && npm test` (plus typecheck and build)
-- Cockpit for C2's Drive tab: `cd drive/cockpit && npx vite --port 5174`. The Drive tab needs `VITE_DRIVE_URL=http://localhost:5174/?bridge=localhost:8090&key=<bridge key>` in c2/.env.local, because the key is no longer in source.
+- Cockpit for C2's Drive tab: `cd drive/cockpit && npx vite --port 5174`. The default address is `http://localhost:5174/?bridge=localhost:8090`; change it with `VITE_DRIVE_URL` in c2/.env.local. VITE_DRIVE_URL holds only the address, and the cockpit asks for the bridge key.
 - Start the brokers: `redis-server --daemonize yes && mosquitto -d`
 - Run the world model server: `DB_PATH=var/track.db TOKENS_PATH=var/tokens.yaml PORT=8100 .venv/bin/python -m track.main`
 - Run a simulated vehicle against it: `.venv/bin/python -m sim.main`

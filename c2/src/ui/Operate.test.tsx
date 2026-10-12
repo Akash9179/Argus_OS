@@ -303,4 +303,9 @@ describe('a machine class', () => {
     const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'tracked_crawler' })] }))
     expect(container.querySelector('.vtype')!.textContent).toBe('Tracked crawler')
   })
+
+  it('reads a class named like an object built-in as itself', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'constructor' })] }))
+    expect(container.querySelector('.vtype')!.textContent).toBe('Constructor')
+  })
 })

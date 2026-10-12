@@ -348,8 +348,9 @@ export function Operate({ world, link, theme }: Props) {
 /** A machine's class, in the letters an operator uses. Unknown reads as itself. */
 function classLabel(assetClass: string | undefined): string {
   if (!assetClass) return ''
-  const known: Record<string, string> = { ugv: 'UGV', uav: 'UAV', usv: 'USV', uuv: 'UUV' }
-  return known[assetClass.toLowerCase()] ?? plain(assetClass)
+  const key = assetClass.toLowerCase()
+  // Own keys only: a class named like an object built-in reads as itself.
+  return Object.hasOwn(say.operate.classes, key) ? say.operate.classes[key] : plain(assetClass)
 }
 
 function FleetRail({

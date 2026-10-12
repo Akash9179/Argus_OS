@@ -128,14 +128,10 @@ export class BridgeTransport {
     ws.send(JSON.stringify(obj))
   }
 
-  /** Send the full command frame. `driving` asserts continuous arm intent
-   *  (the daemon disarms the moment a frame arrives without it). */
-  send(cmd: Command, driving: boolean): void {
-    this.raw({
-      t: 'cmd',
-      ...cmd,
-      safety: { arm: driving || cmd.safety.arm, estop: cmd.safety.estop },
-    })
+  /** Send the full command frame, verbatim. The caller decides the arm
+   *  bit; the daemon disarms the moment a frame arrives without it. */
+  send(cmd: Command): void {
+    this.raw({ t: 'cmd', ...cmd })
   }
 
   heartbeat(): void {

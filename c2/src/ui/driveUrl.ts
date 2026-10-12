@@ -7,9 +7,12 @@
  *
  * Configuration holds the address only. Vite inlines every VITE_ variable
  * into the client bundle, so a bridge key written there would ship to
- * anyone holding the build. driveUrl() therefore drops any `key` query
- * parameter it finds, and the cockpit asks the operator for the key.
+ * anyone holding the build. vite.config.ts drops any `key` query
+ * parameter before the build writes the value, driveUrl() drops one again
+ * from whatever it reads at run time, and the cockpit asks for the key.
  */
+
+import { withoutKey } from './driveAddress'
 
 export const DRIVE_URL_KEY = 'argus.driveUrl'
 
@@ -20,15 +23,13 @@ export function driveUrl(): string {
     window.localStorage.getItem(DRIVE_URL_KEY) ??
     (import.meta.env.VITE_DRIVE_URL as string | undefined) ??
     'http://localhost:5174/?bridge=localhost:8090'
-  const url = new URL(configured, window.location.href)
-  if (!url.searchParams.has('key')) return configured
-  url.searchParams.delete('key')
-  if (!warnedAboutKey) {
+  const { url, hadKey } = withoutKey(configured)
+  if (hadKey && !warnedAboutKey) {
     warnedAboutKey = true
     // A developer message for the console, not an operator-facing string.
     console.warn('ARGUS: the Drive address carried a bridge key. It was ignored; the cockpit asks for the key itself.')
   }
-  return url.toString()
+  return url
 }
 
 /** The cockpit's origin: the only target C2 posts to. Never '*'. */

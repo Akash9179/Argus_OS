@@ -216,7 +216,7 @@ export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; 
     <div className={`shell-app is-settings${open ? '' : ' is-away'}`} aria-hidden={!open}>
       <div className="swindow">
         <div className="swin-bar">
-          <button type="button" className="swin-close" onClick={onClose} title="Close (Esc)" aria-label="Close settings" />
+          <button type="button" className="swin-close" onClick={onClose} title={say.shell.settings.closeHint} aria-label={say.shell.settings.close} />
           <span className="swin-bar-title">{say.shell.settings.title}</span>
         </div>
         <div className="swin-side">

@@ -27,6 +27,8 @@ export interface RemoLink {
   session?: SessionFacts | null
   /** Command frames per second this link sends while open. */
   hz?: number
+  /** True once this link has been open at least once. */
+  everOpen?: boolean
 }
 
 interface DriveTarget {
@@ -69,6 +71,7 @@ export function useRemoTransport(
   const [status, setStatus] = useState<LinkStatus>('connecting')
   const [role, setRole] = useState<DriveRole>(null)
   const [authFailed, setAuthFailed] = useState(false)
+  const [everOpen, setEverOpen] = useState(false)
 
   // `live` gates actuation without re-creating the connection: until the operator
   // has passed the connect modal, the vehicle is held at neutral even if a gamepad
@@ -83,9 +86,24 @@ export function useRemoTransport(
 
   useEffect(() => {
     if (!target || !password) return
+    const store = useVehicleStore
     const t = new RemoTransport(target.url, password)
+
+    // True from giving up control (Drive left, or the link lost) until the
+    // operator arms again while active on an open link. Same rule as the
+    // bridge link: the local sim's DRIVING alone never drives.
+    let relinquished = true
+    let linkOpen = false
+
     t.onStatus = (s) => {
       setStatus(s)
+      const wasOpen = linkOpen
+      linkOpen = s === 'open'
+      if (linkOpen) setEverOpen(true)
+      else {
+        if (wasOpen) store.getState().relinquish()
+        relinquished = true
+      }
       // each (re)connection attempt starts with a clean role/auth slate
       if (s === 'connecting') {
         setRole(null)
@@ -94,36 +112,41 @@ export function useRemoTransport(
     }
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
     t.onAuthFail = () => setAuthFailed(true)
-    t.connect()
 
-    // True from leaving Drive until the operator arms again.
-    let relinquished = !activeRef.current
     onActiveChange.current = (nowActive) => {
       if (nowActive) return
       relinquished = true
-      useVehicleStore.getState().relinquish()
-      const { gear } = useVehicleStore.getState().command
+      store.getState().relinquish()
+      const { gear } = store.getState().command
       t.update({ steer: 0, throttle: 0, gear, driving: false })
     }
 
+    t.connect()
+
     let beat = 0
     const id = setInterval(() => {
-      const s = useVehicleStore.getState()
+      const s = store.getState()
       if (activeRef.current)
         t.update({
           steer: s.command.steer,
           throttle: s.command.throttle,
           gear: s.command.gear,
-          driving: liveRef.current && !relinquished && s.telemetry.safetyState === 'DRIVING',
+          driving:
+            liveRef.current &&
+            linkOpen &&
+            !relinquished &&
+            s.command.safety.arm &&
+            s.telemetry.safetyState === 'DRIVING',
         })
       // heartbeat ~5x/s so the relay dead-man can distinguish steady-state from a
       // stalled link (drive tokens only fire on change, so silence != alive)
       if (++beat % Math.max(1, Math.round(hz / 5)) === 0) t.heartbeat()
     }, 1000 / hz)
 
-    const unsub = useVehicleStore.subscribe((state, prev) => {
+    const unsub = store.subscribe((state, prev) => {
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
-      else if (state.command.safety.arm && !prev.command.safety.arm && activeRef.current) relinquished = false
+      else if (state.armPresses !== prev.armPresses && activeRef.current && liveRef.current && linkOpen)
+        relinquished = false
     })
 
     const onHide = () => t.close()
@@ -146,5 +169,5 @@ export function useRemoTransport(
     onActiveChange.current?.(active)
   }, [active])
 
-  return { active: !!target, label: target?.label ?? '', status, role, authFailed }
+  return { active: !!target, label: target?.label ?? '', status, role, authFailed, everOpen }
 }

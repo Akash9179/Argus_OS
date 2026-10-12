@@ -7,7 +7,7 @@
  * 4401) must end at the sign-in screen. And the dock must be out of the way
  * while an application is open: at 1280 wide it covered Drive's controls.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./Operate', () => ({ Operate: () => <div>operate-screen</div> }))
@@ -15,7 +15,7 @@ vi.mock('./Operate', () => ({ Operate: () => <div>operate-screen</div> }))
 import { App } from './App'
 import { CLOSE_NOT_SIGNED_IN } from '../sdk/stream'
 import { say } from './wording'
-import { driveOrigin, driveUrl } from './driveUrl'
+import { DRIVE_SIGNOUT_WAIT_MS, driveOrigin, driveUrl } from './driveUrl'
 
 /** A stand-in for the browser's WebSocket that the test can drive. */
 class FakeSocket {
@@ -253,6 +253,75 @@ describe('signing out with Drive open', () => {
   it('does the same when the site refuses the token', async () => {
     const heard = await signOutFromDrive('refusal')
     expect(heard.slice(-1)[0]).toEqual({ message: { type: 'argus.drive.signout' }, origin: driveOrigin(), frameThere: true })
+  })
+})
+
+describe('the Drive frame on sign-out', () => {
+  // Codex P2. postMessage is delivered later, so a frame taken down in the
+  // same turn may never hear the sign-out: no explicit disarm, and the
+  // bridge key left in the cockpit's storage. C2 keeps the frame until the
+  // cockpit says its cleanup is done, or for DRIVE_SIGNOUT_WAIT_MS.
+  async function driveOpenThenSignOut() {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const view = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    const driveTab = screen.getAllByRole('button', { name: say.shell.apps.drive }).find((b) => b.classList.contains('tab'))!
+    fireEvent.click(driveTab)
+    const frame = view.container.querySelector('iframe.drive-frame') as HTMLIFrameElement
+    vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => {})
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: say.signOut }))
+    return { frame, container: view.container }
+  }
+  const frameThere = (container: HTMLElement) => container.querySelector('iframe.drive-frame') !== null
+  const signInShown = () => screen.queryByRole('heading', { name: say.signIn.title }) !== null
+  function ack(source: Window, origin: string) {
+    act(() => {
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'argus.drive.signout.done' }, origin, source }))
+    })
+  }
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('stays mounted until the cockpit says its cleanup is done', async () => {
+    const { frame, container } = await driveOpenThenSignOut()
+    act(() => vi.advanceTimersByTime(DRIVE_SIGNOUT_WAIT_MS - 100))
+    expect(frameThere(container)).toBe(true)
+    expect(signInShown()).toBe(false)
+
+    ack(frame.contentWindow!, driveOrigin())
+    expect(frameThere(container)).toBe(false)
+    expect(signInShown()).toBe(true)
+  })
+
+  it('goes after the wait when no answer comes', async () => {
+    const { container } = await driveOpenThenSignOut()
+    act(() => vi.advanceTimersByTime(DRIVE_SIGNOUT_WAIT_MS - 1))
+    expect(frameThere(container)).toBe(true)
+    act(() => vi.advanceTimersByTime(1))
+    expect(frameThere(container)).toBe(false)
+    expect(signInShown()).toBe(true)
+  })
+
+  it('does not take an answer from another origin or another window', async () => {
+    const { frame, container } = await driveOpenThenSignOut()
+    ack(frame.contentWindow!, 'http://elsewhere.example')
+    ack(window, driveOrigin())
+    expect(frameThere(container)).toBe(true)
+    act(() => vi.advanceTimersByTime(DRIVE_SIGNOUT_WAIT_MS))
+    expect(frameThere(container)).toBe(false)
+  })
+
+  it('does not wait when Drive was never opened', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: say.signOut }))
+    expect(signInShown()).toBe(true)
   })
 })
 

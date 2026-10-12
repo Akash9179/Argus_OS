@@ -54,7 +54,9 @@ interface VehicleStore {
    * holds for the ARM button, the gamepad, and any other source.
    *
    * An accepted press is asserted for ARM_CONFIRM_MS. If the vehicle does
-   * not read DRIVING in that window, the request is dropped. Once
+   * not read DRIVING in that window, the request is dropped. While it is
+   * pending, a reading that moves to LATCHED or a state this cockpit does
+   * not know drops it at once, and the transport sends zero throttle. Once
    * confirmed, it holds only while the vehicle reads DRIVING: any STOPPED
    * or LATCHED reading, STOP, or relinquish ends it.
    */
@@ -131,19 +133,42 @@ export function armGateOpen(s: Pick<VehicleStore, 'linked' | 'remote' | 'telemet
 const dropArm = (c: Command): Command => ({ ...c, safety: { ...c.safety, arm: false } })
 
 /**
+ * An arm request the vehicle has not yet confirmed. While it is pending,
+ * outgoing frames carry zero throttle: the request is not control yet.
+ */
+export function armPending(s: Pick<VehicleStore, 'command' | 'armDeadline'>): boolean {
+  return s.command.safety.arm && s.armDeadline !== null
+}
+
+const KNOWN_STATES: readonly SafetyState[] = ['DRIVING', 'STOPPED', 'LATCHED']
+
+/**
  * Apply one safety reading to the arm request. `reading` is null when
  * there is no word from the vehicle to apply, and only the window counts.
+ * `previous` is the reading before this one.
+ *
+ * While a request is pending, STOPPED readings are normal: the vehicle
+ * has not read the press yet, and telemetry lags a round trip. A LATCHED
+ * reading that was already there before is normal for the same reason:
+ * it is the latch this press is re-arming. A reading that moves to
+ * LATCHED, or a state this cockpit does not know, ends the request at
+ * once.
  */
 function settle(
   s: Pick<VehicleStore, 'command' | 'armDeadline'>,
   reading: SafetyState | null,
+  previous: SafetyState | null,
   now: number,
 ): Partial<Pick<VehicleStore, 'command' | 'armDeadline'>> {
   if (!s.command.safety.arm) return s.armDeadline === null ? {} : { armDeadline: null }
   if (reading === 'DRIVING') return s.armDeadline === null ? {} : { armDeadline: null }
   const confirmedThenLost = reading !== null && s.armDeadline === null
   const lapsed = s.armDeadline !== null && now >= s.armDeadline
-  return confirmedThenLost || lapsed ? { command: dropArm(s.command), armDeadline: null } : {}
+  const refused =
+    s.armDeadline !== null &&
+    reading !== null &&
+    (!KNOWN_STATES.includes(reading) || (reading === 'LATCHED' && previous !== 'LATCHED'))
+  return confirmedThenLost || lapsed || refused ? { command: dropArm(s.command), armDeadline: null } : {}
 }
 
 /** Track whether a latch is the one the operator's own STOP caused. */
@@ -199,7 +224,7 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
       telemetry: t,
       recordingSince: sinceRecording(s.recordingSince, t),
       operatorStop: stopCause(s.operatorStop, t.safetyState),
-      ...settle(s, t.safetyState, Date.now()),
+      ...settle(s, t.safetyState, s.telemetry.safetyState, Date.now()),
     })),
 
   applyPreflight: (p) => set({ preflight: p }),
@@ -247,7 +272,12 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
       }
     }),
 
-  settleArm: () => set((s) => settle(s, localReading(s), Date.now())),
+  // No new reading here: only the window counts, or the sim's standing state.
+  settleArm: () =>
+    set((s) => {
+      const reading = localReading(s)
+      return settle(s, reading, reading, Date.now())
+    }),
 
   setLinked: (on) => set({ linked: on }),
 
@@ -299,7 +329,7 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
         telemetry,
         recordingSince: sinceRecording(s.recordingSince, telemetry),
         ...(s.remote ? {} : { operatorStop: stopCause(s.operatorStop, telemetry.safetyState) }),
-        ...settle(next, localReading(next), Date.now()),
+        ...settle(next, localReading(next), localReading(s), Date.now()),
       }
     }),
 

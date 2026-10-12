@@ -11,7 +11,9 @@ Session rules (inherited from the relay that preceded this daemon):
     When the driver leaves, the watchdog trips (if driving), the vehicle
     safe-stops, and the oldest spectator is promoted.
   - WATCHDOG: operator silence beyond the timeout while driving latches
-    the vehicle stopped. Re-arm is explicit (arm=true, throttle=0).
+    the vehicle stopped. Arming is a rising edge of the arm bit; a held
+    arm never arms. Re-arm is explicit (a fresh press, throttle=0). See
+    watchdog.py for the edge rule.
 
 Every safety-relevant transition lands in the session log as it happens
 (ADR-0009): who connected, ignition, preflight verdicts, armed, latched
@@ -249,11 +251,14 @@ class BridgeDaemon:
             self.preflight = {"ran": False, "pass": False, "checks": []}
             self._broadcast_preflight()    # ignition off invalidates the green light
         self._ignition_was_on = cmd.ignition
-        # the green light gates arming; nothing arms on a failed or absent self-test
-        effective_arm = cmd.arm and self.preflight["pass"]
+        # the green light gates arming; nothing arms on a failed or absent
+        # self-test. The watchdog takes the edge on the raw arm bit, so the
+        # green light arriving under a held arm is not a press.
+        ready = self.preflight["pass"]
+        effective_arm = cmd.arm and ready
         with self._wd_lock:
             before = self.watchdog.state
-            may_drive = self.watchdog.command(effective_arm, cmd.estop, cmd.throttle)
+            may_drive = self.watchdog.command(cmd.arm, cmd.estop, cmd.throttle, ready=ready)
             if self.watchdog.state == "DRIVING" and not effective_arm:
                 self.watchdog.disarm()
                 may_drive = False

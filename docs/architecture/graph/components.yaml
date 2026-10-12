@@ -261,7 +261,6 @@ components:
     known_gaps:
       - No video pane
       - Inside C2 it is proven by tests only; not yet driven in a real browser inside C2
-      - Command frames queued in a stalled socket before the cockpit notices still carry the arm; the daemon re-arms a latch on any zero-throttle armed frame, so a rising-edge rule in the watchdog would close this
     notes: Rebuilt for C2 M3 on the shared design tokens (design/). When embedded, it commands the vehicle only while C2 says Drive is the active screen (drive/cockpit/src/embed/driveActive.ts). Leaving Drive drops the arm and stops commanding; the operator must return and arm again. Only the parent window may send that message, and an embedded cockpit that has heard nothing is inactive. The embed module is the single source of truth; the store and the transports read it and act in the same turn as the message. C2's sign-out message disarms, forgets the stored key, and closes the socket cleanly. An arm press is a momentary request. It is refused unless Drive is active, the stick is neutral, and on a bridge link fresh telemetry reads ignition on and a passed self-test. It is asserted for 500 ms until the vehicle confirms DRIVING, then held only while it reads DRIVING. A bridge link is live only while telemetry is fresh; silence past the vehicle's declared watchdog window (1000 ms if undeclared) is treated as link loss, which drops the arm and the ignition command and needs a fresh arm. While the link is down the HUD shows no values. Lint clean; its own CI job. Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
 
   - id: teleop.watchdog
@@ -269,12 +268,13 @@ components:
     type: Component
     path: drive/bridge/watchdog.py
     plane: edge
-    role: STOPPED / DRIVING / LATCHED; 700 ms silence or link loss latches a safe stop, re-arm always explicit
+    role: STOPPED / DRIVING / LATCHED; 700 ms silence or link loss latches a safe stop, arm and re-arm always explicit
     status: software_verified
     disposition: keep
     tests: [tests/test_bridge_daemon.py]
     known_gaps:
       - Mock-tested only; hardware validation pending, and the layer below it (MCU firmware) is not yet failsafe
+    notes: Arming is a rising edge of the operator's arm bit, never a level. A frame that only continues arm=true never arms, so frames queued in a stalled socket cannot re-arm a latch when they drain. A session starts as if the arm were held and needs one arm=false frame before a press counts. Every latch (estop, silence, link loss) resets the detector the same way. A press made before the self-test passed is spent. Every arm, first or re-arm, needs zero throttle; the bridge does not trust the cockpit's neutral-stick gate. The self-test verdict is a required argument, so a caller cannot fail open by leaving it out. While DRIVING, a held arm is idempotent, which the cockpit's 500 ms confirmation window relies on.
 
   - id: drive.brain
     name: Brain prototype

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CockpitScreen } from './CockpitScreen'
 import { useVehicleStore } from '../state/store'
+import { enterFrame, leaveFrame, parentSays } from '../embed/testFrame'
 
 afterEach(cleanup)
 beforeEach(() => useVehicleStore.getState().reset())
@@ -72,5 +73,25 @@ describe('the ARM button', () => {
     act(() => st.setStick(0, 0))
     expect(screen.queryByText('Release throttle and steering to arm.')).toBeNull()
     expect(screen.getByRole('button', { name: 'ARM' })).toBeTruthy()
+  })
+
+  it('says Drive is not the active screen when that is why arming did nothing', () => {
+    enterFrame()
+    try {
+      act(() => parentSays(false))
+      render(<CockpitScreen />)
+      act(() => {
+        useVehicleStore.getState().estop()
+        useVehicleStore.getState().tick(0.05)
+      })
+      // the gamepad arm combo while C2 shows another screen
+      act(() => useVehicleStore.getState().arm())
+      expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+      expect(screen.getByText('Drive is not the active screen.')).toBeTruthy()
+      act(() => parentSays(true))
+      expect(screen.queryByText('Drive is not the active screen.')).toBeNull()
+    } finally {
+      leaveFrame()
+    }
   })
 })

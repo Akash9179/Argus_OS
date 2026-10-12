@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVehicleStore } from '../state/store'
 import { RemoTransport, type LinkStatus } from './remoTransport'
 import type { SessionFacts } from '../contract'
+import { driveActiveNow, subscribeDriveActive, subscribeSignOut } from '../embed/driveActive'
 
 /**
  * Opt-in live transport. Activated by a URL param so the deployed/mock app is
@@ -54,18 +55,18 @@ function parseDriveParam(): DriveTarget | null {
 export interface RemoOptions {
   /** Drive frames per second while Drive is active. */
   hz?: number
-  /**
-   * Whether Drive is the operator's active screen. Leaving it sends neutral
-   * at once and stops drive updates; heartbeats continue. Coming back needs
-   * a fresh arm by the operator. Same rule as the bridge link.
-   */
-  active?: boolean
 }
 
+/**
+ * Same rule as the bridge link: whether Drive is the active screen is read
+ * from the embed module, and leaving it sends neutral in the same turn as
+ * C2's message, then stops drive updates; heartbeats continue. Coming back
+ * needs a fresh arm by the operator.
+ */
 export function useRemoTransport(
   password: string | null,
   live: boolean,
-  { hz = 20, active = true }: RemoOptions = {},
+  { hz = 20 }: RemoOptions = {},
 ): RemoLink {
   const target = useMemo(() => parseDriveParam(), [])
   const [status, setStatus] = useState<LinkStatus>('connecting')
@@ -81,9 +82,6 @@ export function useRemoTransport(
     liveRef.current = live
   }, [live])
 
-  const activeRef = useRef(active)
-  const onActiveChange = useRef<((active: boolean) => void) | null>(null)
-
   useEffect(() => {
     if (!target || !password) return
     const store = useVehicleStore
@@ -94,11 +92,12 @@ export function useRemoTransport(
     // bridge link: the local sim's DRIVING alone never drives.
     let relinquished = true
     let linkOpen = false
+    let signedOut = false
 
     t.onStatus = (s) => {
       setStatus(s)
       const wasOpen = linkOpen
-      linkOpen = s === 'open'
+      linkOpen = s === 'open' && !signedOut
       if (linkOpen) setEverOpen(true)
       else {
         if (wasOpen) store.getState().relinquish()
@@ -113,20 +112,37 @@ export function useRemoTransport(
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
     t.onAuthFail = () => setAuthFailed(true)
 
-    onActiveChange.current = (nowActive) => {
-      if (nowActive) return
+    const neutral = () => {
       relinquished = true
       store.getState().relinquish()
       const { gear } = store.getState().command
       t.update({ steer: 0, throttle: 0, gear, driving: false })
     }
 
+    let wasActive = driveActiveNow()
+    const unsubActive = subscribeDriveActive(() => {
+      const nowActive = driveActiveNow()
+      if (nowActive === wasActive) return
+      wasActive = nowActive
+      if (!nowActive) neutral()
+    })
+
+    const unsubSignOut = subscribeSignOut(() => {
+      if (signedOut) return
+      neutral()
+      signedOut = true
+      linkOpen = false
+      t.close()
+    })
+
     t.connect()
 
     let beat = 0
     const id = setInterval(() => {
+      if (signedOut) return
+      store.getState().settleArm()
       const s = store.getState()
-      if (activeRef.current)
+      if (driveActiveNow())
         t.update({
           steer: s.command.steer,
           throttle: s.command.throttle,
@@ -145,7 +161,7 @@ export function useRemoTransport(
 
     const unsub = store.subscribe((state, prev) => {
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
-      else if (state.armPresses !== prev.armPresses && activeRef.current && liveRef.current && linkOpen)
+      else if (state.armPresses !== prev.armPresses && driveActiveNow() && liveRef.current && linkOpen)
         relinquished = false
     })
 
@@ -154,20 +170,15 @@ export function useRemoTransport(
     window.addEventListener('beforeunload', onHide)
 
     return () => {
-      onActiveChange.current = null
       clearInterval(id)
       unsub()
+      unsubActive()
+      unsubSignOut()
       window.removeEventListener('pagehide', onHide)
       window.removeEventListener('beforeunload', onHide)
       t.close()
     }
   }, [target, password, hz])
-
-  useEffect(() => {
-    if (activeRef.current === active) return
-    activeRef.current = active
-    onActiveChange.current?.(active)
-  }, [active])
 
   return { active: !!target, label: target?.label ?? '', status, role, authFailed, everOpen }
 }

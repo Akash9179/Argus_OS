@@ -86,4 +86,30 @@ describe('a gamepad that disconnects', () => {
     expect(after.steer).toBe(0)
     expect(after.throttle).toBe(0)
   })
+
+  it('arms only through the same gate as the ARM button', () => {
+    const st = useVehicleStore.getState()
+    // a vehicle link whose self-test failed
+    st.setLinked(true)
+    st.setRemote(true)
+    st.applyPreflight({ ran: true, pass: false, checks: [{ name: 'mcu', ok: false, detail: '' }] })
+    st.applyRemoteTelemetry({ ...st.telemetry, ignition: true, safetyState: 'STOPPED' })
+    const pad = (pressed: number[]) =>
+      ({
+        id: 'pad',
+        axes: [0, 0, 0, 0],
+        buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i), touched: false, value: pressed.includes(i) ? 1 : 0 })),
+        connected: true,
+        mapping: 'standard',
+        index: 0,
+      }) as unknown as Gamepad
+    pads = [pad([4])]
+    renderHook(() => useGamepad())
+    frame()
+    // L1 held, R1 pressed: the two-button arm combo
+    pads = [pad([4, 5])]
+    frame()
+    expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+    expect(useVehicleStore.getState().armPresses).toBe(0)
+  })
 })

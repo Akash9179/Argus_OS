@@ -23,7 +23,7 @@ verdict: keep / refactor / replace / archive / new.
 | AI Gateway (`platform.gateway`) | software_verified | keep | 1 known gap |
 | Voice service (`platform.voice`) | software_verified | keep | 1 known gap |
 | Argus Sync (`platform.sync`) | planned | new | - |
-| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 2 known gaps |
+| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 3 known gaps |
 | Simulated vehicle (`sim.vehicle`) | simulated | keep | - |
 
 ## Edge (the machine)

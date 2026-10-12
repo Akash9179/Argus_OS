@@ -1,6 +1,12 @@
 export type Gear = 'R' | 'N' | 'F'
 export type DriveMode = 'MANUAL' | 'AUTO'
-export type SafetyState = 'DRIVING' | 'STOPPED' | 'LATCHED'
+/**
+ * The vehicle's safety state. Telemetry is parsed from JSON unchecked, so a
+ * newer daemon may send a value this cockpit does not know. It passes
+ * through as itself and is shown as not understood, never dropped or
+ * mapped onto a known state.
+ */
+export type SafetyState = 'DRIVING' | 'STOPPED' | 'LATCHED' | (string & {})
 export type Blinker = 'off' | 'left' | 'right' | 'hazard'
 
 export interface Command {

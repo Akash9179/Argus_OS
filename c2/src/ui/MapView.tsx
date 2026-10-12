@@ -8,6 +8,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import L from 'leaflet'
+import { initialFrame } from '../map/frame'
 import { imageryLayer } from '../map/imagery'
 import { TERRAIN_DARK, TERRAIN_DAY, TerrainLayer } from '../map/terrain'
 import type { Position, TileLayerInfo } from '../sdk/types'
@@ -154,7 +155,13 @@ export function MapView(props: Props) {
     })
 
     map.current = created
+    // The column changes width when the assistant folds to its rail. The
+    // map is told, or it keeps drawing for the old size and leaves a blank
+    // band where the new room is.
+    const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => created.invalidateSize())
+    resized?.observe(holder.current)
     return () => {
+      resized?.disconnect()
       created.remove()
       map.current = undefined
       // A rebuilt map starts at the default view, so it must frame the site again.
@@ -309,28 +316,13 @@ export function MapView(props: Props) {
     }
 
     // Frame the site once, then leave the view where the operator put it.
+    // What counts as the site is decided in map/frame.ts: its zones, else
+    // the answering machines, else the machines heard within the day.
     if (!fitted.current) {
-      const points: [number, number][] = []
-      for (const asset of machines) {
-        const at = positionOf(world, asset)
-        if (at) points.push([at.lat, at.lon])
-      }
-      for (const contact of contacts) {
-        const at = contact.position
-        if (at?.latitude_deg !== undefined && at?.longitude_deg !== undefined) {
-          points.push([at.latitude_deg, at.longitude_deg])
-        }
-      }
-      // A site with zones is framed by its zones; machines alone get room around them.
-      const zonePoints: [number, number][] = zones.flatMap((zone) =>
-        (zone.geometry?.exterior ?? [])
-          .filter((p) => p.latitude_deg !== undefined && p.longitude_deg !== undefined)
-          .map((p) => [p.latitude_deg!, p.longitude_deg!] as [number, number]),
-      )
-      if (points.length > 0) {
+      const frame = initialFrame(world, answering, Date.now() / 1000)
+      if (frame) {
         fitted.current = true
-        const frame = L.latLngBounds([...points, ...zonePoints])
-        created.fitBounds(frame.pad(zonePoints.length > 0 ? 0.08 : 1.2), { maxZoom: 16, animate: false })
+        created.fitBounds(L.latLngBounds(frame.points).pad(frame.padding), { maxZoom: 16, animate: false })
       }
     }
   }, [world, machines, contacts, zones, selectedAssetId, selectedTrackId, answering, showZones, showMachines])

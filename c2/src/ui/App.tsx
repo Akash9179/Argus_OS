@@ -2,9 +2,8 @@
  * The application shell.
  *
  * The menu bar belongs to the operating system and is identical in every
- * application. Only Operate exists in this build; the rest of the launcher
- * is visible and plainly disabled, because hiding it would misrepresent
- * what the system is.
+ * application. It offers only what exists: Operate and Drive as tabs, and
+ * Settings behind the person (founder decision, 12 Oct 2026).
  */
 
 import { useEffect, useState } from 'react'
@@ -114,11 +113,6 @@ function Station({
           <button className={`tab${screen === 'drive' ? ' on' : ''}`} onClick={() => openApp('drive')}>
             {say.shell.apps.drive}
           </button>
-          {[say.shell.apps.review, say.shell.apps.intel, say.shell.apps.fleet].map((name) => (
-            <span key={name} className="tab soon" title={say.notBuiltYet}>
-              {name}
-            </span>
-          ))}
         </nav>
         <div className="topbar-right">
           <span className={`pill is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>

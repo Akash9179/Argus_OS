@@ -1,10 +1,13 @@
 /**
  * Operate: the one screen.
  *
- * Fleet on the left, the site in the middle (map, then the selected
- * machine's camera and readings, then what happened and what the machine
- * says about itself), and the assistant on the right. Nothing nests.
- * Anything that needs more room opens over the map and closes back.
+ * Fleet on the left, with what the selected machine says about itself and
+ * what happened as two tabs at its foot. The site in the middle: the map
+ * gets the room, with the selected machine's camera and readings as one
+ * strip under it. The assistant on the right, folded to its rail when the
+ * voice service cannot be reached. Nothing scrolls at 1280 by 800 (founder
+ * decision, 12 Oct 2026). Anything that needs more room opens over the map
+ * and closes back.
  *
  * Everything on it is something a service said. Where a service has said
  * nothing, the screen says so in words rather than drawing a placeholder
@@ -71,6 +74,11 @@ export function Operate({ world, link, theme }: Props) {
   const [proposalPath, setProposalPath] = useState<Position[] | null>(null)
   const [focus, setFocus] = useState<{ lat: number; lon: number; key: number } | null>(null)
   const [assistantAway, setAssistantAway] = useState(false)
+  // The assistant folds to its rail when the voice service stops answering
+  // and opens again when it answers. The operator can still open or fold
+  // it by hand: the panel reports only changes, so a hand-opened panel is
+  // not folded again by the next failed attempt.
+  const onAssistantReach = useCallback((reached: boolean) => setAssistantAway(!reached), [])
 
   // One clock for the whole screen, so every "how long ago" agrees.
   useEffect(() => {
@@ -212,10 +220,6 @@ export function Operate({ world, link, theme }: Props) {
   }
 
   const imagery = imageryOn && tileLayers.length > 0 ? tileLayers[0] : null
-  const zoneNames = useMemo(
-    () => [...world.zones.values()].map((z) => z.name ?? '').filter(Boolean),
-    [world.zones],
-  )
 
   return (
     <div className={`operate${assistantAway ? ' is-assistant-away' : ''}`}>
@@ -231,6 +235,8 @@ export function Operate({ world, link, theme }: Props) {
         selectedTrackId={selectedTrackId}
         onSelectAsset={setSelectedAssetId}
         onSelectTrack={setSelectedTrackId}
+        selected={selected}
+        systems={systems}
       />
 
       <div className="col-centre">
@@ -309,9 +315,10 @@ export function Operate({ world, link, theme }: Props) {
           )}
         </div>
 
-        <div className="row-camera">
-          <CameraCard machine={selected} systems={systems} />
-          <ReadingsCard
+        {/* One strip under the map: the camera, then the readings. */}
+        <div className="card strip">
+          <CameraTile machine={selected} systems={systems} />
+          <Readings
             machine={selected}
             world={world}
             now={now}
@@ -323,21 +330,14 @@ export function Operate({ world, link, theme }: Props) {
             onStop={() => void stop()}
           />
         </div>
-
-        <div className="row-activity">
-          <ActivityCard events={world.events} />
-          <CamerasCard machine={selected} systems={systems} />
-          <SystemsCard machine={selected} systems={systems} />
-        </div>
       </div>
 
       <Assistant
-        machineName={selected?.display_name ?? ''}
-        lookingAt={[...(selectedTrack ? [selectedTrack.display_name || say.detail.contact] : []), ...zoneNames.slice(0, 2)]}
         collapsed={assistantAway}
         onToggle={() => setAssistantAway(!assistantAway)}
         onProposal={setProposalPath}
         onOrdered={() => setNotice('')}
+        onReach={onAssistantReach}
       />
     </div>
   )
@@ -365,6 +365,8 @@ function FleetRail({
   selectedTrackId,
   onSelectAsset,
   onSelectTrack,
+  selected,
+  systems,
 }: {
   world: World
   machines: Asset[]
@@ -377,6 +379,8 @@ function FleetRail({
   selectedTrackId: string | null
   onSelectAsset: (id: string) => void
   onSelectTrack: (id: string) => void
+  selected: Asset | null
+  systems: SystemsView | null
 }) {
   const [allOrders, setAllOrders] = useState(false)
   const [allAlerts, setAllAlerts] = useState(false)
@@ -410,17 +414,19 @@ function FleetRail({
           </div>
         )}
         {shown.length === 0 && <p className="empty">{say.rails.noMachines}</p>}
-        {shown.map((machine) => (
-          <MachineCard
-            key={machine.asset_id}
-            machine={machine}
-            world={world}
-            now={now}
-            answering={answering(machine.asset_id)}
-            selected={machine.asset_id === selectedAssetId}
-            onSelect={() => onSelectAsset(machine.asset_id)}
-          />
-        ))}
+        <div className="stack-scroll">
+          {shown.map((machine) => (
+            <MachineCard
+              key={machine.asset_id}
+              machine={machine}
+              world={world}
+              now={now}
+              answering={answering(machine.asset_id)}
+              selected={machine.asset_id === selectedAssetId}
+              onSelect={() => onSelectAsset(machine.asset_id)}
+            />
+          ))}
+        </div>
       </section>
 
       <section className="stack">
@@ -433,9 +439,11 @@ function FleetRail({
           )}
         </div>
         {orders.length === 0 && <p className="empty">{say.operate.noOrders}</p>}
-        {(allOrders ? orders : orders.slice(0, 2)).map((task) => (
-          <OrderCard key={task.task_id} task={task} world={world} />
-        ))}
+        <div className="stack-scroll">
+          {(allOrders ? orders : orders.slice(0, 2)).map((task) => (
+            <OrderCard key={task.task_id} task={task} world={world} />
+          ))}
+        </div>
       </section>
 
       <section className="stack">
@@ -461,23 +469,59 @@ function FleetRail({
       </section>
 
       {contacts.length > 0 && (
-        <section className="stack">
+        <section className="stack is-contacts">
           <div className="stack-head">
             <span className="h">{say.rails.contacts}</span>
           </div>
-          {contacts.map((contact) => (
-            <ContactRow
-              key={contact.track_id}
-              contact={contact}
-              world={world}
-              now={now}
-              selected={contact.track_id === selectedTrackId}
-              onSelect={() => onSelectTrack(contact.track_id)}
-            />
-          ))}
+          <div className="stack-scroll">
+            {contacts.map((contact) => (
+              <ContactRow
+                key={contact.track_id}
+                contact={contact}
+                world={world}
+                now={now}
+                selected={contact.track_id === selectedTrackId}
+                onSelect={() => onSelectTrack(contact.track_id)}
+              />
+            ))}
+          </div>
         </section>
       )}
+
+      <RailTabs machine={selected} systems={systems} events={world.events} />
     </aside>
+  )
+}
+
+/**
+ * What the selected machine says about itself, and what happened, as two
+ * tabs at the foot of the rail rather than two cards that are always open.
+ */
+function RailTabs({ machine, systems, events }: { machine: Asset | null; systems: SystemsView | null; events: WorldEvent[] }) {
+  const [tab, setTab] = useState<'systems' | 'activity'>('systems')
+  const tabs = [
+    { id: 'systems' as const, label: say.operate.systems },
+    { id: 'activity' as const, label: say.operate.activity },
+  ]
+  return (
+    <section className="card rail-tabs">
+      <div className="rail-tablist" role="tablist" aria-label={say.operate.detailTabs}>
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? 'on' : ''}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="rail-tabpanel" role="tabpanel">
+        {tab === 'systems' ? <SystemsList machine={machine} systems={systems} /> : <ActivityList events={events} />}
+      </div>
+    </section>
   )
 }
 
@@ -601,10 +645,16 @@ function ContactRow({
 }) {
   const lastSeen = lastSeenSeconds(contact, now)
   const seenBy = observersOf(contact, world)
-  const line = [
-    contact.place ? `${contact.place}.` : '',
-    seenBy ? say.detail.seenByAgo(seenBy, agoInWords(lastSeen)) : `${say.detail.lastSeen} ${agoInWords(lastSeen)}.`,
-  ]
+  // No observation time is said as such, never as "a few seconds ago".
+  const when =
+    lastSeen === null
+      ? seenBy
+        ? say.detail.seenByNoTime(seenBy)
+        : say.detail.noTimeAlone
+      : seenBy
+        ? say.detail.seenByAgo(seenBy, agoInWords(lastSeen))
+        : say.detail.lastSeenAgo(agoInWords(lastSeen))
+  const line = [contact.place ? `${contact.place}.` : '', when]
     .filter(Boolean)
     .join(' ')
   return (
@@ -622,13 +672,11 @@ function ContactRow({
 
 /* ----------------------------- the centre ------------------------------ */
 
-function CameraCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+function CameraTile({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
   const camera = systems?.cameras[0]
   return (
-    <div className="card camera-card">
+    <div className="strip-camera">
       <div className="card-head">
-        <span className="h">{machine?.display_name ?? ''}</span>
-        {machine && <span className="sep">·</span>}
         <span className="card-sub">{camera ? camera.name : say.operate.camera.front}</span>
         <span className={`pill is-off is-small right`}>
           <span className="dot" />
@@ -649,7 +697,7 @@ function CameraCard({ machine, systems }: { machine: Asset | null; systems: Syst
   )
 }
 
-function ReadingsCard({
+function Readings({
   machine,
   world,
   now,
@@ -681,7 +729,7 @@ function ReadingsCard({
   const orderState = task ? taskStateInWords(task.status) : null
 
   return (
-    <div className="card readings-card">
+    <div className="strip-readings">
       <div className="card-head">
         <span className="h">{machine?.display_name ?? ''}</span>
         {machine && <span className="sep">·</span>}
@@ -713,11 +761,10 @@ function ReadingsCard({
               <span className="k">{say.operate.readings.battery}</span>
             </div>
             <div className="stat">
+              {/* The world model carries no link latency, so this says only
+                  when the machine was last heard. */}
               <span className={`v is-text ${answering ? 'is-ok' : 'is-off'}`}>
-                {answering ? say.operate.readings.good : say.machine.notAnswering}
-                <span>
-                  {heard ? say.operate.readings.heard(agoInWords(now - heard)) : say.map.notHeard}
-                </span>
+                {heard ? say.operate.readings.heard(agoInWords(now - heard)) : say.map.notHeard}
               </span>
               <span className="k">{say.operate.readings.link}</span>
             </div>
@@ -730,9 +777,29 @@ function ReadingsCard({
           <div className="order-row">
             <span className="order-label">{say.operate.readings.currentOrder}</span>
             {mode && <span className="plan-mode">{modeInWords(mode)}</span>}
-            <span className={`pill is-${orderState ? orderState.status : 'off'} is-small right`}>
+            <span className={`pill is-${orderState ? orderState.status : 'off'} is-small`}>
               {orderState ? orderState.text : say.operate.readings.nothingOrdered}
             </span>
+            <div className="order-actions">
+              <div className="segmented" role="group">
+                {(['manual', 'automatic'] as const).map((option) => (
+                  <button
+                    key={option}
+                    className={mode === option ? 'on' : ''}
+                    onClick={() => onMode(option)}
+                    title={option === 'manual' ? say.mode.manualMeans : say.mode.automaticMeans}
+                  >
+                    <span className="pip" />
+                    {option === 'manual' ? say.mode.manual : say.mode.automatic}
+                  </button>
+                ))}
+              </div>
+              {task && (
+                <button className="mini stop" onClick={onStop}>
+                  {say.plan.stop}
+                </button>
+              )}
+            </div>
           </div>
           <p className="order-line">
             {task ? (
@@ -751,110 +818,47 @@ function ReadingsCard({
               say.plan.nothingFor
             )}
           </p>
-
-          <div className="order-actions">
-            <div className="segmented" role="group">
-              {(['manual', 'automatic'] as const).map((option) => (
-                <button
-                  key={option}
-                  className={mode === option ? 'on' : ''}
-                  onClick={() => onMode(option)}
-                  title={option === 'manual' ? say.mode.manualMeans : say.mode.automaticMeans}
-                >
-                  <span className="pip" />
-                  {option === 'manual' ? say.mode.manual : say.mode.automatic}
-                </button>
-              ))}
-            </div>
-            {task && (
-              <button className="mini stop" onClick={onStop}>
-                {say.plan.stop}
-              </button>
-            )}
-          </div>
         </>
       )}
     </div>
   )
 }
 
-function ActivityCard({ events }: { events: WorldEvent[] }) {
+function ActivityList({ events }: { events: WorldEvent[] }) {
   const [all, setAll] = useState(false)
   const shown = all ? events : events.slice(0, 6)
   return (
-    <div className="card activity-card">
-      <div className="card-head">
-        <span className="h">{say.operate.activity}</span>
-        {events.length > 6 && (
-          <button className="link right" onClick={() => setAll(!all)}>
-            {all ? say.operate.fewer : say.operate.viewAll}
-          </button>
-        )}
-      </div>
-      <div className="activity">
-        {events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
-        {shown.map((event) => (
-          <div key={event.event_id} className="act">
-            <span className={`ico is-${severityStatus(event.severity)}`} aria-hidden />
-            <time>{clockAt(event.ts)}</time>
-            <span className="act-text">{event.text}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function CamerasCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
-  const cameras = systems?.cameras ?? []
-  return (
-    <div className="card cameras-card">
-      <div className="card-head">
-        <span className="h">{say.operate.cameras}</span>
-      </div>
-      {cameras.length > 0 ? (
-        <>
-          <div className="cams">
-            {cameras.map((camera) => (
-              <div key={camera.name} className="cam">
-                <span className={`cam-tile is-${camera.state}`}>
-                  <CameraGlyph small />
-                </span>
-                <span>{camera.name}</span>
-              </div>
-            ))}
-          </div>
-          <span className="sub">{cameras.map((c) => c.text).join(' ')}</span>
-        </>
-      ) : (
-        <p className="empty">{machine ? say.operate.camera.noCameraText(machine.display_name) : say.operate.noneSelected}</p>
+    <div className="activity">
+      {events.length === 0 && <p className="empty">{say.rails.noEvents}</p>}
+      {shown.map((event) => (
+        <div key={event.event_id} className="act">
+          <span className={`ico is-${severityStatus(event.severity)}`} aria-hidden />
+          <time>{clockAt(event.ts)}</time>
+          <span className="act-text">{event.text}</span>
+        </div>
+      ))}
+      {events.length > 6 && (
+        <button className="link" onClick={() => setAll(!all)}>
+          {all ? say.operate.fewer : say.operate.viewAll}
+        </button>
       )}
     </div>
   )
 }
 
-function SystemsCard({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+function SystemsList({ machine, systems }: { machine: Asset | null; systems: SystemsView | null }) {
+  if (!machine) return <p className="empty">{say.operate.noneSelected}</p>
+  if (!systems) return <p className="empty">{say.operate.asking}</p>
   return (
-    <div className="card systems-card">
-      <div className="card-head">
-        <span className="h">{say.operate.systems}</span>
-      </div>
-      {!machine ? (
-        <p className="empty">{say.operate.noneSelected}</p>
-      ) : !systems ? (
-        <p className="empty">{say.operate.asking}</p>
-      ) : (
-        <>
-          {systems.rows.map((row) => (
-            <div key={row.name} className="sys">
-              <span className={`dot is-${row.state === 'unknown' ? 'off' : row.state}`} />
-              {row.name}
-              <span className={`r is-${row.state === 'unknown' ? 'off' : row.state}`}>{row.text}</span>
-            </div>
-          ))}
-          {systems.note && <span className="sub">{systems.note}</span>}
-        </>
-      )}
+    <div className="systems">
+      {systems.rows.map((row) => (
+        <div key={row.name} className="sys">
+          <span className={`dot is-${row.state === 'unknown' ? 'off' : row.state}`} />
+          {row.name}
+          <span className={`r is-${row.state === 'unknown' ? 'off' : row.state}`}>{row.text}</span>
+        </div>
+      ))}
+      {systems.note && <span className="sub">{systems.note}</span>}
     </div>
   )
 }
@@ -883,11 +887,16 @@ function confidenceInWords(confidence: number | undefined): string {
   return tenths === null ? say.detail.noFigure : `${tenths} in 10`
 }
 
-function lastSeenSeconds(contact: Track, now: number): number {
+/**
+ * Seconds since the contact was last observed, or null when no observation
+ * carries a time. Null is said as "No time reported", never as zero.
+ */
+function lastSeenSeconds(contact: Track, now: number): number | null {
   const history = contact.history ?? []
   const last = history[history.length - 1]?.timestamp
-  if (!last) return 0
-  return Math.max(0, now - Date.parse(last) / 1000)
+  const at = last ? Date.parse(last) / 1000 : NaN
+  if (Number.isNaN(at)) return null
+  return Math.max(0, now - at)
 }
 
 function ContactDetail({
@@ -911,6 +920,7 @@ function ContactDetail({
 }) {
   const tenths = outOfTen(contact.confidence)
   const seenBy = observersOf(contact, world)
+  const lastSeen = lastSeenSeconds(contact, now)
 
   return (
     <section className="detail card">
@@ -942,7 +952,7 @@ function ContactDetail({
         </div>
         <div>
           <dt>{say.detail.lastSeen}</dt>
-          <dd>{agoInWords(lastSeenSeconds(contact, now))}</dd>
+          <dd>{lastSeen === null ? say.detail.noTimeReported : agoInWords(lastSeen)}</dd>
         </div>
       </dl>
 

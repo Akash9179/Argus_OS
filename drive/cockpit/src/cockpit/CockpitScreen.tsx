@@ -28,14 +28,14 @@ import {
   FullscreenExitIcon,
   BoltIcon,
 } from '../ui/icons'
-import { useDriveLoop, useTelemetry, useVehicleStore } from '../state/store'
+import { armGateOpen, useDriveLoop, useTelemetry, useVehicleStore } from '../state/store'
 import { useGamepad } from '../input/useGamepad'
 import { ControllerPanel } from './ControllerPanel'
 import { useManualDrive, type DriveDir } from '../input/useManualDrive'
 import { useRemoTransport } from '../transport/useRemoTransport'
 import { useBridgeTransport } from '../transport/useBridgeTransport'
 import { DriveConnect } from '../transport/DriveConnect'
-import { postEscape, useDriveActive } from '../embed/driveActive'
+import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActive'
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
@@ -53,6 +53,8 @@ const say = {
   driving: 'Driving',
   stopped: 'Stopped',
   latched: 'Latched: stopped itself',
+  stoppedByYou: 'Stopped by you (latched)',
+  unknownState: (raw: string) => `${raw}: state not understood`,
   local: 'Local simulation',
   beforeYouDrive: 'Before you drive',
   passed: (ok: number, n: number) => `${ok} of ${n} passed`,
@@ -72,7 +74,7 @@ const say = {
   recOff: 'Off',
   ifLinkDrops: 'If the link drops',
   linkDropLine: (name: string, ms: number) =>
-    `${name} stops itself after ${ms} ms of silence and stays stopped. When the link returns you re-arm before it moves again.`,
+    `${name} stops itself after ${ms} ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.`,
   linkDropUnknown: 'The vehicle has not said what it does on link loss. Nothing is assumed.',
   lastReported: (t: string) => `Last reported at ${t}.`,
   frontCamera: 'Front camera',
@@ -98,6 +100,7 @@ const say = {
   noReading: 'No reading',
   arm: 'ARM',
   armBlocked: 'Release throttle and steering to arm.',
+  notActive: 'Drive is not the active screen.',
   armed: 'Armed',
   stop: 'STOP',
   stopTitle: 'Sends a latched stop over the link: zero throttle, disarmed, until you re-arm. Not an emergency stop. The only emergency stop is the ignition key on the vehicle.',
@@ -114,6 +117,29 @@ const say = {
   rightBlink: 'Right blinker',
   hazards: 'Hazards',
   horn: 'Horn',
+  joystick: 'Drive joystick',
+  joystickValue: (deg: number, pct: number) => `steer ${deg} degrees, throttle ${pct} percent`,
+  arrowsHint: 'Keyboard arrows also work',
+  steerLeftKey: 'Steer left (left arrow)',
+  accelerateKey: 'Accelerate (up arrow)',
+  brakeKey: 'Brake (down arrow)',
+  steerRightKey: 'Steer right (right arrow)',
+  recStart: 'Start recording',
+  recStop: 'Stop recording',
+  rec: 'REC',
+  kmh: 'km/h',
+  gearGroup: 'Gear',
+  auxGroup: 'Lights and horn',
+  ignitionOnTitle: 'Ignition on. Press to switch off.',
+  ignitionOffTitle: 'Ignition off. Press to switch on; the self-test runs.',
+  /** Gear F is shown as D, as on a car's selector. */
+  gearLabel: (g: 'R' | 'N' | 'F') => (g === 'F' ? 'D' : g),
+  steerLeft: 'left',
+  steerRight: 'right',
+  steerLeftShort: 'L',
+  steerRightShort: 'R',
+  compass8: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+  compass4: ['N', 'E', 'S', 'W'],
 }
 
 /* ----------------------------- small helpers ----------------------------- */
@@ -130,7 +156,7 @@ function clock(ms: number): string {
 }
 
 function compassPoint(deg: number): string {
-  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round((((deg % 360) + 360) % 360) / 45) % 8]
+  return say.compass8[Math.round((((deg % 360) + 360) % 360) / 45) % 8]
 }
 
 /** A count of seconds since a moment, ticking once a second. */
@@ -209,8 +235,8 @@ function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
       onPointerUp={onUp}
       onPointerCancel={onUp}
       role="slider"
-      aria-label="Drive joystick"
-      aria-valuetext={`steer ${Math.round(pos.x * STEER_MAX_DEG)} degrees, throttle ${Math.round(Math.max(0, pos.y) * 100)} percent`}
+      aria-label={say.joystick}
+      aria-valuetext={say.joystickValue(Math.round(pos.x * STEER_MAX_DEG), Math.round(Math.max(0, pos.y) * 100))}
       style={{ width: dim, height: dim, position: 'relative', borderRadius: '50%', border: '1px solid var(--line-2)', background: 'var(--card-2)', touchAction: 'none', cursor: 'grab', flex: 'none' }}
     >
       <div style={{ position: 'absolute', left: '50%', top: 8, bottom: 8, width: 1, background: 'var(--line)', transform: 'translateX(-50%)' }} />
@@ -245,22 +271,31 @@ function HoldKey({ dir, press, release, title, children }: { dir: DriveDir; pres
 
 function ArrowPad({ press, release }: { press: (d: DriveDir) => void; release: (d: DriveDir) => void }) {
   return (
-    <div className="row" style={{ gap: 6 }} title="Keyboard arrows also work">
-      <HoldKey dir="left" press={press} release={release} title="Steer left (left arrow)">◄</HoldKey>
-      <HoldKey dir="up" press={press} release={release} title="Accelerate (up arrow)"><BoltIcon width={14} height={14} /></HoldKey>
-      <HoldKey dir="down" press={press} release={release} title="Brake (down arrow)">■</HoldKey>
-      <HoldKey dir="right" press={press} release={release} title="Steer right (right arrow)">►</HoldKey>
+    <div className="row" style={{ gap: 6 }} title={say.arrowsHint}>
+      <HoldKey dir="left" press={press} release={release} title={say.steerLeftKey}>◄</HoldKey>
+      <HoldKey dir="up" press={press} release={release} title={say.accelerateKey}><BoltIcon width={14} height={14} /></HoldKey>
+      <HoldKey dir="down" press={press} release={release} title={say.brakeKey}>■</HoldKey>
+      <HoldKey dir="right" press={press} release={release} title={say.steerRightKey}>►</HoldKey>
     </div>
   )
 }
 
 /* ------------------------------- the cards ------------------------------- */
 
-function safetyTone(state: Telemetry['safetyState']): { text: string; tone: 'ok' | 'warn' | 'act' } {
+/**
+ * The vehicle's safety state in words. A latch that followed this
+ * operator's own STOP says so. A value this cockpit does not know is shown
+ * as itself, in a neutral tone, never read as a known state.
+ */
+function safetyTone(state: Telemetry['safetyState'], byOperator: boolean): { text: string; tone: 'ok' | 'warn' | 'act' | 'off' } {
   if (state === 'DRIVING') return { text: say.driving, tone: 'ok' }
   if (state === 'STOPPED') return { text: say.stopped, tone: 'warn' }
-  return { text: say.latched, tone: 'act' }
+  if (state === 'LATCHED') return { text: byOperator ? say.stoppedByYou : say.latched, tone: 'act' }
+  return { text: say.unknownState(String(state)), tone: 'off' }
 }
+
+/** True when the vehicle's latch is the one this operator's STOP caused. */
+const useStoppedByOperator = () => useVehicleStore((s) => s.operatorStop === 'seen')
 
 /** Shown where the safety state was while a link is set up but not open. */
 function linkDownText(everOpen: boolean): string {
@@ -269,7 +304,7 @@ function linkDownText(everOpen: boolean): string {
 
 function MachineCard({ tele, session, remote, down, everOpen }: { tele: Telemetry; session: SessionFacts | null; remote: boolean; down: boolean; everOpen: boolean }) {
   const name = session?.vehicle ?? say.noName
-  const safety = safetyTone(tele.safetyState)
+  const safety = safetyTone(tele.safetyState, useStoppedByOperator())
   const battery = tele.battery.percent
   return (
     <div className={`vcard${remote ? '' : ' is-quiet'}`}>
@@ -378,11 +413,14 @@ function SteerArc({ steer }: { steer: number }) {
   )
 }
 
-function Video({ tele, session, remote, linkOpen, down, everOpen, onToggleRecord, fullscreen, onFullscreen }: { tele: Telemetry; session: SessionFacts | null; remote: boolean; linkOpen: boolean; down: boolean; everOpen: boolean; onToggleRecord: () => void; fullscreen: boolean; onFullscreen: () => void }) {
-  const name = session?.vehicle ?? say.noName
-  const safety = safetyTone(tele.safetyState)
+function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, onToggleRecord, fullscreen, onFullscreen }: { tele: Telemetry; session: SessionFacts | null; lastSession: SessionFacts | null; remote: boolean; linkOpen: boolean; down: boolean; everOpen: boolean; onToggleRecord: () => void; fullscreen: boolean; onFullscreen: () => void }) {
+  // The vehicle's own name, live or last given; never a reading from the local simulation.
+  const name = (session ?? lastSession)?.vehicle ?? say.noName
+  const safety = safetyTone(tele.safetyState, useStoppedByOperator())
+  // While the link is down nothing on the HUD is the vehicle's word: no values are shown.
+  const recording = !down && tele.recording
   const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
-  const dir = tele.steerAngleDeg < 0 ? 'left' : 'right'
+  const dir = tele.steerAngleDeg < 0 ? say.steerLeft : say.steerRight
   const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
   return (
     <div className="card video">
@@ -399,9 +437,9 @@ function Video({ tele, session, remote, linkOpen, down, everOpen, onToggleRecord
       </div>
 
       <div className="hud-tl">
-        <button type="button" className={`rec ${tele.recording ? 'is-on' : 'is-off'}`} onClick={onToggleRecord} title={tele.recording ? 'Stop recording' : 'Start recording'}>
+        <button type="button" className={`rec ${recording ? 'is-on' : 'is-off'}`} onClick={onToggleRecord} title={recording ? say.recStop : say.recStart}>
           <span className="dot" />
-          REC{tele.recording ? ` ${mmss(rec)}` : ''}
+          {say.rec}{recording ? ` ${mmss(rec)}` : ''}
         </button>
         <span className="hud-cam">
           {name} · {say.frontCamera}
@@ -417,21 +455,31 @@ function Video({ tele, session, remote, linkOpen, down, everOpen, onToggleRecord
       </div>
 
       <div className="hud-bl">
-        <span className="speed">{tele.speedKmh.toFixed(1)}</span>
-        <span className="speed-unit">km/h</span>
-        <span className="gear-hud">{tele.gear === 'F' ? 'D' : tele.gear}</span>
+        {down ? (
+          <span className="speed">{say.noReading}</span>
+        ) : (
+          <>
+            <span className="speed">{tele.speedKmh.toFixed(1)}</span>
+            <span className="speed-unit">{say.kmh}</span>
+            <span className="gear-hud">{say.gearLabel(tele.gear)}</span>
+          </>
+        )}
       </div>
-      <div className="hud-bc">
-        <SteerArc steer={tele.steerAngleDeg / STEER_MAX_DEG} />
-        <span className="hud-small">{say.steer(steerDeg, dir)}</span>
-      </div>
-      <div className="hud-br">
-        <span className="heading">
-          {compassPoint(tele.headingDeg)}
-          <small>{Math.round(tele.headingDeg)}°</small>
-        </span>
-        <span className="hud-k">{say.headingLabel}</span>
-      </div>
+      {!down && (
+        <div className="hud-bc">
+          <SteerArc steer={tele.steerAngleDeg / STEER_MAX_DEG} />
+          <span className="hud-small">{say.steer(steerDeg, dir)}</span>
+        </div>
+      )}
+      {!down && (
+        <div className="hud-br">
+          <span className="heading">
+            {compassPoint(tele.headingDeg)}
+            <small>{Math.round(tele.headingDeg)}°</small>
+          </span>
+          <span className="hud-k">{say.headingLabel}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -446,19 +494,25 @@ function DriveBar({ tele, padConnected, onStick, onOpenController, manual, remot
   const estop = useVehicleStore((s) => s.estop)
   const arm = useVehicleStore((s) => s.arm)
   const preflight = useVehicleStore((s) => s.preflight)
-  const armBlocked = useVehicleStore((s) => s.armBlocked)
-  // Never show the local simulation as armed while a link is down. A Remo
-  // link has no vehicle telemetry, so there the operator's own arm counts.
+  const armRefusal = useVehicleStore((s) => s.armRefusal)
+  // The same vehicle-side gate arm() applies to every input source.
+  const gateOpen = useVehicleStore(armGateOpen)
+  // Never show the local simulation as armed while a link is down: on a
+  // bridge link, Armed needs fresh vehicle telemetry reading DRIVING. A
+  // Remo link has no vehicle telemetry, so there the operator's own arm counts.
   const driving = !down && tele.safetyState === 'DRIVING' && (!armFromCommand || command.safety.arm)
-  const blinker = tele.lights.blinker
-  const canArm = !down && !driving && (!remote || (preflight.ran && preflight.pass))
+  // While the link is down the lights and gear are not the vehicle's word.
+  const lights = down ? null : tele.lights
+  const blinker = lights?.blinker ?? 'off'
+  const gear = down ? null : tele.gear
+  const canArm = !down && !driving && gateOpen && (!remote || (preflight.ran && preflight.pass))
 
   return (
     <div className="card drivebar">
-      <div className="gears" role="group" aria-label="Gear">
+      <div className="gears" role="group" aria-label={say.gearGroup}>
         {(['R', 'N', 'F'] as const).map((g) => (
-          <button key={g} type="button" className={tele.gear === g ? 'on' : ''} onClick={() => setGear(g)} aria-pressed={tele.gear === g}>
-            {g === 'F' ? 'D' : g}
+          <button key={g} type="button" className={gear === g ? 'on' : ''} onClick={() => setGear(g)} aria-pressed={gear === g}>
+            {say.gearLabel(g)}
           </button>
         ))}
       </div>
@@ -472,7 +526,7 @@ function DriveBar({ tele, padConnected, onStick, onOpenController, manual, remot
         <div className="bar-row">
           <span>{say.steerLabel}</span>
           <span className="bar"><span className="bar-mid" /><span className="bar-knob" style={{ left: `${50 + command.steer * 50}%` }} /></span>
-          <span className="num">{Math.round(Math.abs(command.steer) * STEER_MAX_DEG)}° {command.steer < -0.02 ? 'L' : command.steer > 0.02 ? 'R' : ''}</span>
+          <span className="num">{Math.round(Math.abs(command.steer) * STEER_MAX_DEG)}° {command.steer < -0.02 ? say.steerLeftShort : command.steer > 0.02 ? say.steerRightShort : ''}</span>
         </div>
       </div>
 
@@ -485,18 +539,18 @@ function DriveBar({ tele, padConnected, onStick, onOpenController, manual, remot
         </button>
       </div>
 
-      <div className="aux" role="group" aria-label="Lights and horn">
-        <button type="button" className={`lbtn${tele.lights.headlights ? ' on' : ''}`} title={say.lights} aria-pressed={tele.lights.headlights} onClick={toggleHeadlights}><LightsIcon /></button>
+      <div className="aux" role="group" aria-label={say.auxGroup}>
+        <button type="button" className={`lbtn${lights?.headlights ? ' on' : ''}`} title={say.lights} aria-pressed={!!lights?.headlights} onClick={toggleHeadlights}><LightsIcon /></button>
         <button type="button" className={`lbtn${blinker === 'left' || blinker === 'hazard' ? ' on' : ''}`} title={say.left} onClick={() => setBlinker(blinker === 'left' ? 'off' : 'left')}><BlinkerIcon style={{ transform: 'scaleX(-1)' }} /></button>
         <button type="button" className={`lbtn${blinker === 'right' || blinker === 'hazard' ? ' on' : ''}`} title={say.rightBlink} onClick={() => setBlinker(blinker === 'right' ? 'off' : 'right')}><BlinkerIcon /></button>
         <button type="button" className={`lbtn${blinker === 'hazard' ? ' on is-act' : ''}`} title={say.hazards} onClick={() => setBlinker(blinker === 'hazard' ? 'off' : 'hazard')}><HazardIcon /></button>
-        <button type="button" className={`lbtn${tele.lights.horn ? ' on' : ''}`} title={say.horn} onClick={toggleHorn}><HornIcon /></button>
+        <button type="button" className={`lbtn${lights?.horn ? ' on' : ''}`} title={say.horn} onClick={toggleHorn}><HornIcon /></button>
       </div>
 
       <div className="safety">
         <div className="ign">
           <span>{say.ignition}</span>
-          <button type="button" className={`pill ${!down && tele.ignition ? 'is-ok' : ''}`} onClick={toggleIgnition} aria-pressed={!down && tele.ignition} title={tele.ignition ? 'Ignition on. Press to switch off.' : 'Ignition off. Press to switch on; the self-test runs.'}>
+          <button type="button" className={`pill ${!down && tele.ignition ? 'is-ok' : ''}`} onClick={toggleIgnition} aria-pressed={!down && tele.ignition} title={tele.ignition ? say.ignitionOnTitle : say.ignitionOffTitle}>
             <IgnitionIcon width={12} height={12} /> {down ? say.noReading : tele.ignition ? say.on : say.off}
           </button>
         </div>
@@ -504,7 +558,7 @@ function DriveBar({ tele, padConnected, onStick, onOpenController, manual, remot
           <span className="btn is-tall is-sel" aria-live="polite">{say.armed}</span>
         ) : (
           <button type="button" className="btn is-tall is-primary" onClick={arm} disabled={!canArm} title={say.armTitle}>
-            {armBlocked ? say.armBlocked : say.arm}
+            {armRefusal === 'stick' ? say.armBlocked : armRefusal === 'inactive' ? say.notActive : say.arm}
           </button>
         )}
         <button type="button" className="btn is-stop" onClick={estop} title={say.stopTitle} aria-label={`${say.stop}. ${say.stopTitle}`}>
@@ -525,7 +579,7 @@ function CompassCard({ tele, remote }: { tele: Telemetry; remote: boolean }) {
       </div>
       <svg viewBox="0 0 100 100" aria-hidden>
         <circle cx="50" cy="50" r="44" fill="var(--card-2)" stroke="var(--line-2)" />
-        {['N', 'E', 'S', 'W'].map((p, i) => (
+        {say.compass4.map((p, i) => (
           <text key={p} x={50 + 38 * Math.sin((i * Math.PI) / 2)} y={50 - 38 * Math.cos((i * Math.PI) / 2) + 4} textAnchor="middle" fontSize="9" fill="var(--ink-3)" fontFamily="var(--sans)">{p}</text>
         ))}
         <g transform={`rotate(${remote ? deg : 0} 50 50)`}>
@@ -544,13 +598,22 @@ export function CockpitScreen() {
   const [driveKey, setDriveKeyState] = useState<string | null>(() => getDriveKey())
   const [entered, setEntered] = useState(false)
   const showConnect = isDriveMode() && !entered
-  // Embedded in C2, Drive commands only while it is the active screen.
+  // Embedded in C2, Drive commands only while it is the active screen. The
+  // store and the transports read that from the embed module directly, in
+  // the same turn as C2's message; this copy is for display only.
   const driveActive = useDriveActive()
-  useEffect(() => {
-    useVehicleStore.getState().setDriveActive(driveActive)
-  }, [driveActive])
-  const remo = useRemoTransport(driveKey, entered, { active: driveActive })
-  const bridge = useBridgeTransport(driveKey, entered, { active: driveActive })
+  // Sign-out: the auth module forgets the stored key and the transports
+  // close; this screen lets go of its own copy too.
+  useEffect(
+    () =>
+      subscribeSignOut(() => {
+        setDriveKeyState(null)
+        setEntered(false)
+      }),
+    [],
+  )
+  const remo = useRemoTransport(driveKey, entered)
+  const bridge = useBridgeTransport(driveKey, entered)
   const link = bridge.active ? bridge : remo
   const pad = useGamepad()
   // keyboard arrows and the on-screen pad drive only when no gamepad and the cockpit is shown
@@ -565,8 +628,9 @@ export function CockpitScreen() {
   const session = bridge.active ? bridge.session ?? null : null
   const lastSession = bridge.active ? bridge.lastSession ?? null : null
   const linkOpen = remote && link.status === 'open'
-  // A link is set up but not open: nothing on screen is the vehicle's word.
-  const down = link.active && link.status !== 'open'
+  // A link is set up but not live: nothing on screen is the vehicle's word.
+  // A bridge link is live only while fresh vehicle telemetry arrives.
+  const down = link.active && (link.status !== 'open' || (bridge.active && !remote))
   const everOpen = !!link.everOpen
 
   const toggleFullscreen = useCallback(() => {
@@ -603,7 +667,7 @@ export function CockpitScreen() {
       </div>
 
       <div className="drive-col">
-        <Video tele={tele} session={session} remote={remote} linkOpen={linkOpen} down={down} everOpen={everOpen} onToggleRecord={toggleRecord} fullscreen={isFullscreen} onFullscreen={toggleFullscreen} />
+        <Video tele={tele} session={session} lastSession={lastSession} remote={remote} linkOpen={linkOpen} down={down} everOpen={everOpen} onToggleRecord={toggleRecord} fullscreen={isFullscreen} onFullscreen={toggleFullscreen} />
         <DriveBar tele={tele} padConnected={pad.connected} onStick={setStick} onOpenController={() => setControllerOpen(true)} manual={manual} remote={remote} down={down} armFromCommand={link.active && !bridge.active} />
       </div>
 

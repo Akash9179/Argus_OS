@@ -5,6 +5,8 @@
  * only meaningful because the RELAY validates the same password server-side and
  * drops anyone who fails. The UI prompt is just how the operator supplies it.
  */
+import { subscribeSignOut } from '../embed/driveActive'
+
 const KEY = 'argus.driveKey'
 
 // Testing convenience: ?key=<password> in the URL pre-fills the drive key so
@@ -34,3 +36,7 @@ export function setDriveKey(pw: string): void {
 export function clearDriveKey(): void {
   window.sessionStorage.removeItem(KEY)
 }
+
+// C2 signed the operator out: the next operator on this tab must not
+// inherit the key. Forgotten in the same turn as the message.
+subscribeSignOut(clearDriveKey)

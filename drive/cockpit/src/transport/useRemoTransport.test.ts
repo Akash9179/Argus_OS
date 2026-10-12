@@ -17,6 +17,7 @@ const wire = vi.hoisted(() => ({
   updates: [] as Update[],
   beats: 0,
   estops: 0,
+  closes: 0,
   status: null as unknown as (s: string) => void,
 }))
 
@@ -36,12 +37,15 @@ vi.mock('./remoTransport', () => ({
     estop() {
       wire.estops++
     }
-    close() {}
+    close() {
+      wire.closes++
+    }
   },
 }))
 
 import { useRemoTransport } from './useRemoTransport'
 import { useVehicleStore } from '../state/store'
+import { enterFrame, leaveFrame, parentSays, parentSignsOut } from '../embed/testFrame'
 
 const HZ = 10
 const TICK_MS = 1000 / HZ
@@ -51,6 +55,7 @@ beforeEach(() => {
   wire.updates = []
   wire.beats = 0
   wire.estops = 0
+  wire.closes = 0
   useVehicleStore.getState().reset()
   window.history.replaceState(null, '', '/?drive=localhost:8080')
 })
@@ -61,11 +66,14 @@ afterEach(() => {
 })
 
 describe('leaving Drive on a Remo link', () => {
+  beforeEach(() => {
+    enterFrame()
+    parentSays(true)
+  })
+  afterEach(leaveFrame)
+
   it('sends neutral at once, stops updates, and waits for a fresh arm on return', () => {
-    const { rerender } = renderHook(
-      ({ active }) => useRemoTransport('pw', true, { hz: HZ, active }),
-      { initialProps: { active: true } },
-    )
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
     act(() => useVehicleStore.getState().arm())
     act(() => useVehicleStore.getState().setStick(0.4, 0.6))
     act(() => vi.advanceTimersByTime(TICK_MS * 2))
@@ -73,20 +81,56 @@ describe('leaving Drive on a Remo link', () => {
     expect(wire.updates.at(-1)).toMatchObject({ driving: true, throttle: 0.6 })
 
     wire.updates = []
-    rerender({ active: false })
+    act(() => parentSays(false))
     expect(wire.updates).toEqual([expect.objectContaining({ steer: 0, throttle: 0, driving: false })])
     act(() => vi.advanceTimersByTime(TICK_MS * 20))
     expect(wire.updates.length).toBe(1)
     expect(wire.beats).toBeGreaterThan(0)
     expect(wire.estops).toBe(0)
 
-    rerender({ active: true })
+    act(() => parentSays(true))
     act(() => vi.advanceTimersByTime(TICK_MS * 2))
     expect(wire.updates.slice(1).every((u) => !u.driving)).toBe(true)
 
     act(() => useVehicleStore.getState().arm())
     act(() => vi.advanceTimersByTime(TICK_MS))
     expect(wire.updates.at(-1)?.driving).toBe(true)
+  })
+
+  it('revokes in the same turn as the message, before any React render', () => {
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
+    act(() => useVehicleStore.getState().arm())
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    wire.updates = []
+
+    // no act(): no effect or render may run between these lines
+    parentSays(false)
+    expect(wire.updates).toEqual([expect.objectContaining({ driving: false })])
+    useVehicleStore.getState().arm()
+    vi.advanceTimersByTime(TICK_MS * 3)
+    expect(wire.updates.length).toBe(1)
+    expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+  })
+
+  it('sends neutral and closes the socket on sign-out, in the same turn', () => {
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
+    act(() => useVehicleStore.getState().arm())
+    act(() => vi.advanceTimersByTime(TICK_MS))
+    wire.updates = []
+    parentSignsOut()
+    expect(wire.updates).toEqual([expect.objectContaining({ steer: 0, throttle: 0, driving: false })])
+    expect(wire.closes).toBe(1)
+    expect(useVehicleStore.getState().command.safety.arm).toBe(false)
+    vi.advanceTimersByTime(TICK_MS * 3)
+    expect(wire.updates.length).toBe(1)
+  })
+
+  it('still sends STOP while Drive is hidden', () => {
+    act(() => parentSays(false))
+    renderHook(() => useRemoTransport('pw', true, { hz: HZ }))
+    act(() => useVehicleStore.getState().estop())
+    expect(wire.estops).toBe(1)
+    expect(wire.updates.some((u) => u.driving)).toBe(false)
   })
 })
 

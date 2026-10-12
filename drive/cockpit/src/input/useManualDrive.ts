@@ -77,11 +77,18 @@ export function useManualDrive(enabled: boolean) {
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
-    window.addEventListener('blur', releaseAll) // dropping focus = release the keys
+    // Focus leaving the frame, or the tab hiding, releases the keys: a
+    // keyup that lands elsewhere must not leave the throttle held.
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') releaseAll()
+    }
+    window.addEventListener('blur', releaseAll)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', releaseAll)
+      document.removeEventListener('visibilitychange', onVisibility)
       releaseAll()
     }
   }, [enabled, press, release, releaseAll])

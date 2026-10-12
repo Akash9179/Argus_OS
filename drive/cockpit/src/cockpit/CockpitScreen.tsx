@@ -35,6 +35,7 @@ import { useManualDrive, type DriveDir } from '../input/useManualDrive'
 import { useRemoTransport } from '../transport/useRemoTransport'
 import { useBridgeTransport } from '../transport/useBridgeTransport'
 import { DriveConnect } from '../transport/DriveConnect'
+import { useDriveActive } from '../embed/driveActive'
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
@@ -45,8 +46,7 @@ const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
 /** The words this screen owns. Sentences about the vehicle come from the daemon. */
 const say = {
   noName: 'This machine',
-  noNameNote: 'No name declared. TRACK shows it by its fallback label.',
-  ugv: 'UGV',
+  noNameNote: 'No name declared. It is shown by a generic label.',
   youDrive: 'you have the wheel',
   youWatch: 'you are watching',
   notConnected: 'not connected to a vehicle',
@@ -132,7 +132,7 @@ function compassPoint(deg: number): string {
 
 /** A count of seconds since a moment, ticking once a second. */
 function useSecondsSince(startMs: number | null): number {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
@@ -275,7 +275,8 @@ function MachineCard({ tele, session, remote }: { tele: Telemetry; session: Sess
       <span className="vbody">
         <span className="vname">{name}</span>
         <span className="vtype">
-          {say.ugv} · {!remote ? say.notConnected : session?.role === 'DRIVER' ? say.youDrive : say.youWatch}
+          {/* No vehicle class is shown: the daemon does not report one, and the cockpit asserts nothing it was not told. */}
+          {!remote ? say.notConnected : session?.role === 'DRIVER' ? say.youDrive : say.youWatch}
         </span>
         <span className={`vstate is-${remote ? safety.tone : 'off'}`}>
           <span className="dot" />
@@ -323,10 +324,7 @@ function SelfTestCard({ preflight, remote }: { preflight: PreflightState; remote
 
 function SessionCard({ tele, session, remote, hz, linkOpen }: { tele: Telemetry; session: SessionFacts | null; remote: boolean; hz: number; linkOpen: boolean }) {
   const since = useSecondsSince(session?.since ?? null)
-  const recStart = useRef<number | null>(null)
-  if (tele.recording && recStart.current === null) recStart.current = Date.now()
-  if (!tele.recording) recStart.current = null
-  const rec = useSecondsSince(recStart.current)
+  const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
   return (
     <div className="card pad">
       <span className="h">{say.session}</span>
@@ -375,10 +373,7 @@ function Video({ tele, session, remote, linkOpen, onToggleRecord, fullscreen, on
   const safety = safetyTone(tele.safetyState)
   const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
   const dir = tele.steerAngleDeg < 0 ? 'left' : 'right'
-  const recStart = useRef<number | null>(null)
-  if (tele.recording && recStart.current === null) recStart.current = Date.now()
-  if (!tele.recording) recStart.current = null
-  const rec = useSecondsSince(recStart.current)
+  const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
   return (
     <div className="card video">
       <div className="video-ground" />
@@ -535,12 +530,14 @@ export function CockpitScreen() {
   const [driveKey, setDriveKeyState] = useState<string | null>(() => getDriveKey())
   const [entered, setEntered] = useState(false)
   const showConnect = isDriveMode() && !entered
-  const remo = useRemoTransport(driveKey, entered)
-  const bridge = useBridgeTransport(driveKey, entered)
+  // Embedded in C2, Drive commands only while it is the active screen.
+  const driveActive = useDriveActive()
+  const remo = useRemoTransport(driveKey, entered, { active: driveActive })
+  const bridge = useBridgeTransport(driveKey, entered, { active: driveActive })
   const link = bridge.active ? bridge : remo
   const pad = useGamepad()
   // keyboard arrows and the on-screen pad drive only when no gamepad and the cockpit is shown
-  const manual = useManualDrive(!pad.connected && !showConnect)
+  const manual = useManualDrive(!pad.connected && !showConnect && driveActive)
   const tele = useTelemetry()
   const remote = useVehicleStore((s) => s.remote)
   const preflight = useVehicleStore((s) => s.preflight)

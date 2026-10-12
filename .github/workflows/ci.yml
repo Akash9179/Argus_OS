@@ -69,6 +69,9 @@ jobs:
       - name: Typecheck
         working-directory: c2
         run: npm run typecheck
+      - name: Lint
+        working-directory: c2
+        run: npm run lint
       # Two real bugs sat in the mode switch until a live browser session
       # found them, because typecheck was the only gate C2 had. The
       # behaviour tests exist so a browser is never again the only thing
@@ -78,6 +81,33 @@ jobs:
         run: npm test
       - name: Build
         working-directory: c2
+        run: npm run build
+
+  cockpit:
+    name: "The driving cockpit: typecheck, lint, behaviour, build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: drive/cockpit
+        run: npm ci
+      # The cockpit has no typecheck script of its own. Its build runs
+      # tsc -b first, and both tsconfigs set noEmit, so this checks types
+      # and writes nothing.
+      - name: Typecheck
+        working-directory: drive/cockpit
+        run: npx tsc -b
+      - name: Lint
+        working-directory: drive/cockpit
+        run: npm run lint
+      - name: Behaviour
+        working-directory: drive/cockpit
+        run: npm test
+      - name: Build
+        working-directory: drive/cockpit
         run: npm run build
 
   edge-runtime:

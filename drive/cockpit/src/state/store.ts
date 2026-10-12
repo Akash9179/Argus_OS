@@ -34,6 +34,10 @@ interface VehicleStore {
   toggleRecord: () => void
   arm: () => void
   estop: () => void
+  /** Leaving Drive: zero steer and throttle and drop the arm. Not a latched stop. */
+  relinquish: () => void
+  /** When the current recording began, by this cockpit's clock; null when not recording. */
+  recordingSince: number | null
   remote: boolean
   preflight: PreflightState
   applyPreflight: (p: PreflightState) => void
@@ -46,7 +50,14 @@ interface VehicleStore {
 function makeInitial() {
   const sim = initialSimState()
   const command = neutralCommand()
-  return { sim, command, telemetry: toTelemetry(sim, command) }
+  const telemetry = toTelemetry(sim, command)
+  return { sim, command, telemetry, recordingSince: sinceRecording(null, telemetry) }
+}
+
+/** Keep the first moment recording was seen on; clear it when recording stops. */
+function sinceRecording(prev: number | null, t: Telemetry): number | null {
+  if (!t.recording) return null
+  return prev ?? Date.now()
 }
 
 export const useVehicleStore = create<VehicleStore>((set) => ({
@@ -79,7 +90,8 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
 
   // While a bridge link is live, the vehicle's own telemetry is the truth;
   // the local sim keeps ticking (it feeds nothing) but must not fight it.
-  applyRemoteTelemetry: (t) => set({ telemetry: t }),
+  applyRemoteTelemetry: (t) =>
+    set((s) => ({ telemetry: t, recordingSince: sinceRecording(s.recordingSince, t) })),
 
   applyPreflight: (p) => set({ preflight: p }),
 
@@ -122,6 +134,16 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
       command: { ...s.command, safety: { ...s.command.safety, estop: true } },
     })),
 
+  relinquish: () =>
+    set((s) => ({
+      command: {
+        ...s.command,
+        steer: 0,
+        throttle: 0,
+        safety: { ...s.command.safety, arm: false },
+      },
+    })),
+
   tick: (dtSec) =>
     set((s) => {
       const sim = stepVehicle(s.sim, s.command, dtSec)
@@ -131,7 +153,7 @@ export const useVehicleStore = create<VehicleStore>((set) => ({
         ...s.command,
         safety: { arm: false, estop: false },
       }
-      return { sim, command, telemetry }
+      return { sim, command, telemetry, recordingSince: sinceRecording(s.recordingSince, telemetry) }
     }),
 
   reset: () => set(makeInitial()),

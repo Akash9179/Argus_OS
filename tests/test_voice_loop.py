@@ -36,7 +36,7 @@ from voice import intent as intents
 from voice.service import VoiceService, load_character
 from voice.world import WorldModel
 
-from tests.conftest import OPERATOR_TOKEN, SITE_LAT, SITE_LON, a_manifest, wait_until
+from tests.conftest import OPERATOR_TOKEN, SITE_LAT, SITE_LON, a_manifest, heard_from, wait_until
 
 
 def centre_of(zone) -> dict[str, float]:
@@ -175,7 +175,7 @@ async def test_an_operator_can_ask_what_is_happening(voice, world, make_machine)
     """And is answered honestly, in words, without system terms."""
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, language = voice(
         [a_question("Scout 1 is standing by. Nothing else is happening.")]
@@ -226,8 +226,9 @@ async def test_a_voice_order_waits_for_a_readback_then_goes_through_the_map_endp
 ):
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order()])
     exchange = await service.listen(b"send scout one to gate three")
@@ -275,6 +276,7 @@ async def test_saying_no_to_a_readback_issues_nothing(voice, world, make_machine
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order()])
     exchange = await service.listen(b"send scout one to gate three")
@@ -291,6 +293,7 @@ async def test_a_readback_cannot_be_confirmed_twice(voice, world, make_machine, 
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order()])
     exchange = await service.listen(b"send scout one to gate three")
@@ -302,13 +305,43 @@ async def test_a_readback_cannot_be_confirmed_twice(voice, world, make_machine, 
     assert len(world.store.list_tasks()) == 1, "confirming twice issued two orders"
 
 
+async def test_an_order_refused_at_the_moment_of_sending_is_spoken_with_its_reason(
+    voice, world, make_machine, gate_zone, transport, settings
+):
+    """The readback was fine. Then the machine went quiet. The operator says
+    yes, and hears why nothing was sent, in the world model's own words,
+    rather than a bare "not accepted" that leaves them guessing."""
+    machine = make_machine(a_manifest(name="Scout 1"))
+    machine.start()
+    await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
+
+    service, _ = voice([an_order()])
+    exchange = await service.listen(b"send scout one to gate three")
+    assert exchange.needs_confirmation
+
+    machine.stop()
+    asset = world.store.get_asset(machine.asset_id)
+    asset.last_heartbeat.FromDatetime(asset.last_heartbeat.ToDatetime().replace(year=2020))
+    world.store.put_asset(asset)
+
+    refused = await service.confirm(exchange.exchange_id, confirmed=True)
+    assert refused.spoken.startswith("That order was not accepted. ")
+    assert "Scout 1 has not answered since" in refused.spoken
+    assert refused.kind != intents.KIND_ORDER
+    assert world.store.list_tasks() == []
+    assert f"{settings.topic_prefix}/{machine.asset_id}/task" not in [
+        topic for topic, _ in transport.published
+    ]
+
+
 # -- criterion 3: ambiguity produces a question, not an action -------------
 
 
 async def test_an_ambiguous_order_asks_rather_than_acting(voice, world, make_machine, gate_zone):
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_ambiguity("Which machine should go?")])
     exchange = await service.listen(b"send it over there")
@@ -331,6 +364,7 @@ async def test_an_order_naming_an_unknown_machine_is_not_guessed_at(
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order(machine_name="Reaper 6", readback="Send Reaper 6 to Gate 3?")])
     exchange = await service.listen(b"send reaper six to gate three")
@@ -346,6 +380,7 @@ async def test_an_order_naming_an_unknown_place_is_not_guessed_at(
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order(place_name="The North Bridge")])
     exchange = await service.listen(b"send scout one to the north bridge")
@@ -362,6 +397,7 @@ async def test_an_order_with_no_readback_is_refused(voice, world, make_machine, 
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order(readback="")])
     exchange = await service.listen(b"send scout one to gate three")
@@ -376,7 +412,7 @@ async def test_an_order_with_no_readback_is_refused(voice, world, make_machine, 
 async def test_everything_heard_and_everything_spoken_is_printed(voice, world, make_machine):
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([a_question("Scout 1 is standing by.")])
     exchange = await service.listen(b"what is scout one doing")
@@ -395,7 +431,7 @@ async def test_a_voice_that_cannot_speak_still_answers(voice, world, make_machin
 
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([a_question("Scout 1 is standing by.")])
 
@@ -430,6 +466,7 @@ async def test_a_readback_survives_the_request_that_proposed_it(app, world, make
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     language = ScriptedLanguage([an_order()])
     gateway = Gateway(
@@ -495,6 +532,7 @@ async def test_one_operator_cannot_confirm_another_operators_readback(voice, wor
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     shared: dict = {}
     first, _ = voice([an_order()])
@@ -532,7 +570,7 @@ async def test_an_unreachable_world_model_is_not_reported_as_an_empty_one(voice,
 
     machine = make_machine(a_manifest(name="Scout 1"))
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     service, _ = voice([an_order()])
 

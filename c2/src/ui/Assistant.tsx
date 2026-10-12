@@ -18,6 +18,7 @@ import { track as api, Refused } from '../sdk/client'
 import { savedToken } from '../sdk/session'
 import type { Position, TaskPreview } from '../sdk/types'
 import * as voice from '../sdk/voice'
+import { ArgusIcon } from './ArgusMark'
 import { clockAt, plain, say } from './wording'
 
 interface Message {
@@ -377,9 +378,10 @@ function ProposalCard({
   const needYou = checks.filter((c) => c.state === 'needs_you').length
   const failed = checks.filter((c) => c.state === 'fail').length
   const shown = showAll ? checks : checks.filter((c) => c.state !== 'pass')
+  // A distance the server could not measure is said to be unknown, never 0.
   const facts = preview
     ? [
-        say.assistant.distance(preview.distance_m),
+        preview.distance_m === null ? say.assistant.noDistance : say.assistant.distance(preview.distance_m),
         preview.eta_sec === null ? say.assistant.noEta : say.assistant.eta(preview.eta_sec),
         say.assistant.stops(preview.waypoints.length),
       ].join(' · ')
@@ -441,11 +443,7 @@ function checkStatus(state: string): 'ok' | 'warn' | 'act' {
 function ArgusGlyph() {
   return (
     <span className="argus-glyph" aria-hidden>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-        <circle cx="12" cy="12" r="8.5" />
-        <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
-        <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" />
-      </svg>
+      <ArgusIcon className="argus-glyph-mark" />
     </span>
   )
 }

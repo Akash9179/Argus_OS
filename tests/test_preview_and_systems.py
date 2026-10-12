@@ -484,6 +484,218 @@ async def test_an_order_is_refused_for_a_machine_that_has_gone_quiet(client, sto
             "waypoints": [{"latitude_deg": SITE_LAT + 0.001, "longitude_deg": SITE_LON}]}
     response = await client.post("/v1/tasks", json=body, headers={"Authorization": f"Bearer {ADMIN_TOKEN}"})
     assert response.status_code == 409
-    assert "not answering" in response.json()["detail"]
     preview = await _preview(client, ready_asset.asset_id)
-    assert _by_id(preview)["answering"]["state"] == "fail"
+    answering = _by_id(preview)["answering"]
+    assert answering["state"] == "fail"
+    # Refused in the check's own words, so the person reads one reason.
+    assert response.json()["detail"] == answering["text"]
+
+
+# -- issuing runs the preview's checks again, against the world now ---------
+
+
+ISSUER = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+
+
+async def _issue(client, asset_id: str, task_type: str = "navigate", waypoints=None):
+    return await client.post(
+        "/v1/tasks",
+        json={
+            "asset_id": asset_id,
+            "task_type": task_type,
+            "waypoints": waypoints
+            if waypoints is not None
+            else [{"latitude_deg": SITE_LAT + 0.001, "longitude_deg": SITE_LON}],
+        },
+        headers=ISSUER,
+    )
+
+
+def _orders_sent(transport, settings, asset_id: str) -> list:
+    return [t for t, _ in transport.published if t == f"{settings.topic_prefix}/{asset_id}/task"]
+
+
+async def _add_zone(app, name: str, zone_type: str, south: float, north: float) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://server", headers=ISSUER
+    ) as admin:
+        response = await admin.post(
+            "/v1/zones",
+            json={
+                "name": name,
+                "zone_type": zone_type,
+                "geometry": [
+                    {"latitude_deg": south, "longitude_deg": SITE_LON - 0.0005},
+                    {"latitude_deg": north, "longitude_deg": SITE_LON - 0.0005},
+                    {"latitude_deg": north, "longitude_deg": SITE_LON + 0.0005},
+                    {"latitude_deg": south, "longitude_deg": SITE_LON + 0.0005},
+                ],
+            },
+        )
+        assert response.status_code == 201, response.text
+
+
+async def test_support_withdrawn_after_the_preview_refuses_the_order_in_the_checks_words(
+    client, store, transport, settings, ready_asset
+):
+    """The operator approved a proposal whose checks have since changed.
+    The order is judged against the machine as it is now."""
+    assert (await _preview(client, ready_asset.asset_id))["can_send"] is True
+
+    ready_asset.capabilities.update({"supported_task_types": "patrol"})
+    store.put_asset(ready_asset)
+
+    response = await _issue(client, ready_asset.asset_id)
+    assert response.status_code == 409
+    supports = _by_id(await _preview(client, ready_asset.asset_id))["supports"]
+    assert supports["state"] == "fail"
+    assert response.json()["detail"] == supports["text"]
+    assert store.list_tasks() == []
+    assert _orders_sent(transport, settings, ready_asset.asset_id) == []
+
+
+async def test_an_order_to_a_machine_never_heard_from_is_refused(client, store, transport, settings):
+    """The preview fails a machine that has never answered. Issuing agrees."""
+    unheard = Asset(asset_id=new_id(), asset_class="ugv")
+    unheard.capabilities.update({"name": "Scout 9"})
+    store.put_asset(unheard)
+
+    response = await _issue(client, unheard.asset_id)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Scout 9 has never answered."
+    assert store.list_tasks() == []
+    assert _orders_sent(transport, settings, unheard.asset_id) == []
+
+
+async def test_a_battery_that_drops_after_the_preview_is_judged_as_a_fresh_preview_judges_it(
+    client, store, transport, settings, ready_asset
+):
+    """A low battery is amber in the preview, the operator's call, and never
+    a refusal. Issuing applies the same rule, read from the battery now."""
+    assert _by_id(await _preview(client, ready_asset.asset_id))["battery"]["state"] == "pass"
+
+    ready_asset.battery_fraction = 0.05
+    store.put_asset(ready_asset)
+    fresh = await _preview(client, ready_asset.asset_id)
+    assert _by_id(fresh)["battery"]["state"] == "needs_you"
+
+    response = await _issue(client, ready_asset.asset_id)
+    assert (response.status_code == 409) == (not fresh["can_send"])
+
+
+async def test_a_keep_out_added_after_the_preview_is_judged_as_a_fresh_preview_judges_it(
+    app, client, store, ready_asset
+):
+    """A route across a keep-out is amber, the operator's call. Issuing
+    reads the zone list as it is now, not as it was at the preview."""
+    assert _by_id(await _preview(client, ready_asset.asset_id))["keep_out"]["state"] == "pass"
+
+    await _add_zone(app, "Fuel dump", "restricted", SITE_LAT + 0.0004, SITE_LAT + 0.0008)
+    fresh = await _preview(client, ready_asset.asset_id)
+    assert _by_id(fresh)["keep_out"]["state"] == "needs_you"
+
+    response = await _issue(client, ready_asset.asset_id)
+    assert (response.status_code == 409) == (not fresh["can_send"])
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["nothing", "battery", "keep_out", "supports", "quiet", "offline", "automatic", "unknown_mode"],
+)
+async def test_issuing_refuses_exactly_when_a_fresh_preview_would(
+    app, client, store, transport, settings, ready_asset, change
+):
+    """One set of checks, two callers. Whatever the world does between the
+    proposal and the approval, the order goes if and only if a proposal
+    taken at that moment could be sent, and a refusal reads as the first
+    failing check does."""
+    if change == "battery":
+        ready_asset.battery_fraction = 0.05
+    elif change == "supports":
+        ready_asset.capabilities.update({"supported_task_types": "patrol"})
+    elif change == "quiet":
+        ready_asset.last_heartbeat.CopyFrom(_stale())
+    elif change == "offline":
+        ready_asset.status = AssetStatus.ASSET_STATUS_OFFLINE
+    store.put_asset(ready_asset)
+    if change == "keep_out":
+        await _add_zone(app, "Fuel dump", "restricted", SITE_LAT + 0.0004, SITE_LAT + 0.0008)
+    elif change == "automatic":
+        store.set_autonomy(ready_asset.asset_id, "automatic", "someone")
+    elif change == "unknown_mode":
+        store.set_autonomy(ready_asset.asset_id, "supervised", "someone")
+
+    fresh = await _preview(client, ready_asset.asset_id)
+    response = await _issue(client, ready_asset.asset_id)
+
+    if fresh["can_send"]:
+        assert response.status_code == 201, response.text
+    else:
+        assert response.status_code == 409
+        first_fail = next(c for c in fresh["checks"] if c["state"] == "fail")
+        assert response.json()["detail"] == first_fail["text"]
+        assert store.list_tasks() == []
+        assert _orders_sent(transport, settings, ready_asset.asset_id) == []
+
+
+# -- a route from a place nobody knows ---------------------------------------
+
+
+@pytest.fixture
+def lost_asset(store) -> Asset:
+    """Answering and ready, but it has never said where it is."""
+    asset = Asset(
+        asset_id=new_id(),
+        asset_class="ugv",
+        status=AssetStatus.ASSET_STATUS_ACTIVE,
+        last_heartbeat=now_ts(),
+        battery_fraction=0.9,
+    )
+    asset.capabilities.update(
+        {"name": "UGV-2", "max_speed_mps": 2.0, "supported_task_types": "navigate, patrol"}
+    )
+    store.put_asset(asset)
+    return asset
+
+
+async def test_with_no_known_start_the_way_there_is_not_called_clear(app, client, lost_asset):
+    """A keep-out between the machine and its destination cannot be ruled
+    out, and a distance from nowhere is not zero."""
+    await _add_zone(app, "Fuel dump", "restricted", SITE_LAT + 0.0004, SITE_LAT + 0.0008)
+    # Beyond the dump, not inside it.
+    preview = await _preview(
+        client,
+        lost_asset.asset_id,
+        waypoints=[{"latitude_deg": SITE_LAT + 0.002, "longitude_deg": SITE_LON}],
+    )
+    keep_out = _by_id(preview)["keep_out"]
+    assert keep_out["state"] == "unknown"
+    assert keep_out["text"] == "UGV-2 has not said where it is, so the way there was not checked."
+    assert "zone list" in keep_out["source"]
+    assert preview["distance_m"] is None
+    assert preview["eta_sec"] is None
+    assert preview["speed_mps_assumed"] is None
+    assert preview["can_send"] is True, "an unknown is the operator's call, not a refusal"
+
+
+async def test_with_no_known_start_a_destination_inside_a_keep_out_still_crosses_it(
+    app, client, lost_asset
+):
+    """Not knowing where the machine is does not make a closed destination
+    any less closed."""
+    await _add_zone(app, "Fuel dump", "restricted", SITE_LAT + 0.0004, SITE_LAT + 0.0008)
+    preview = await _preview(
+        client,
+        lost_asset.asset_id,
+        waypoints=[{"latitude_deg": SITE_LAT + 0.0006, "longitude_deg": SITE_LON}],
+    )
+    keep_out = _by_id(preview)["keep_out"]
+    assert keep_out["state"] == "needs_you"
+    assert keep_out["text"] == "This route crosses Fuel dump."
+
+
+async def test_with_no_known_start_and_no_zones_the_route_is_still_clear(client, lost_asset):
+    """With no keep-out anywhere, there is nothing the way there could cross."""
+    preview = await _preview(client, lost_asset.asset_id)
+    assert _by_id(preview)["keep_out"]["state"] == "pass"
+    assert preview["distance_m"] is None

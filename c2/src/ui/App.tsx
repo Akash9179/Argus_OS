@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { saveToken, savedToken, track as api } from '../sdk/client'
 import { onSignedOut, signOut } from '../sdk/session'
 import { isAnswering, useWorld } from '../state/world'
+import { ArgusWordmark } from './ArgusMark'
 import { Operate } from './Operate'
 import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
 import { say } from './wording'
@@ -32,7 +33,9 @@ export function App() {
   useEffect(() => onSignedOut(() => setSignedIn(false)), [])
 
   if (!signedIn) return <SignIn onSignedIn={() => setSignedIn(true)} />
-  return <Station theme={theme} onTheme={setTheme} onSignOut={signOut} />
+  // signOut takes an optional refused token. The operator's own sign-out
+  // passes nothing, never the click event, or it reads as a late refusal.
+  return <Station theme={theme} onTheme={setTheme} onSignOut={() => signOut()} />
 }
 
 function Station({
@@ -101,7 +104,7 @@ function Station({
     <div className="station">
       <header className="topbar">
         <button className="mark as-button" onClick={() => setScreen('desktop')} title={say.shell.desktop}>
-          <span className="mark-name">ARGUS</span>
+          <ArgusWordmark className="mark-name" />
           <span className="mark-sub">{say.shell.station}</span>
         </button>
         <nav className="tabs" aria-label={say.shell.launcher}>
@@ -151,7 +154,7 @@ function Station({
             <div className="waiting">{say.link.connecting}</div>
           )}
         </div>
-        {driveOpened && <DriveApp open={screen === 'drive'} />}
+        {driveOpened && <DriveApp open={screen === 'drive'} onEscape={() => setScreen('desktop')} />}
         <SettingsApp open={screen === 'settings'} theme={theme} onTheme={onTheme} onClose={() => setScreen('desktop')} />
         <Dock active={screen} away={screen !== 'desktop'} onOpen={openApp} />
       </div>
@@ -185,7 +188,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <div className="signin">
       <form onSubmit={submit}>
-        <span className="mark">ARGUS</span>
+        <ArgusWordmark className="mark" />
         <h1>{say.signIn.title}</h1>
         <p>{say.signIn.prompt}</p>
         <label>

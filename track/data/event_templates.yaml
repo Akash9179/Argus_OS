@@ -207,7 +207,6 @@ errors:
   # same reasoning as a misspelled AI policy profile: a setting the system
   # cannot honour must never be accepted quietly.
   no_such_autonomy_mode: "There is no setting called that. The choices are {choices}."
-  asset_not_answering: "{asset} is not answering right now."
   task_already_finished: "That order has already finished."
   no_such_layer: "There is no map imagery called that on this station."
   no_tile: "There is no imagery for that part of the map."
@@ -235,6 +234,9 @@ preview_checks:
   # A zone of a type this build has never heard of. Not called safe and
   # not called closed: the place is named and the operator decides.
   keep_out_unrecognised: "This route crosses {zone}. This station does not know whether that place is closed."
+  # The machine has not said where it is, so the leg to the first stop is
+  # unknown. Not called clear: that leg may cross a keep-out area.
+  keep_out_start_unknown: "{asset} has not said where it is, so the way there was not checked."
   # Where each fact came from.
   sources:
     heartbeat: "From its last heartbeat at {at}"

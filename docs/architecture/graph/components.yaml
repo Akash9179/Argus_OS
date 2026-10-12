@@ -25,7 +25,7 @@ components:
     role: Fleet world model server; MQTT ingest, fusion, zones, events, tasks, autonomy modes, REST/WS
     status: software_verified
     disposition: keep
-    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py, tests/test_preview_and_systems.py]
+    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py, tests/test_preview_and_systems.py, tests/test_tiles.py]
     known_gaps:
       - Single station, SQLite single-writer, full-scan association; fine for one site, not a dense theater
       - Provisional identity is convention only; indistinguishable from resolved identity on the wire
@@ -36,16 +36,17 @@ components:
     type: Application
     path: c2/
     plane: platform
-    role: Operator application; map, force rail, event feed, voice bar, autonomy modes
+    role: Operator application; Operate (map, fleet rail, event feed, assistant, autonomy modes), Drive hosted in a frame, local imagery layer
     status: software_verified
     disposition: keep
-    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/App.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
+    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/Assistant.test.tsx, c2/src/ui/App.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
     known_gaps:
-      - Gate-2 closed 10 Sep 2026; the approved redesign is being built (Argus_Wiki/program/c2-build-plan.md, M1 done, M2 Operate next)
+      - Gate-2 closed 10 Sep 2026; the approved redesign is being built (Argus_Wiki/program/c2-build-plan.md). M1 and M2 Operate are done; M3 Drive is built but in progress
+      - M3 Drive is proven by tests only. It has not been driven in a real browser inside C2 yet
       - Bearer token stored in localStorage (a refused token now returns to sign-in; storage itself unchanged)
       - Imagery tiles carry the bearer token as a query parameter (browsers cannot set headers on images); it lands in request logs and the browser cache. Same debt as the stream's token.
       - No video pane; WebRTC documented but nonexistent anywhere
-    notes: Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite runs in its own CI job.
+    notes: Operate was rebuilt to the approved design (M2). The assistant previews one task, shows the five server checks with their sources, and sends only after the readback is confirmed. Drive hosts drive/cockpit in an iframe and tells it when Drive is the active screen; leaving Drive relinquishes control (founder decision, 12 Oct 2026). The Drive address comes from localStorage, then VITE_DRIVE_URL in c2/.env.local; the default carries no bridge key. The map draws imagery from TRACK's local MBTiles cache when one is present. Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite and ESLint run in their own CI job.
 
   - id: platform.design
     name: Design tokens
@@ -253,12 +254,14 @@ components:
     type: Application
     path: drive/cockpit/
     plane: platform
-    role: Browser driving UI; gamepad and keyboard, ignition control, HUD telemetry
+    role: Browser driving UI; gamepad and keyboard, ignition control, HUD telemetry; runs standalone or inside C2's Drive frame
     status: software_verified
     disposition: refactor
+    tests: [drive/cockpit/src/cockpit/CockpitScreen.test.tsx, drive/cockpit/src/input/release.test.ts, drive/cockpit/src/transport/useBridgeTransport.test.ts, drive/cockpit/src/transport/useRemoTransport.test.ts, drive/cockpit/src/state/store.test.ts]
     known_gaps:
       - No video pane
-    notes: Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
+      - Inside C2 it is proven by tests only; not yet driven in a real browser inside C2
+    notes: Rebuilt for C2 M3 on the shared design tokens (design/). When embedded, it commands the vehicle only while C2 says Drive is the active screen (drive/cockpit/src/embed/driveActive.ts). Leaving Drive drops the arm and stops commanding; the operator must return and arm again. Only the parent window may send that message, and an embedded cockpit that has heard nothing is inactive. Lint clean; its own CI job. Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
 
   - id: teleop.watchdog
     name: Teleop watchdog

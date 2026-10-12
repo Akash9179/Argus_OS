@@ -12,3 +12,8 @@ dist/
 # Scratch from web research, never part of the build.
 .firecrawl/
 .claude/worktrees/
+# Redis writes its dump wherever redis-server was started.
+dump.rdb
+# C2 local environment holds secrets such as the bridge key. Never commit it.
+c2/.env.local
+c2/.env.*.local

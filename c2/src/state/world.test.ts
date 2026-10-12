@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { Asset, Telemetry } from '../sdk/types'
-import { isAnswering, lastHeardAt, type World } from './world'
+import { isAnswering, lastHeardAt, machinesInOrder, type World } from './world'
 
 function aWorld(assets: Asset[] = [], telemetry: Telemetry[] = []): World {
   return {
@@ -76,5 +76,50 @@ describe('isAnswering', () => {
     const offline: Asset = { ...fresh, status: 'ASSET_STATUS_OFFLINE' }
     const world = aWorld([offline])
     expect(isAnswering(world, 'A1', NOW, true)).toBe(false)
+  })
+})
+
+describe('machinesInOrder', () => {
+  const heardAt = (secondsAgo: number) => new Date((NOW - secondsAgo) * 1000).toISOString()
+  const names = (world: World) => machinesInOrder(world, NOW, false).map((a) => a.display_name)
+
+  it('keeps two answering machines in a stable order across heartbeats', () => {
+    // Sorting on the raw heartbeat swapped the rows every second while both
+    // machines were answering.
+    const before = aWorld([
+      { asset_id: 'B', display_name: 'Bravo', last_heartbeat: heardAt(1) },
+      { asset_id: 'A', display_name: 'Alpha', last_heartbeat: heardAt(2) },
+    ])
+    const after = aWorld([
+      { asset_id: 'B', display_name: 'Bravo', last_heartbeat: heardAt(2) },
+      { asset_id: 'A', display_name: 'Alpha', last_heartbeat: heardAt(1) },
+    ])
+    expect(names(before)).toEqual(['Alpha', 'Bravo'])
+    expect(names(after)).toEqual(['Alpha', 'Bravo'])
+  })
+
+  it('sorts a quiet machine after an answering one', () => {
+    // Quiet by the same test the rows use: heard 45 s ago is past the
+    // silence threshold, so the list must not still rank it as answering.
+    const world = aWorld([
+      { asset_id: 'A', display_name: 'Alpha', last_heartbeat: heardAt(45) },
+      { asset_id: 'B', display_name: 'Bravo', last_heartbeat: heardAt(1) },
+    ])
+    expect(names(world)).toEqual(['Bravo', 'Alpha'])
+    names(world).forEach((name, i) => {
+      const id = name === 'Alpha' ? 'A' : 'B'
+      expect(isAnswering(world, id, NOW, false)).toBe(i === 0)
+    })
+  })
+
+  it('counts a fresh motion sample as answering, as the rows do', () => {
+    const world = aWorld(
+      [
+        { asset_id: 'A', display_name: 'Alpha', last_heartbeat: heardAt(300) },
+        { asset_id: 'B', display_name: 'Bravo', last_heartbeat: heardAt(300) },
+      ],
+      [{ asset_id: 'B', timestamp: NOW - 2 }],
+    )
+    expect(names(world)).toEqual(['Bravo', 'Alpha'])
   })
 })

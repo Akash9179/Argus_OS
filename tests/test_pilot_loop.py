@@ -22,6 +22,8 @@ from tests.conftest import (
     SITE_LON,
     a_camera_seeing_a_person,
     a_manifest,
+    deliver_anyway,
+    heard_from,
     wait_until,
 )
 
@@ -48,7 +50,7 @@ async def test_the_server_treats_it_as_an_ordinary_machine(
     machine = make_machine(a_manifest(name="Runtime machine"))
     machine.start()
 
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     # It appears through the interface an application uses, with the name it
     # declared for itself rather than one composed on its behalf.
@@ -58,6 +60,8 @@ async def test_the_server_treats_it_as_an_ordinary_machine(
     assert mine[0]["asset_class"] == "ugv"
 
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+
+    await wait_until(lambda: heard_from(world, machine.asset_id))
     listed = (await client.get("/v1/assets")).json()
     mine = [a for a in listed if a["asset_id"] == machine.asset_id]
     assert mine[0]["display_name"] == "Runtime machine"
@@ -98,6 +102,7 @@ async def test_the_server_treats_it_as_an_ordinary_machine(
     # The other half of the same coin: asked what it is made of, it says
     # simulated rather than pretending to be steel.
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
     mirrored = world.store.get_registry(machine.asset_id)
     devices = {d["device"] for d in mirrored["drivers"]}
     assert "simulated" in devices
@@ -122,7 +127,7 @@ async def test_it_carries_out_an_order_from_the_map(client, world, make_machine)
         )
     )
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     # What its sensor saw became a track, through the public interface.
     await wait_until(lambda: world.store.list_tracks())
@@ -166,13 +171,19 @@ async def test_it_carries_out_an_order_from_the_map(client, world, make_machine)
 async def test_an_order_it_cannot_carry_out_is_refused_in_words(client, world, make_machine):
     machine = make_machine(a_manifest())
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
+    await wait_until(lambda: _declared(world, machine.asset_id))
 
+    # The station refuses it first, from what the machine declared.
     created = await client.post(
         "/v1/tasks",
         json={"asset_id": machine.asset_id, "task_type": "launch_torpedo", "channel": "map"},
     )
-    task_id = created.json()["task_id"]
+    assert created.status_code == 409
+    assert "has not said it can" in created.json()["detail"]
+
+    # An order that reaches the machine anyway is refused there, in words.
+    task_id = deliver_anyway(world, machine.asset_id, "launch_torpedo")
 
     await wait_until(lambda: world.store.get_task(task_id).status == TaskState.TASK_STATE_FAILED)
     assert "cannot" in world.store.get_task(task_id).status_history[-1].message.lower()
@@ -196,7 +207,7 @@ async def test_the_task_survives_the_link_being_cut(client, world, make_machine)
         )
     )
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     created = await client.post(
         "/v1/tasks",
@@ -277,8 +288,9 @@ async def test_a_different_manifest_changes_behaviour_with_no_code_change(
     reference.start()
     light.start()
 
-    await wait_until(lambda: world.store.get_asset(reference.asset_id) is not None)
-    await wait_until(lambda: world.store.get_asset(light.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, reference.asset_id))
+    await wait_until(lambda: heard_from(world, light.asset_id))
+    await wait_until(lambda: _declared(world, light.asset_id))
 
     # Different sensor counts, straight from the manifests.
     assert len(reference.runtime.drivers.sensors) == 1
@@ -307,15 +319,16 @@ async def test_a_different_manifest_changes_behaviour_with_no_code_change(
     }
     accepted = await client.post("/v1/tasks", json={"asset_id": reference.asset_id, **patrol})
     refused = await client.post("/v1/tasks", json={"asset_id": light.asset_id, **patrol})
+    # The station reads the shorter list and refuses before sending.
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Light has not said it can patrol the route."
 
+    # Sent anyway, the machine refuses it on its own manifest.
+    refused_id = deliver_anyway(world, light.asset_id, "patrol", patrol["waypoints"])
     await wait_until(
-        lambda: world.store.get_task(refused.json()["task_id"]).status
-        == TaskState.TASK_STATE_FAILED
+        lambda: world.store.get_task(refused_id).status == TaskState.TASK_STATE_FAILED
     )
-    assert (
-        "cannot"
-        in world.store.get_task(refused.json()["task_id"]).status_history[-1].message.lower()
-    )
+    assert "cannot" in world.store.get_task(refused_id).status_history[-1].message.lower()
     await wait_until(
         lambda: world.store.get_task(accepted.json()["task_id"]).status
         in (TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_DONE)
@@ -362,6 +375,7 @@ async def test_the_registry_is_queryable_and_reaches_the_world_model(client, wor
 
     # And mirrored, through the contract, with no administrator involved.
     await wait_until(lambda: world.store.get_registry(machine.asset_id) is not None, timeout=10)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     # Reading it is an admin matter, though. Driver versions and bus scans
     # are the system internals the waterline law keeps operators away from.
@@ -441,7 +455,7 @@ async def test_a_route_the_navigator_gives_up_on_is_reported_not_left_running(
 
     machine = make_machine(a_manifest(), navigator=GivesUp())
     machine.start()
-    await wait_until(lambda: world.store.get_asset(machine.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, machine.asset_id))
 
     created = await client.post(
         "/v1/tasks",
@@ -467,3 +481,13 @@ async def test_a_route_the_navigator_gives_up_on_is_reported_not_left_running(
     # The machine is free to take another order rather than stuck on a
     # route it has already abandoned.
     assert machine.runtime.core.world.current_task is None
+
+
+def _declared(world, asset_id: str) -> bool:
+    """Has the machine told the station which orders it understands."""
+    asset = world.store.get_asset(asset_id)
+    return bool(
+        asset is not None
+        and asset.HasField("capabilities")
+        and "supported_task_types" in asset.capabilities.fields
+    )

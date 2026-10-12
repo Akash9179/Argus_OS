@@ -45,7 +45,7 @@ from gateway import (
     TranscriptionRequest,
 )
 from voice import intent as intents
-from voice.world import NotSignedIn, WorldUnavailable
+from voice.world import NotSignedIn, OrderRefused, WorldUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -67,8 +67,9 @@ class Character:
     fallbacks: dict[str, str] = field(default_factory=dict)
     speaker: int = 0
 
-    def say(self, key: str) -> str:
-        return self.fallbacks.get(key, "")
+    def say(self, key: str, **values: str) -> str:
+        line = self.fallbacks.get(key, "")
+        return line.format(**values) if values and line else line
 
 
 def load_character(name: str = DEFAULT_CHARACTER, directory: Path = CHARACTER_DIR) -> Character:
@@ -238,6 +239,15 @@ class VoiceService:
 
         try:
             await self._issue(pending.intent)
+        except OrderRefused as refused:
+            # The world model would not send it now, and said why in an
+            # operator's words. The world may have moved since the readback:
+            # the machine gone quiet, or an order it no longer takes.
+            reason = str(refused)
+            spoken = (
+                self.character.say("order_refused_because", reason=reason) if reason else ""
+            ) or self.character.say("order_refused")
+            return await self._reply("", spoken, intents.KIND_UNCLEAR)
         except Exception:
             # The exception is logged, never spoken. A raw HTTP error read
             # aloud would put a URL, a status code and an internal port

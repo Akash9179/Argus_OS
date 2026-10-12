@@ -31,7 +31,11 @@ export function useGamepad(): GamepadStatus {
       if (connected !== wasConnected) {
         wasConnected = connected
         setStatus({ connected, id: gp?.id ?? '' })
-        if (!connected) prev = []
+        if (!connected) {
+          prev = []
+          // the last stick reading must not outlive the pad that made it
+          s.setStick(0, 0)
+        }
       }
       if (gp) {
         const r = readGamepad(gp, prev)

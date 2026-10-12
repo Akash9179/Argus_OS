@@ -46,4 +46,32 @@ describe('vehicle store', () => {
     toggleRecord()
     expect(useVehicleStore.getState().command.aux.record).toBe(!before)
   })
+
+  it('remembers when recording began, and forgets it when recording stops', () => {
+    const { toggleRecord, tick, applyRemoteTelemetry } = useVehicleStore.getState()
+    // a fresh cockpit records by default
+    expect(useVehicleStore.getState().recordingSince).not.toBeNull()
+    toggleRecord()
+    tick(0.05)
+    expect(useVehicleStore.getState().recordingSince).toBeNull()
+    toggleRecord()
+    tick(0.05)
+    const since = useVehicleStore.getState().recordingSince
+    expect(since).not.toBeNull()
+    tick(0.05)
+    expect(useVehicleStore.getState().recordingSince).toBe(since)
+    applyRemoteTelemetry({ ...useVehicleStore.getState().telemetry, recording: false })
+    expect(useVehicleStore.getState().recordingSince).toBeNull()
+  })
+
+  it('relinquish zeroes steer and throttle and drops the arm', () => {
+    const { setStick, arm, relinquish } = useVehicleStore.getState()
+    setStick(0.6, 0.8)
+    arm()
+    relinquish()
+    const { command } = useVehicleStore.getState()
+    expect(command.steer).toBe(0)
+    expect(command.throttle).toBe(0)
+    expect(command.safety.arm).toBe(false)
+  })
 })

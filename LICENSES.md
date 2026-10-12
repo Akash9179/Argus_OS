@@ -41,6 +41,12 @@ whether direct or not.
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
 
+## Map imagery (D-22 local cache)
+
+| Dataset | Licence | Where | Verdict |
+|---|---|---|---|
+| Copernicus Sentinel-2 L2A true colour, scene `S2B_44QLL_20260211_0_L2A` (11 Feb 2026), read once from the AWS open-data bucket via the Element84 earth-search STAC and rendered to `var/tiles/jabalpur.mbtiles` (Jabalpur demo site, z10 to 16) | Copernicus free, full and open data policy (Commission Delegated Regulation (EU) No 1159/2013); any use including commercial and military, attribution required | TRACK tile cache, shown by C2 | Clear. Attribution string carried in the file's metadata and shown on the map: "Contains modified Copernicus Sentinel data 2026". 10 m native resolution, so anything sharper needs a separately licensed source. No tile service is contacted at runtime. |
+
 ## Speech (Stage 4)
 
 | Component | Licence | Where | Verdict |

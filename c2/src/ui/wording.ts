@@ -30,6 +30,8 @@ export const say = {
   /** The operating system's own furniture: desktop, dock, application names. */
   shell: {
     desktop: 'Desktop',
+    /** The product name the wordmark spells, for assistive technology. */
+    brand: 'ARGUS',
     /** Under the mark in the top bar: what kind of station this is. */
     station: 'Ground operations',
     /** The name of the top bar's application strip, for assistive technology. */
@@ -359,6 +361,8 @@ export const say = {
     },
     stops: (n: number) => `${n} ${n === 1 ? 'stop' : 'stops'}`,
     noEta: 'time unknown',
+    /** The machine has not said where it is, so the way there is unmeasured. */
+    noDistance: 'distance unknown',
     unreachable: 'Cannot reach the assistant. Orders go through the map.',
     cannotUnderstand: 'The assistant cannot take orders here. Orders go through the map.',
     suggestions: ['What could go wrong?', 'What is everything doing?'],

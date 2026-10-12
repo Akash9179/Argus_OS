@@ -38,6 +38,13 @@ CONTENT_TYPES = {
 
 WORLD_BOUNDS = (-180.0, -85.0511, 180.0, 85.0511)
 
+# The deepest zoom any layer may claim, whatever its metadata says. A tile
+# address is checked against the layer's zoom before any arithmetic is done
+# with it, and this keeps that check honest when the metadata is wrong:
+# 2**z for a zoom from a request would otherwise stall the server, and a
+# flipped row past 2**63 does not fit in a SQLite integer.
+ZOOM_CEILING = 24
+
 
 @dataclass(frozen=True)
 class TileLayer:
@@ -135,7 +142,7 @@ class TileStore:
             attribution=str(meta.get("attribution") or ""),
             bounds=_parse_bounds(meta.get("bounds")),
             min_zoom=_parse_int(meta.get("minzoom"), 0),
-            max_zoom=_parse_int(meta.get("maxzoom"), 22),
+            max_zoom=min(max(_parse_int(meta.get("maxzoom"), 22), 0), ZOOM_CEILING),
         )
 
     def _forget(self, layer_id: str) -> None:
@@ -182,13 +189,19 @@ class TileStore:
         The caller has already checked the layer exists, so None here means
         "no imagery at that spot", never "no such layer".
         """
-        if z < 0 or x < 0 or y < 0 or x >= 2**z or y >= 2**z:
-            return None
-        y_tms = (2**z - 1) - y
         with self._lock:
+            layer = self._layers.get(layer_id)
             conn = self._connections.get(layer_id)
-            if conn is None:
+            if layer is None or conn is None:
                 return None
+            # The zoom first, so nothing below raises 2 to a number nobody
+            # has checked. Only then the column and row.
+            if not 0 <= z <= layer.max_zoom:
+                return None
+            side = 1 << z
+            if not (0 <= x < side and 0 <= y < side):
+                return None
+            y_tms = (side - 1) - y
             try:
                 row = conn.execute(
                     "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?",

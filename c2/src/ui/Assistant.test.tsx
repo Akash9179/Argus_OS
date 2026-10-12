@@ -150,6 +150,32 @@ describe('an order typed to the assistant', () => {
     expect(screen.getByText(say.assistant.blocked(1))).toBeTruthy()
   })
 
+  it('shows why, when the world model refuses it at the moment of sending', async () => {
+    // The checks passed when proposed. By the yes, the machine had gone
+    // quiet, and the world model refused. The person reads its reason.
+    confirm.mockResolvedValue({
+      ...orderExchange(),
+      kind: 'unclear',
+      needs_confirmation: false,
+      action: null,
+      spoken: 'That order was not accepted. Tessy has not answered since 14:02 Z.',
+    })
+    await typeAnOrder()
+    fireEvent.click(screen.getByRole('button', { name: say.assistant.approve }))
+    await waitFor(() =>
+      expect(screen.getByText('That order was not accepted. Tessy has not answered since 14:02 Z.')).toBeTruthy(),
+    )
+    expect(screen.queryByRole('button', { name: say.assistant.approve })).toBeNull()
+  })
+
+  it('never reads an unknown distance as zero', async () => {
+    // The machine has not said where it is, so the way there is unknown.
+    previewTask.mockResolvedValue(preview({ distance_m: null, eta_sec: null, speed_mps_assumed: null }))
+    await typeAnOrder()
+    expect(screen.queryByText(/(^|\s)0 m(\s|$)/)).toBeNull()
+    expect(screen.getByText(new RegExp(`${say.assistant.noDistance} · ${say.assistant.noEta}`))).toBeTruthy()
+  })
+
   it('cannot be approved when the checks could not be run', async () => {
     // An order the world model could not look at is not offered as one it
     // did. The readback stays so it can be dropped; the map still works.

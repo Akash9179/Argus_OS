@@ -15,6 +15,7 @@ vi.mock('./Operate', () => ({ Operate: () => <div>operate-screen</div> }))
 import { App } from './App'
 import { CLOSE_NOT_SIGNED_IN } from '../sdk/stream'
 import { say } from './wording'
+import { driveOrigin, driveUrl } from './driveUrl'
 
 /** A stand-in for the browser's WebSocket that the test can drive. */
 class FakeSocket {
@@ -156,5 +157,113 @@ describe('the dock', () => {
     await waitFor(() => expect(dock.classList.contains('is-away')).toBe(true))
     expect(dock.getAttribute('aria-hidden')).toBe('true')
     expect(container.querySelector('.dock-reveal')).toBeNull()
+  })
+})
+
+describe('leaving Drive', () => {
+  // Founder decision, 12 Oct 2026: leaving Drive relinquishes control. The
+  // cockpit frame stays mounted, so C2 must tell it which screen is up.
+  it('tells the cockpit frame whether Drive is the active screen', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const { container } = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    const tab = (name: string) =>
+      screen.getAllByRole('button', { name }).find((b) => b.classList.contains('tab'))!
+
+    fireEvent.click(tab(say.shell.apps.drive))
+    const frame = container.querySelector('iframe.drive-frame') as HTMLIFrameElement
+    expect(frame).toBeTruthy()
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => {})
+    const origin = new URL(driveUrl()).origin
+    expect(origin).not.toBe('*')
+
+    fireEvent.click(tab(say.shell.apps.operate))
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith({ type: 'argus.drive.active', active: false }, origin),
+    )
+
+    fireEvent.click(tab(say.shell.apps.drive))
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith({ type: 'argus.drive.active', active: true }, origin),
+    )
+
+    // and once when the frame loads, so a reload hears where it stands
+    post.mockClear()
+    fireEvent.load(frame)
+    expect(post).toHaveBeenCalledWith({ type: 'argus.drive.active', active: true }, origin)
+  })
+})
+
+describe('signing out', () => {
+  // The bug this pins: the button handed its click event to signOut as if
+  // it were a refused token, so the sign-out was ignored as a late refusal.
+  it('returns to sign-in and takes the Drive frame down with it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const { container } = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    const driveTab = screen.getAllByRole('button', { name: say.shell.apps.drive }).find((b) => b.classList.contains('tab'))!
+    fireEvent.click(driveTab)
+    expect(container.querySelector('iframe.drive-frame')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: say.signOut }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: say.signIn.title })).toBeTruthy())
+    expect(window.localStorage.getItem('argus.token')).toBeNull()
+    expect(container.querySelector('iframe.drive-frame')).toBeNull()
+  })
+})
+
+describe('Esc inside the Drive frame', () => {
+  // The cockpit has its own window, so C2 never hears an Esc pressed in
+  // it. The cockpit posts argus.drive.escape to its parent instead, and C2
+  // believes it only from that frame and that origin.
+  async function openDrive() {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const view = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    const driveTab = screen.getAllByRole('button', { name: say.shell.apps.drive }).find((b) => b.classList.contains('tab'))!
+    fireEvent.click(driveTab)
+    const frame = view.container.querySelector('iframe.drive-frame') as HTMLIFrameElement
+    const desktop = view.container.querySelector('.desktop')!
+    expect(desktop.classList.contains('is-away')).toBe(true)
+    return { frame, desktop }
+  }
+  function escapeFrom(source: Window, origin: string) {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'argus.drive.escape' }, origin, source }))
+  }
+
+  it('returns to the desktop when the cockpit frame says so', async () => {
+    const { frame, desktop } = await openDrive()
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => {})
+    escapeFrom(frame.contentWindow!, driveOrigin())
+    await waitFor(() => expect(desktop.classList.contains('is-away')).toBe(false))
+    expect(post).toHaveBeenLastCalledWith({ type: 'argus.drive.active', active: false }, driveOrigin())
+  })
+
+  it('ignores the same message from another origin', async () => {
+    const { frame, desktop } = await openDrive()
+    escapeFrom(frame.contentWindow!, 'http://elsewhere.example')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(desktop.classList.contains('is-away')).toBe(true)
+  })
+
+  it('ignores the same message from another window', async () => {
+    const { desktop } = await openDrive()
+    escapeFrom(window, driveOrigin())
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(desktop.classList.contains('is-away')).toBe(true)
+  })
+})
+
+describe('the settings window', () => {
+  it('names its close button in words from wording.ts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const { container } = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    const close = container.querySelector('.swin-close')!
+    expect(close.getAttribute('aria-label')).toBe(say.shell.settings.close)
+    expect(close.getAttribute('title')).toBe(say.shell.settings.closeHint)
   })
 })

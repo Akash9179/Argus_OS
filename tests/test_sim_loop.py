@@ -17,7 +17,7 @@ from sim.transport import DirectVehicleLink
 from sim.vehicle import ScriptedObservation
 from track.ids import new_id, now_ts
 
-from tests.conftest import SITE_LAT, SITE_LON, wait_until
+from tests.conftest import SITE_LAT, SITE_LON, deliver_anyway, heard_from, wait_until
 
 # About 60 meters north of the start, so a fast vehicle covers it in seconds.
 WAYPOINT_NORTH = {"latitude_deg": SITE_LAT + 0.00054, "longitude_deg": SITE_LON}
@@ -44,7 +44,7 @@ async def test_the_full_task_loop(client, world, make_vehicle):
     vehicle.start()
 
     # 1. It appears, through the same interface an application would use.
-    await wait_until(lambda: world.store.get_asset(vehicle.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, vehicle.asset_id))
     listed = (await client.get("/v1/assets")).json()
     assert [a["asset_id"] for a in listed] == [vehicle.asset_id]
     assert listed[0]["asset_class"] == "ugv"
@@ -113,7 +113,7 @@ async def test_killing_the_vehicle_turns_it_grey_and_fails_its_order(client, wor
     # Slow, so the order is still running when the vehicle dies.
     vehicle = make_vehicle(speed_mps=1.0)
     vehicle.start()
-    await wait_until(lambda: world.store.get_asset(vehicle.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, vehicle.asset_id))
 
     created = await client.post(
         "/v1/tasks",
@@ -147,16 +147,26 @@ async def test_killing_the_vehicle_turns_it_grey_and_fails_its_order(client, wor
     assert world.store.get_asset(vehicle.asset_id).position.latitude_deg >= SITE_LAT
 
 
-async def test_an_order_it_cannot_carry_out_is_refused_not_ignored(client, world, make_vehicle):
+async def test_an_order_it_cannot_carry_out_is_refused_not_ignored(
+    client, world, transport, settings, make_vehicle
+):
     vehicle = make_vehicle()
     vehicle.start()
-    await wait_until(lambda: world.store.get_asset(vehicle.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, vehicle.asset_id))
+    await wait_until(lambda: _declared(world, vehicle.asset_id))
 
+    # The station knows what the machine said it can do, and refuses the
+    # order before it leaves, in words.
     created = await client.post(
         "/v1/tasks",
         json={"asset_id": vehicle.asset_id, "task_type": "launch_torpedo", "channel": "map"},
     )
-    task_id = created.json()["task_id"]
+    assert created.status_code == 409
+    assert "has not said it can" in created.json()["detail"]
+    assert f"{settings.topic_prefix}/{vehicle.asset_id}/task" not in [t for t, _ in transport.published]
+
+    # An order that reaches the machine anyway is refused there too.
+    task_id = deliver_anyway(world, vehicle.asset_id, "launch_torpedo")
 
     await wait_until(lambda: world.store.get_task(task_id).status == TaskState.TASK_STATE_FAILED)
     assert "cannot" in world.store.get_task(task_id).status_history[-1].message.lower()
@@ -194,6 +204,16 @@ async def test_observations_survive_an_outage(world, transport, settings):
 # -- helpers ---------------------------------------------------------------
 
 
+def _declared(world, asset_id: str) -> bool:
+    """Has the machine told the station which orders it understands."""
+    asset = world.store.get_asset(asset_id)
+    return bool(
+        asset is not None
+        and asset.HasField("capabilities")
+        and "supported_task_types" in asset.capabilities.fields
+    )
+
+
 def drain(subscription) -> list[dict]:
     messages = []
     while not subscription.queue.empty():
@@ -211,7 +231,7 @@ async def test_what_it_can_do_is_scenario_data_and_reaches_the_world_model(
     data and the machine changes; no code changed hands."""
     vehicle = make_vehicle(supported_task_types=("navigate", "hold"))
     vehicle.start()
-    await wait_until(lambda: world.store.get_asset(vehicle.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, vehicle.asset_id))
 
     # The declaration reached the world model through the contract's
     # registry-in-telemetry convention, comma-joined like every machine's.
@@ -225,20 +245,26 @@ async def test_what_it_can_do_is_scenario_data_and_reaches_the_world_model(
     assert await wait_until(lambda: declared() == "navigate, hold")
 
     # And the machine's behavior is the same truth: patrol, supported by
-    # every default vehicle, is refused by this one, in words.
+    # every default vehicle, is refused by this one, in words. The station
+    # refuses it first, reading the same declaration.
+    patrol = [
+        {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON},
+        {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON + 0.0005},
+    ]
     created = await client.post(
         "/v1/tasks",
         json={
             "asset_id": vehicle.asset_id,
             "task_type": "patrol",
-            "waypoints": [
-                {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON},
-                {"latitude_deg": SITE_LAT + 0.0005, "longitude_deg": SITE_LON + 0.0005},
-            ],
+            "waypoints": patrol,
             "channel": "map",
         },
     )
-    task_id = created.json()["task_id"]
+    assert created.status_code == 409
+    assert "has not said it can patrol" in created.json()["detail"]
+
+    # Reaching the machine anyway, it refuses on its own declaration.
+    task_id = deliver_anyway(world, vehicle.asset_id, "patrol", patrol)
     await wait_until(lambda: world.store.get_task(task_id).status == TaskState.TASK_STATE_FAILED)
     assert "cannot" in world.store.get_task(task_id).status_history[-1].message.lower()
 

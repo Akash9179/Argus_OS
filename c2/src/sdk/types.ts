@@ -188,8 +188,9 @@ export interface TaskPreview {
   waypoints: Position[]
   /** From the machine's last known position through the waypoints. */
   path: Position[]
-  distance_m: number
-  /** Null unless the machine declared a speed; never a guess. */
+  /** Null when the machine has not said where it is: the first leg is unknown. */
+  distance_m: number | null
+  /** Null unless the machine declared a speed and its start is known; never a guess. */
   eta_sec: number | null
   speed_mps_assumed: number | null
   checks: PreviewCheck[]

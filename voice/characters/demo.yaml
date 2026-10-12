@@ -55,6 +55,9 @@ fallbacks:
   # An order the world model refused. Says what happened without reading a
   # status code or a URL aloud.
   order_refused: "That order was not accepted."
+  # The same, when the world model said why. The reason is its sentence,
+  # already in an operator's words.
+  order_refused_because: "That order was not accepted. {reason}"
   # The world model could not be read. Distinct from not understanding:
   # saying "I do not have a machine by that name" here would be a
   # confident claim about a world we could not see.

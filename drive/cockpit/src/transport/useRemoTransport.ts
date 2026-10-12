@@ -49,7 +49,22 @@ function parseDriveParam(): DriveTarget | null {
   return { url: `${scheme}://${hostport}/ws`, label: hostport }
 }
 
-export function useRemoTransport(password: string | null, live: boolean, hz = 20): RemoLink {
+export interface RemoOptions {
+  /** Drive frames per second while Drive is active. */
+  hz?: number
+  /**
+   * Whether Drive is the operator's active screen. Leaving it sends neutral
+   * at once and stops drive updates; heartbeats continue. Coming back needs
+   * a fresh arm by the operator. Same rule as the bridge link.
+   */
+  active?: boolean
+}
+
+export function useRemoTransport(
+  password: string | null,
+  live: boolean,
+  { hz = 20, active = true }: RemoOptions = {},
+): RemoLink {
   const target = useMemo(() => parseDriveParam(), [])
   const [status, setStatus] = useState<LinkStatus>('connecting')
   const [role, setRole] = useState<DriveRole>(null)
@@ -62,6 +77,9 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
   useEffect(() => {
     liveRef.current = live
   }, [live])
+
+  const activeRef = useRef(active)
+  const onActiveChange = useRef<((active: boolean) => void) | null>(null)
 
   useEffect(() => {
     if (!target || !password) return
@@ -78,15 +96,26 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
     t.onAuthFail = () => setAuthFailed(true)
     t.connect()
 
+    // True from leaving Drive until the operator arms again.
+    let relinquished = !activeRef.current
+    onActiveChange.current = (nowActive) => {
+      if (nowActive) return
+      relinquished = true
+      useVehicleStore.getState().relinquish()
+      const { gear } = useVehicleStore.getState().command
+      t.update({ steer: 0, throttle: 0, gear, driving: false })
+    }
+
     let beat = 0
     const id = setInterval(() => {
       const s = useVehicleStore.getState()
-      t.update({
-        steer: s.command.steer,
-        throttle: s.command.throttle,
-        gear: s.command.gear,
-        driving: liveRef.current && s.telemetry.safetyState === 'DRIVING',
-      })
+      if (activeRef.current)
+        t.update({
+          steer: s.command.steer,
+          throttle: s.command.throttle,
+          gear: s.command.gear,
+          driving: liveRef.current && !relinquished && s.telemetry.safetyState === 'DRIVING',
+        })
       // heartbeat ~5x/s so the relay dead-man can distinguish steady-state from a
       // stalled link (drive tokens only fire on change, so silence != alive)
       if (++beat % Math.max(1, Math.round(hz / 5)) === 0) t.heartbeat()
@@ -94,6 +123,7 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
 
     const unsub = useVehicleStore.subscribe((state, prev) => {
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
+      else if (state.command.safety.arm && !prev.command.safety.arm && activeRef.current) relinquished = false
     })
 
     const onHide = () => t.close()
@@ -101,6 +131,7 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
     window.addEventListener('beforeunload', onHide)
 
     return () => {
+      onActiveChange.current = null
       clearInterval(id)
       unsub()
       window.removeEventListener('pagehide', onHide)
@@ -108,6 +139,12 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
       t.close()
     }
   }, [target, password, hz])
+
+  useEffect(() => {
+    if (activeRef.current === active) return
+    activeRef.current = active
+    onActiveChange.current?.(active)
+  }, [active])
 
   return { active: !!target, label: target?.label ?? '', status, role, authFailed }
 }

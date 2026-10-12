@@ -54,18 +54,20 @@ interface Props {
 }
 
 export function Operate({ world, link, theme }: Props) {
-  const machines = useMachines(world)
+  const [now, setNow] = useState(() => Date.now() / 1000)
+  const machines = useMachines(world, now, link === 'lost')
   const contacts = useContacts(world)
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string>('')
-  const [now, setNow] = useState(() => Date.now() / 1000)
   const [classFilter, setClassFilter] = useState<string>('')
   const [showZones, setShowZones] = useState(true)
   const [showMachines, setShowMachines] = useState(true)
   const [tileLayers, setTileLayers] = useState<TileLayerInfo[]>([])
   const [imageryOn, setImageryOn] = useState(true)
-  const [systems, setSystems] = useState<SystemsView | null>(null)
+  // Held with the machine it describes, so a newly selected machine never
+  // shows the last machine's systems while its own answer is on the way.
+  const [systemsOf, setSystemsOf] = useState<{ assetId: string; view: SystemsView | null } | null>(null)
   const [proposalPath, setProposalPath] = useState<Position[] | null>(null)
   const [focus, setFocus] = useState<{ lat: number; lon: number; key: number } | null>(null)
   const [assistantAway, setAssistantAway] = useState(false)
@@ -77,10 +79,9 @@ export function Operate({ world, link, theme }: Props) {
   }, [])
 
   // Select the first machine as soon as one appears, so the screen is never
-  // waiting for a click to become useful.
-  useEffect(() => {
-    if (selectedAssetId === null && machines.length > 0) setSelectedAssetId(machines[0].asset_id)
-  }, [machines, selectedAssetId])
+  // waiting for a click to become useful. This adjusts state during render
+  // rather than in an effect, so no frame is drawn with nothing selected.
+  if (selectedAssetId === null && machines.length > 0) setSelectedAssetId(machines[0].asset_id)
 
   // Imagery is whatever this station has cached. Asked once; an empty
   // answer keeps the drawn terrain and says so on the map.
@@ -98,16 +99,13 @@ export function Operate({ world, link, theme }: Props) {
   // What the selected machine has said about itself. Refreshed slowly:
   // registries change on boot, not every second.
   useEffect(() => {
-    if (!selectedAssetId) {
-      setSystems(null)
-      return
-    }
+    if (!selectedAssetId) return
     let alive = true
     const ask = () =>
       api
         .systems(selectedAssetId)
-        .then((view) => alive && setSystems(view))
-        .catch(() => alive && setSystems(null))
+        .then((view) => alive && setSystemsOf({ assetId: selectedAssetId, view }))
+        .catch(() => alive && setSystemsOf({ assetId: selectedAssetId, view: null }))
     void ask()
     const timer = window.setInterval(ask, 30_000)
     return () => {
@@ -122,6 +120,7 @@ export function Operate({ world, link, theme }: Props) {
   )
 
   const selected = selectedAssetId ? world.assets.get(selectedAssetId) ?? null : null
+  const systems = systemsOf && systemsOf.assetId === selectedAssetId ? systemsOf.view : null
   const selectedTrack = selectedTrackId ? world.tracks.get(selectedTrackId) ?? null : null
   const openTask = selected ? openTaskFor(world, selected.asset_id) : undefined
   /**

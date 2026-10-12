@@ -193,7 +193,7 @@ async def test_assets_carry_a_display_name_resolved_by_the_server(client, world)
 
 async def test_an_order_names_the_person_not_their_identifier(client, world):
     """Operators read names. An identifier on screen is a waterline leak."""
-    world.store.put_asset(Asset(asset_id="01ORDERTARGET00000000000A1", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERTARGET00000000000A1", asset_class="ugv", last_heartbeat=now_ts()))
     await client.post(
         "/v1/tasks",
         json={
@@ -295,7 +295,7 @@ async def test_an_order_carries_the_name_of_whoever_gave_it(client, world):
     Without one it would have to read `issued_by.principal_id`, and the only
     thing it could put on screen is an identifier.
     """
-    world.store.put_asset(Asset(asset_id="01ORDERNAMED000000000000A1", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERNAMED000000000000A1", asset_class="ugv", last_heartbeat=now_ts()))
     issued = (
         await client.post(
             "/v1/tasks",
@@ -317,7 +317,7 @@ async def test_an_order_a_station_gave_itself_is_not_credited_to_the_operator(cl
     person is genuinely the signed-in operator. The channel is the part that
     says they did not click anything, and the feed has to carry it.
     """
-    world.store.put_asset(Asset(asset_id="01ORDERAUTO0000000000000A1", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERAUTO0000000000000A1", asset_class="ugv", last_heartbeat=now_ts()))
     await client.post(
         "/v1/tasks",
         json={
@@ -362,7 +362,7 @@ async def test_an_order_with_no_issuer_on_record_names_nobody(client, world):
 
 async def test_a_self_issued_order_never_reads_as_a_persons_order(client, world):
     """The reason travels with the order, so no application has to guess."""
-    world.store.put_asset(Asset(asset_id="01ORDERREASON00000000000A1", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERREASON00000000000A1", asset_class="ugv", last_heartbeat=now_ts()))
     body = {
         "asset_id": "01ORDERREASON00000000000A1",
         "task_type": "navigate",
@@ -372,7 +372,7 @@ async def test_a_self_issued_order_never_reads_as_a_persons_order(client, world)
     assert "Test Operator" in clicked["reason"]
     assert clicked["reason"].startswith("because")
 
-    world.store.put_asset(Asset(asset_id="01ORDERREASON00000000000A2", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERREASON00000000000A2", asset_class="ugv", last_heartbeat=now_ts()))
     itself = (
         await client.post(
             "/v1/tasks",
@@ -399,7 +399,7 @@ async def test_a_channel_this_build_never_heard_of_still_reaches_the_operator(cl
     order arrived. Printing it raw puts a caller's identifier on an
     operator's screen. Saying it came from another system does neither.
     """
-    world.store.put_asset(Asset(asset_id="01ORDERNEWCHAN00000000A1", asset_class="ugv"))
+    world.store.put_asset(Asset(asset_id="01ORDERNEWCHAN00000000A1", asset_class="ugv", last_heartbeat=now_ts()))
     await client.post(
         "/v1/tasks",
         json={

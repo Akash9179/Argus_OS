@@ -165,3 +165,37 @@ async def test_an_empty_cache_lists_no_layers(tmp_path, store, transport, bus, t
                 headers={"Authorization": f"Bearer {OPERATOR_TOKEN}"},
             ) as client:
                 assert (await client.get("/v1/tiles")).json() == {"layers": []}
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "64/0/0",  # would overflow SQLite's integer on the flipped row
+        f"{10**6}/0/0",  # would make the server raise 2 to a huge power
+        "-1/0/0",
+        "2/0/0",  # past the layer's own deepest zoom
+        "1/2/0",  # x beyond the two columns zoom 1 has
+        "1/0/2",
+        "1/-1/0",
+        "1/0/-1",
+        f"1/{10**30}/0",
+    ],
+)
+async def test_an_address_outside_the_layer_is_a_missing_tile_never_a_fault(client, address):
+    """Out of range reads as no imagery there. Nothing is computed from a
+    zoom before it is known to be one this layer has."""
+    response = await client.get(f"/v1/tiles/site/{address}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "There is no imagery for that part of the map."
+
+
+def test_the_store_bounds_the_zoom_before_doing_any_arithmetic(tiles_dir):
+    """Asked directly, without the server in front, the answer is the same."""
+    from track.tiles import TileStore
+
+    store = TileStore(tiles_dir)
+    assert store.layer("site") is not None
+    for z, x, y in ((64, 0, 0), (10**6, 0, 0), (10**12, 0, 0), (-1, 0, 0), (1, 5, 0)):
+        assert store.tile("site", z, x, y) is None
+    assert store.tile("site", 1, 0, 0) == NORTH_TILE
+    store.close()

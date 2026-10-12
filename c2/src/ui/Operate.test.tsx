@@ -31,6 +31,7 @@ vi.mock('../sdk/client', () => ({
 
 import { track as api } from '../sdk/client'
 import { Operate } from './Operate'
+import { say } from './wording'
 
 const issueTask = api.issueTask as ReturnType<typeof vi.fn>
 const cancelTask = api.cancelTask as ReturnType<typeof vi.fn>
@@ -286,5 +287,20 @@ describe('a server that sends no mode at all', () => {
     expect(screen.queryByText(/The machines are waiting for you/)).toBeNull()
     // Tasking stays available: the map still invites the click.
     expect(screen.getByText(/Click the map to send/)).toBeTruthy()
+  })
+})
+
+describe('a machine class', () => {
+  // Law 5: the letters an operator reads are data in wording.ts. A class
+  // this build does not know still reads as itself.
+  it('reads in the letters wording.ts gives it', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'ugv' })] }))
+    const vtype = container.querySelector('.vtype')!
+    expect(vtype.textContent).toBe(say.operate.classes.ugv)
+  })
+
+  it('reads an unknown class as itself', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'tracked_crawler' })] }))
+    expect(container.querySelector('.vtype')!.textContent).toBe('Tracked crawler')
   })
 })

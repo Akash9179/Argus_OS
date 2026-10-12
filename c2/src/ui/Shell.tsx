@@ -8,23 +8,14 @@
  *
  * Drive is today its own dev application (drive/cockpit). The shell hosts
  * it full-bleed through an iframe: the documented microfrontend seam until
- * the cockpit folds into this SDK application. Override the address with
- * localStorage 'argus.driveUrl'; the default matches the local dev pair.
+ * the cockpit folds into this SDK application. Its address is in driveUrl.ts.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { clockDate, clockTime, setClockPrefs, useClockPrefs, zoneChoices } from './clockPrefs'
+import { driveUrl, isDriveEscape, postDriveActive } from './driveUrl'
 import { say } from './wording'
 
 export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
-
-const DRIVE_URL_KEY = 'argus.driveUrl'
-export function driveUrl(): string {
-  return (
-    window.localStorage.getItem(DRIVE_URL_KEY) ??
-    (import.meta.env.VITE_DRIVE_URL as string | undefined) ??
-    'http://localhost:5174/?bridge=localhost:8090&key=Argus@2026'
-  )
-}
 
 /* ------------------------------ wallpaper ------------------------------ */
 /* The site itself, drawn: sky, terrain contours, the road, the survey grid.
@@ -295,10 +286,40 @@ export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; 
 
 /* ------------------------------ drive app ------------------------------ */
 
-export function DriveApp({ open }: { open: boolean }) {
+export function DriveApp({ open, onEscape }: { open: boolean; onEscape: () => void }) {
+  // The frame stays mounted while the operator is elsewhere, so it is told
+  // on every change whether Drive is the active screen, and again whenever
+  // it loads. Leaving Drive relinquishes control (founder decision, 12 Oct
+  // 2026); the cockpit drops the arm and stops commanding.
+  const frame = useRef<HTMLIFrameElement>(null)
+  const openRef = useRef(open)
+  useEffect(() => {
+    openRef.current = open
+    postDriveActive(frame.current, open)
+  }, [open])
+  // Esc inside the cockpit stays in the cockpit's window. The cockpit posts
+  // an escape request instead, believed only from this frame and origin.
+  const onEscapeRef = useRef(onEscape)
+  useEffect(() => {
+    onEscapeRef.current = onEscape
+  }, [onEscape])
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (isDriveEscape(event, frame.current)) onEscapeRef.current()
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
   return (
     <div className={`shell-app${open ? '' : ' is-away'}`} aria-hidden={!open}>
-      <iframe className="drive-frame" src={driveUrl()} title={say.shell.apps.drive} allow="camera; microphone; gamepad" />
+      <iframe
+        ref={frame}
+        className="drive-frame"
+        src={driveUrl()}
+        title={say.shell.apps.drive}
+        allow="camera; microphone; gamepad"
+        onLoad={() => postDriveActive(frame.current, openRef.current)}
+      />
     </div>
   )
 }

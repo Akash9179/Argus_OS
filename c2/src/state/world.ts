@@ -139,15 +139,26 @@ export function useWorld() {
 
 /* ---------- reading the world ---------- */
 
-/** Our machines, named, most recently heard from first. */
-export function useMachines(world: World) {
-  return useMemo(
-    () =>
-      [...world.assets.values()].sort((a, b) =>
-        (b.last_heartbeat ?? '').localeCompare(a.last_heartbeat ?? ''),
-      ),
-    [world.assets],
+/**
+ * Our machines: those answering first, then the quiet ones, each group by
+ * name. Sorting on the raw heartbeat made the list swap places every second
+ * while two machines were both answering.
+ *
+ * "Answering" is `isAnswering`, the same test the rows and the menu bar use,
+ * so the list order can never disagree with a row that reads "No answer".
+ * `now` is in seconds, like that test.
+ */
+export function machinesInOrder(world: World, now: number, linkLost: boolean): Asset[] {
+  const quiet = (a: Asset) => (isAnswering(world, a.asset_id, now, linkLost) ? 0 : 1)
+  const name = (a: Asset) => a.display_name ?? a.asset_id
+  return [...world.assets.values()].sort(
+    (a, b) => quiet(a) - quiet(b) || name(a).localeCompare(name(b)),
   )
+}
+
+/** `machinesInOrder`, held steady between changes to what it reads. */
+export function useMachines(world: World, now: number, linkLost: boolean) {
+  return useMemo(() => machinesInOrder(world, now, linkLost), [world, now, linkLost])
 }
 
 /** Things seen that are not ours, most confident first. */

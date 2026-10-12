@@ -18,12 +18,12 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS LINK (`platform.link`) | software_verified | keep | - |
 | ARGUS TRACK (`platform.track`) | software_verified | keep | 2 known gaps |
-| ARGUS C2 (`platform.c2`) | software_verified | keep | 4 known gaps |
+| ARGUS C2 (`platform.c2`) | software_verified | keep | 5 known gaps |
 | Design tokens (`platform.design`) | software_verified | keep | - |
 | AI Gateway (`platform.gateway`) | software_verified | keep | 1 known gap |
 | Voice service (`platform.voice`) | software_verified | keep | 1 known gap |
 | Argus Sync (`platform.sync`) | planned | new | - |
-| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 1 known gap |
+| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 2 known gaps |
 | Simulated vehicle (`sim.vehicle`) | simulated | keep | - |
 
 ## Edge (the machine)
@@ -124,5 +124,6 @@ verdict: keep / refactor / replace / archive / new.
 - OD-18: Containers vs host on the Jetson
 - OD-19: Local reasoning model selection
 - OD-21: Provisional identity on the wire
+- OD-23: Approvals that go stale between preview and issuance
 
 Roadmap and critical path: NEXT-STEPS.md. Target architecture: ARCHITECTURE.md.

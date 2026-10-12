@@ -6,7 +6,7 @@
  * selected machine there, which is the whole tasking interface.
  */
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import L from 'leaflet'
 import { imageryLayer } from '../map/imagery'
 import { TERRAIN_DARK, TERRAIN_DAY, TerrainLayer } from '../map/terrain'
@@ -24,6 +24,14 @@ const STATUS_COLOUR: Record<string, string> = {
   warn: 'var(--warn)',
   act: 'var(--act)',
   off: 'var(--off)',
+}
+
+/**
+ * The map draws shapes on a canvas, and a canvas cannot read CSS variables,
+ * so a design token is resolved to its colour at the moment it is drawn.
+ */
+function token(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#3b82f6'
 }
 
 interface Props {
@@ -112,9 +120,12 @@ export function MapView(props: Props) {
   const fitted = useRef(false)
 
   // Handlers change every render; keeping them in a ref means the map is
-  // built once and never torn down underneath the operator.
+  // built once and never torn down underneath the operator. The ref is
+  // refreshed after each render commits, before any effect or click reads it.
   const handlers = useRef(props)
-  handlers.current = props
+  useLayoutEffect(() => {
+    handlers.current = props
+  })
 
   useEffect(() => {
     if (!holder.current || map.current) return
@@ -127,7 +138,10 @@ export function MapView(props: Props) {
       // The whole interface is one screen: no scroll traps, no surprises.
       preferCanvas: true,
     })
-    terrain.current = new TerrainLayer(theme === 'day' ? TERRAIN_DAY : TERRAIN_DARK)
+    // The theme at build time. The theme effect below follows later changes,
+    // so a theme switch recolours the map rather than rebuilding it.
+    const initial = handlers.current.theme
+    terrain.current = new TerrainLayer(initial === 'day' ? TERRAIN_DAY : TERRAIN_DARK)
     terrain.current.addTo(created)
     layers.current = L.layerGroup().addTo(created)
     proposal.current = L.layerGroup().addTo(created)
@@ -143,6 +157,8 @@ export function MapView(props: Props) {
     return () => {
       created.remove()
       map.current = undefined
+      // A rebuilt map starts at the default view, so it must frame the site again.
+      fitted.current = false
     }
   }, [])
 
@@ -173,9 +189,10 @@ export function MapView(props: Props) {
       .filter((p) => p.latitude_deg !== undefined && p.longitude_deg !== undefined)
       .map((p) => [p.latitude_deg!, p.longitude_deg!] as [number, number])
     if (ring.length < 2) return
-    L.polyline(ring, { color: 'var(--sel)', weight: 3, opacity: 0.9, dashArray: '10 6', interactive: false }).addTo(group)
+    const sel = token('--sel')
+    L.polyline(ring, { color: sel, weight: 3, opacity: 0.9, dashArray: '10 6', interactive: false }).addTo(group)
     for (const point of ring.slice(1)) {
-      L.circleMarker(point, { radius: 5, color: 'var(--sel)', weight: 2, fillColor: 'var(--bg)', fillOpacity: 1, interactive: false }).addTo(group)
+      L.circleMarker(point, { radius: 5, color: sel, weight: 2, fillColor: token('--bg'), fillOpacity: 1, interactive: false }).addTo(group)
     }
     map.current?.fitBounds(L.latLngBounds(ring).pad(0.4), { maxZoom: 17 })
   }, [proposalPath])
@@ -213,14 +230,18 @@ export function MapView(props: Props) {
         (zone.rules ?? []).some((r) => r.rule_type === 'alert_on_entry')
       L.polygon(ring, {
         className: 'zone',
-        color: keepOut ? 'var(--act)' : 'var(--sel)',
-        weight: 1.2,
-        opacity: 0.6,
-        fillOpacity: 0.04,
-        dashArray: '8 5',
+        color: token(keepOut ? '--act' : '--sel'),
+        weight: 2,
+        opacity: 0.9,
+        fillOpacity: keepOut ? 0.18 : 0.03,
+        dashArray: keepOut ? undefined : '8 6',
         interactive: false,
       })
-        .bindTooltip(escape(zone.name ?? ''), { permanent: true, direction: 'top', className: 'map-chip' })
+        .bindTooltip(escape(zone.name ?? ''), {
+          permanent: true,
+          direction: 'top',
+          className: `map-chip ${keepOut ? 'is-keepout' : 'is-zone'}`,
+        })
         .addTo(group)
     }
 
@@ -278,7 +299,7 @@ export function MapView(props: Props) {
         .map((h) => [h.position!.latitude_deg!, h.position!.longitude_deg!] as [number, number])
       if (trail.length > 1) {
         L.polyline(trail, {
-          color: 'var(--warn)',
+          color: token('--warn'),
           weight: 1.2,
           opacity: 0.45,
           dashArray: '3 4',
@@ -300,9 +321,16 @@ export function MapView(props: Props) {
           points.push([at.latitude_deg, at.longitude_deg])
         }
       }
+      // A site with zones is framed by its zones; machines alone get room around them.
+      const zonePoints: [number, number][] = zones.flatMap((zone) =>
+        (zone.geometry?.exterior ?? [])
+          .filter((p) => p.latitude_deg !== undefined && p.longitude_deg !== undefined)
+          .map((p) => [p.latitude_deg!, p.longitude_deg!] as [number, number]),
+      )
       if (points.length > 0) {
         fitted.current = true
-        created.fitBounds(L.latLngBounds(points).pad(1.2), { maxZoom: 16, animate: false })
+        const frame = L.latLngBounds([...points, ...zonePoints])
+        created.fitBounds(frame.pad(zonePoints.length > 0 ? 0.08 : 1.2), { maxZoom: 16, animate: false })
       }
     }
   }, [world, machines, contacts, zones, selectedAssetId, selectedTrackId, answering, showZones, showMachines])

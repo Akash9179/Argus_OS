@@ -98,6 +98,16 @@ def _check(check_id: str, state: str, text: str, source: str) -> dict:
     return {"id": check_id, "state": state, "text": text, "source": source}
 
 
+def _first_failure(checks: list[dict]) -> dict | None:
+    """The first check that blocks an order, or none.
+
+    Only "fail" blocks. "needs_you" and "unknown" are the operator's call,
+    which they made when they approved. The proposal's can_send and the
+    refusal at issue both come from here, so they cannot disagree.
+    """
+    return next((c for c in checks if c["state"] == "fail"), None)
+
+
 def _latlon(position) -> dict:
     return {"latitude_deg": position.latitude_deg, "longitude_deg": position.longitude_deg}
 
@@ -684,23 +694,16 @@ class WorldModel:
         Every order, whether it came from the map, from voice, or from
         another system, passes through here. There is no second path.
         """
+        # The proposal the operator approved, taken again now. The world
+        # may have moved since: the machine gone quiet, or an order it no
+        # longer says it understands. One set of checks serves both paths,
+        # so an order is issued exactly when a proposal taken at this moment
+        # could be sent, and a refusal reads as the check that failed.
+        proposal = self.preview_task(asset_id, task_type, parameters)
+        failed = _first_failure(proposal["checks"])
+        if failed is not None:
+            raise TaskRejected(failed["text"])
         asset = self.store.get_asset(asset_id)
-        if asset is None:
-            raise TaskRejected(self.language.error("no_such_asset"))
-        if asset.status == AssetStatus.ASSET_STATUS_OFFLINE:
-            raise TaskRejected(
-                self.language.error("asset_not_answering", asset=self.language.asset_name(asset))
-            )
-        # The same silence test the preview's "answering" check applies, so
-        # an order can never be issued that the preview would have refused.
-        # A machine that has never reported is not refused here: it may be
-        # newly registered, and the machine itself will refuse or fail an
-        # order it cannot take.
-        ago, _ = self._heard_ago(asset)
-        if ago is not None and ago > ANSWERING_WINDOW_S:
-            raise TaskRejected(
-                self.language.error("asset_not_answering", asset=self.language.asset_name(asset))
-            )
 
         task = Task(
             task_id=new_id(),
@@ -744,32 +747,39 @@ class WorldModel:
 
         waypoints = list(parameters.waypoints)
         path = list(waypoints)
-        if asset.HasField("position"):
+        # Where the machine starts. Without it the first leg is unknown, so
+        # the distance is too: a sum of the later legs read as the whole
+        # trip would understate it, and from a single stop it would be zero.
+        start_known = asset.HasField("position")
+        if start_known:
             path.insert(0, asset.position)
         if task_type == "patrol" and waypoints:
             path.append(waypoints[0])
 
-        distance = sum(geo.distance_m(path[i], path[i + 1]) for i in range(len(path) - 1))
+        distance = None
+        if start_known:
+            legs = (geo.distance_m(path[i], path[i + 1]) for i in range(len(path) - 1))
+            distance = round(sum(legs), 1)
         speed = self._declared_number(asset, "max_speed_mps")
-        eta = int(round(distance / speed)) if speed and speed > 0 else None
+        eta = int(round(distance / speed)) if distance is not None and speed and speed > 0 else None
 
         checks = [
             self._check_answering(asset, name),
             self._check_battery(asset, name),
             self._check_mode(asset, name),
             self._check_supports(asset, name, task_type),
-            self._check_keep_out(path),
+            self._check_keep_out(path, start_known, name),
         ]
         return {
             "asset_id": asset_id,
             "task_type": task_type,
             "waypoints": [_latlon(p) for p in waypoints],
             "path": [_latlon(p) for p in path],
-            "distance_m": round(distance, 1),
+            "distance_m": distance,
             "eta_sec": eta,
             "speed_mps_assumed": speed if eta is not None else None,
             "checks": checks,
-            "can_send": not any(c["state"] == "fail" for c in checks),
+            "can_send": _first_failure(checks) is None,
         }
 
     def _heard_ago(self, asset: Asset) -> tuple[float | None, str]:
@@ -855,13 +865,18 @@ class WorldModel:
             source,
         )
 
-    def _check_keep_out(self, path: list) -> dict:
+    def _check_keep_out(self, path: list, start_known: bool, name: str) -> dict:
         """Does the route pass through a place it should stay out of.
 
         A zone of a type this build does not recognise is an open question,
         not a clear answer: the vocabulary is open, and a newer station's
         "no_go" must not be reported as safe because this build never
         learned the word. It is named, and the operator decides.
+
+        When the machine has not said where it is, the way to the first
+        stop is unknown. What is known is still checked, so a stop inside a
+        keep-out is still reported. A route that is otherwise clear is not
+        called clear, because the leg nobody can see may cross a zone.
         """
         zones = self.store.list_zones()
         if not zones:
@@ -889,6 +904,13 @@ class WorldModel:
                 "keep_out",
                 "unknown",
                 self.language.preview_check("keep_out_unrecognised", zone=unrecognised.name),
+                source,
+            )
+        if not start_known:
+            return _check(
+                "keep_out",
+                "unknown",
+                self.language.preview_check("keep_out_start_unknown", asset=name),
                 source,
             )
         return _check("keep_out", "pass", self.language.preview_check("keep_out_clear"), source)

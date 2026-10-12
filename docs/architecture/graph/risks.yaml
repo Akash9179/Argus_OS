@@ -57,7 +57,7 @@ risks:
     severity: medium
     affects: [teleop.bridge, teleop.relay, teleop.cockpit]
     summary: Live drive control over Tailscale Funnel behind one static password; no per-operator identity, no rate limiting, zero logging in the daemon, C2 token in localStorage. This is now the demo path for a defence product driven over the internet.
-    mitigation: DAEMON SIDE CLOSED 18 Aug 2026, per-operator tokens, an append-only session log, and per-address auth rate limiting, all CI-proven (tests/test_bridge_daemon.py); the shared ARGUS_PASSWORD is gone from the daemon. Remaining, the legacy relay still runs the old password until ADR-0009 convergence retires it; the C2 token still sits in localStorage; and the cockpit paces a rate_limited lockout correctly but shows no plain sentence for it yet, which lands with the next gated cockpit UI pass.
+    mitigation: DAEMON SIDE CLOSED 18 Aug 2026, per-operator tokens, an append-only session log, and per-address auth rate limiting, all CI-proven (tests/test_bridge_daemon.py); the shared ARGUS_PASSWORD is gone from the daemon. Remaining, the legacy relay still runs the old password until ADR-0009 convergence retires it; the C2 token still sits in localStorage; and the cockpit paces a rate_limited lockout correctly but shows no plain sentence for it yet, which lands with the next gated cockpit UI pass. 12 Oct 2026, the C2 default Drive URL no longer carries the bridge key; the key lives only in c2/.env.local or the cockpit's own prompt, and a hidden Drive frame relinquishes control.
 
   - id: R-9
     title: The founder is the pipeline
@@ -72,3 +72,10 @@ risks:
     affects: [edge.worldslice, core.local_world_model]
     summary: All machine-local state was in memory. A machine that rebooted lost identity context, mission, and home; incompatible with law 15 and with any unattended deployment.
     mitigation: CLOSED 18 Aug 2026 (ADR-0005, drive/pilot/autonomy/local_world.py; the section 8 reboot test in CI, tests/test_reboot.py, including never auto-resuming motion). Residual, tracked on core.local_world_model, no journal consumer yet and heavy recordings wait on OD-16.
+
+  - id: R-11
+    title: An approval can go stale before the order is issued
+    severity: medium
+    affects: [platform.track, platform.c2, platform.voice]
+    summary: The issuance re-check refuses only on "fail". A check that turns from green to needs_you after approval does not stop the order, so the operator approves one picture and the vehicle receives another. Automatic investigations and voice-only operators send needs_you orders with no person seeing the checks. This bears on law 12 (bounded actuation) and law 7 (never claim unearned certainty).
+    mitigation: Open decision OD-23; the recommended fix binds a preview id to the voice exchange and refuses on a material change. Until it is decided, physical autonomous operation stays behind the hardware safety gate (ARCHITECTURE.md section 6).

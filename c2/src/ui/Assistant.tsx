@@ -11,9 +11,17 @@
  * What the machine heard and what it said are both printed, always: an
  * operator in a loud room cannot rely on hearing the reply, and a strange
  * answer has to be traceable to a mishearing rather than guessed at.
+ *
+ * The request carries the operator's words and nothing else. So the panel
+ * names no machine and no place of its own; the only machine it shows is
+ * the one the server resolved, on the proposal.
+ *
+ * When the voice service cannot be reached the panel says so, keeps asking,
+ * and tells the screen, which folds it to its rail until the service
+ * answers again.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { track as api, Refused } from '../sdk/client'
 import { savedToken } from '../sdk/session'
 import type { Position, TaskPreview } from '../sdk/types'
@@ -37,21 +45,26 @@ export interface Proposal {
 }
 
 interface Props {
-  /** The machine the operator is looking at, for the strip and the prompt. */
-  machineName: string
-  /** Other things in view (a zone, a contact), named. */
-  lookingAt: string[]
   collapsed: boolean
   onToggle: () => void
   /** The proposed path, for the map to draw; null when there is none. */
   onProposal: (path: Position[] | null) => void
   /** Told when an order goes through, so a stale notice elsewhere can clear. */
   onOrdered?: () => void
+  /**
+   * Told when the voice service stops or starts answering. Only on a
+   * change, so a panel the operator opened by hand stays open while the
+   * service is still unreachable.
+   */
+  onReach?: (reached: boolean) => void
 }
 
 type Status = 'idle' | 'listening' | 'thinking'
 
-export function Assistant({ machineName, lookingAt, collapsed, onToggle, onProposal, onOrdered }: Props) {
+/** How long to wait before asking an unreachable voice service again. */
+export const VOICE_RETRY_MS = 15_000
+
+export function Assistant({ collapsed, onToggle, onProposal, onOrdered, onReach }: Props) {
   // The same credential the rest of the application uses. The voice
   // service holds none of its own and acts only as the signed-in operator,
   // so an order it issues is that person's order.
@@ -66,6 +79,9 @@ export function Assistant({ machineName, lookingAt, collapsed, onToggle, onPropo
   const ptt = useRef(new voice.PushToTalk())
   const scroller = useRef<HTMLDivElement>(null)
 
+  // Each attempt asks the service once. An unreachable service is asked
+  // again after a pause, so the panel comes back when the service does.
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let alive = true
     voice
@@ -77,7 +93,23 @@ export function Assistant({ machineName, lookingAt, collapsed, onToggle, onPropo
     return () => {
       alive = false
     }
-  }, [token])
+  }, [token, attempt])
+  useEffect(() => {
+    if (capabilities !== 'unreached') return
+    const timer = window.setTimeout(() => setAttempt((n) => n + 1), VOICE_RETRY_MS)
+    return () => window.clearTimeout(timer)
+  }, [capabilities, attempt])
+
+  // Reachability changes only on a transition, so the screen hears each
+  // change once. Unknown (still asking) is not reported at all.
+  const reached = capabilities === null ? null : capabilities !== 'unreached'
+  const onReachRef = useRef(onReach)
+  useLayoutEffect(() => {
+    onReachRef.current = onReach
+  })
+  useEffect(() => {
+    if (reached !== null) onReachRef.current?.(reached)
+  }, [reached])
 
   useEffect(() => {
     // jsdom has no scrollTo; a browser always does.
@@ -224,10 +256,14 @@ export function Assistant({ machineName, lookingAt, collapsed, onToggle, onPropo
   )
 
   if (collapsed) {
+    // Folded because the service cannot be reached: the rail says so, on
+    // hover and to assistive technology, and still opens on a click.
+    const railSays = reached === false ? say.assistant.unreachable : say.assistant.expand
     return (
       <aside className="assistant is-collapsed">
-        <button className="assistant-expand" onClick={onToggle} title={say.assistant.expand} aria-label={say.assistant.expand}>
+        <button className="assistant-expand" onClick={onToggle} title={railSays} aria-label={railSays}>
           <ArgusGlyph />
+          {reached === false && <span className="dot is-off" aria-hidden />}
           {proposal && <span className="badge" aria-label={say.operate.awaitingYou} />}
         </button>
       </aside>
@@ -260,17 +296,6 @@ export function Assistant({ machineName, lookingAt, collapsed, onToggle, onPropo
           </svg>
         </button>
       </header>
-
-      {/* Bound to the map selection: what the assistant is talking about. */}
-      <div className="looking">
-        <span className="looking-label">{say.assistant.lookingAt}</span>
-        {machineName && <span className="pill is-sel is-small">{machineName}</span>}
-        {lookingAt.map((name) => (
-          <span key={name} className="pill is-act is-small">
-            {name}
-          </span>
-        ))}
-      </div>
 
       <div className="assistant-body" ref={scroller}>
         {standing && <p className="assistant-standing">{standing}</p>}
@@ -320,7 +345,7 @@ export function Assistant({ machineName, lookingAt, collapsed, onToggle, onPropo
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={machineName ? say.assistant.placeholder(machineName) : say.assistant.placeholderNone}
+          placeholder={say.assistant.placeholder}
           disabled={!canUnderstand || status === 'thinking'}
           aria-label={say.assistant.send}
         />

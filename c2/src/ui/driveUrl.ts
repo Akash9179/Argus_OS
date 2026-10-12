@@ -73,3 +73,23 @@ export function postDriveActive(frame: HTMLIFrameElement | null, active: boolean
   const message: DriveActiveMessage = { type: DRIVE_ACTIVE, active }
   target.postMessage(message, driveOrigin())
 }
+
+/**
+ * The operator's session ended: signed out, or the site refused the token.
+ * The cockpit keeps the bridge key in its own tab storage, so it is told to
+ * relinquish, forget the key and close, rather than leave the key to the
+ * next operator or log an armed sign-out as link loss. Sent after
+ * active=false, while the frame is still mounted.
+ */
+export const DRIVE_SIGNOUT = 'argus.drive.signout'
+
+export interface DriveSignoutMessage {
+  type: typeof DRIVE_SIGNOUT
+}
+
+export function postDriveSignout(frame: HTMLIFrameElement | null): void {
+  const target = frame?.contentWindow
+  if (!target) return
+  const message: DriveSignoutMessage = { type: DRIVE_SIGNOUT }
+  target.postMessage(message, driveOrigin())
+}

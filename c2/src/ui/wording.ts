@@ -18,13 +18,6 @@ export const say = {
 
   find: { placeholder: 'Find a place or a machine', filter: 'Filter', all: 'All' },
 
-  /**
-   * The menus this application contributes to the operating system's menu
-   * bar. Only Operate is built, so the rest are shown and plainly disabled:
-   * hiding them would misrepresent what the system is, and a menu that
-   * looks live but does nothing is worse than one that says it is not ready.
-   */
-  menus: ['View', 'Machines', 'Zones', 'Voice'],
   notBuiltYet: 'Not in this build yet.',
 
   /** The operating system's own furniture: desktop, dock, application names. */
@@ -36,23 +29,21 @@ export const say = {
     station: 'Ground operations',
     /** The name of the top bar's application strip, for assistive technology. */
     launcher: 'Applications',
+    /** Only the applications that exist (founder decision, 12 Oct 2026). */
     apps: {
       operate: 'Operate',
       drive: 'Drive',
-      intel: 'Intel',
-      review: 'Review',
-      fleet: 'Fleet',
     },
     tips: {
       operate: 'The site: map, machines, events, voice.',
       drive: 'Take the wheel of one machine.',
-      settings: 'Zones, machines, people, appearance, AI policy.',
+      settings: 'Appearance and time.',
     },
     settings: {
       title: 'Settings',
       close: 'Close settings',
       closeHint: 'Close (Esc)',
-      nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', time: 'Time', ai: 'AI policy' },
+      nav: { appearance: 'Appearance', time: 'Time' },
       appearance: {
         heading: 'Appearance',
         sub: 'Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.',
@@ -205,6 +196,14 @@ export const say = {
      * when it is not known.
      */
     seenByAgo: (who: string, ago: string) => `Seen by ${who}, ${ago}.`,
+    /**
+     * A contact whose observations carry no time. Saying "a few seconds
+     * ago" would claim a recency nothing reported.
+     */
+    noTimeReported: 'No time reported',
+    seenByNoTime: (who: string) => `Seen by ${who}. No time reported.`,
+    lastSeenAgo: (ago: string) => `Last seen ${ago}.`,
+    noTimeAlone: 'No time reported.',
   },
 
   counts: {
@@ -320,8 +319,12 @@ export const say = {
       speed: 'Speed',
       battery: 'Battery',
       link: 'Link',
-      good: 'Good',
-      heard: (ago: string) => `heard ${ago}`,
+      /**
+       * The world model carries no link latency, so the link tile says
+       * only when the machine was last heard. Never a verdict like "Good"
+       * that nothing measured.
+       */
+      heard: (ago: string) => `Heard ${ago}`,
       positionSource: 'Position source',
       unverified: 'Unverified',
       currentOrder: 'Current order',
@@ -330,8 +333,9 @@ export const say = {
       standingBy: 'Standing by.',
     },
     activity: 'Recent activity',
-    cameras: 'Cameras',
     systems: 'Vehicle systems',
+    /** The name of the fleet rail's two tabs, for assistive technology. */
+    detailTabs: 'Systems and activity',
     asking: 'Asking the machine.',
     noneSelected: 'Select a machine to see its readings.',
   },
@@ -340,11 +344,14 @@ export const say = {
     name: 'ARGUS',
     badge: 'Assistant',
     tagline: 'Proposes. Never moves anything without you.',
-    lookingAt: 'Looking at',
     collapse: 'Put the assistant away',
     expand: 'Bring the assistant back',
-    placeholder: (machine: string) => `Ask about ${machine}, or hold the mic`,
-    placeholderNone: 'Ask about the site, or hold the mic',
+    /**
+     * The request carries the operator's words and nothing else, so the
+     * prompt names no machine. The machine an order is for is the one the
+     * server resolves, shown on the proposal.
+     */
+    placeholder: 'Ask about the site, or hold the mic',
     send: 'Send',
     approve: 'Approve and send',
     decline: 'No, drop it',

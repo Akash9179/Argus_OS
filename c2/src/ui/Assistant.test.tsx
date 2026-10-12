@@ -7,7 +7,7 @@
  * that chain and the two ways it must refuse to shortcut it: a failed
  * check disables the yes, and a no is a no.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TaskPreview } from '../sdk/types'
 import type { Exchange } from '../sdk/voice'
@@ -32,7 +32,7 @@ vi.mock('../sdk/voice', () => ({
 
 import { track as api } from '../sdk/client'
 import * as voice from '../sdk/voice'
-import { Assistant } from './Assistant'
+import { Assistant, VOICE_RETRY_MS } from './Assistant'
 import { say } from './wording'
 
 const previewTask = api.previewTask as ReturnType<typeof vi.fn>
@@ -82,9 +82,9 @@ function preview(overrides: Partial<TaskPreview> = {}): TaskPreview {
 
 const onProposal = vi.fn()
 
-function renderPanel() {
+function renderPanel({ collapsed = false, onReach = undefined as undefined | ((reached: boolean) => void) } = {}) {
   return render(
-    <Assistant machineName="Tessy" lookingAt={[]} collapsed={false} onToggle={() => undefined} onProposal={onProposal} />,
+    <Assistant collapsed={collapsed} onToggle={() => undefined} onProposal={onProposal} onReach={onReach} />,
   )
 }
 
@@ -106,6 +106,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 describe('an order typed to the assistant', () => {
@@ -123,6 +124,8 @@ describe('an order typed to the assistant', () => {
     expect(screen.getByText('This route crosses Keep out.')).toBeTruthy()
     expect(screen.getByText('From the site zone list.')).toBeTruthy()
     expect(screen.getByText(say.assistant.needYou(1))).toBeTruthy()
+    // The machine named is the one the server resolved, on the card.
+    expect(screen.getByText(/^Tessy · /)).toBeTruthy()
   })
 
   it('is sent only when the readback is answered yes', async () => {
@@ -214,5 +217,52 @@ describe('when the assistant cannot be reached', () => {
     renderPanel()
     await waitFor(() => expect(screen.getByText(say.assistant.unreachable)).toBeTruthy())
     expect((screen.getByRole('textbox') as HTMLInputElement).disabled).toBe(true)
+  })
+})
+
+describe('what the panel claims to know', () => {
+  // The request carries the operator's words and nothing else, so the
+  // panel must not suggest it was told what the operator is looking at.
+  it('shows no "looking at" strip and names no machine before the server does', async () => {
+    const { container } = renderPanel()
+    await waitFor(() => expect(screen.getByRole('textbox')).not.toHaveProperty('disabled', true))
+    expect(container.querySelector('.looking')).toBeNull()
+    expect(screen.queryByText(/Looking at/i)).toBeNull()
+    expect((screen.getByRole('textbox') as HTMLInputElement).placeholder).toBe(say.assistant.placeholder)
+  })
+})
+
+describe('reaching the voice service', () => {
+  it('tells the screen it is unreachable, then tells it again when the service answers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const onReach = vi.fn()
+    capabilities.mockRejectedValueOnce(new Error('down'))
+    renderPanel({ onReach })
+    await waitFor(() => expect(onReach).toHaveBeenLastCalledWith(false))
+    await act(() => vi.advanceTimersByTimeAsync(VOICE_RETRY_MS))
+    await waitFor(() => expect(onReach).toHaveBeenLastCalledWith(true))
+    expect(onReach).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the same silence once, so a panel opened by hand stays open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const onReach = vi.fn()
+    capabilities.mockRejectedValue(new Error('down'))
+    renderPanel({ onReach })
+    await waitFor(() => expect(onReach).toHaveBeenCalledWith(false))
+    // One retry per pause; React renders between them.
+    for (let i = 0; i < 3; i++) await act(() => vi.advanceTimersByTimeAsync(VOICE_RETRY_MS))
+    expect(capabilities).toHaveBeenCalledTimes(4)
+    expect(onReach).toHaveBeenCalledTimes(1)
+  })
+
+  it('says why on the collapsed rail', async () => {
+    capabilities.mockRejectedValue(new Error('down'))
+    renderPanel({ collapsed: true })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: say.assistant.unreachable }).getAttribute('title')).toBe(
+        say.assistant.unreachable,
+      ),
+    )
   })
 })

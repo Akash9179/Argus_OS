@@ -1,9 +1,8 @@
 /**
  * The operating-system shell: desktop, dock, and the application layer.
  *
- * The dock is the honest launcher: applications that exist are live, and
- * applications that do not are visible and plainly disabled, because hiding
- * them would misrepresent what the system is. Names are always shown; an
+ * The dock offers only the applications that exist: Operate, Drive and
+ * Settings (founder decision, 12 Oct 2026). Names are always shown; an
  * operator should never have to know what a symbol means.
  *
  * Drive is today its own dev application (drive/cockpit). The shell hosts
@@ -12,7 +11,8 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { clockDate, clockTime, setClockPrefs, useClockPrefs, zoneChoices } from './clockPrefs'
-import { driveUrl, isDriveEscape, postDriveActive } from './driveUrl'
+import { onSignedOut } from '../sdk/session'
+import { driveUrl, isDriveEscape, postDriveActive, postDriveSignout } from './driveUrl'
 import { say } from './wording'
 
 export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
@@ -80,10 +80,9 @@ export function Desktop({ nowSec, line, healthy, open }: { nowSec: number; line:
 /* --------------------------------- dock --------------------------------- */
 
 interface DockEntry {
-  id: ShellApp | 'intel' | 'review' | 'fleet'
+  id: ShellApp
   sep?: boolean
   name: string
-  live: boolean
   tip: string
   icon: ReactNode
 }
@@ -94,7 +93,6 @@ const DOCK: DockEntry[] = [
   {
     id: 'operate',
     name: say.shell.apps.operate,
-    live: true,
     tip: say.shell.tips.operate,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
@@ -107,7 +105,6 @@ const DOCK: DockEntry[] = [
   {
     id: 'drive',
     name: say.shell.apps.drive,
-    live: true,
     tip: say.shell.tips.drive,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
@@ -118,50 +115,8 @@ const DOCK: DockEntry[] = [
     ),
   },
   {
-    id: 'intel',
-    name: say.shell.apps.intel,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.6" opacity="0.9" />
-        <path d="M12 12 L18.6 7.6 A8.6 8.6 0 0 0 12 3.4 Z" fill="rgba(255,255,255,0.22)" stroke="none" />
-        <circle cx="8.6" cy="14.2" r="1.3" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="15.6" r="1" fill="currentColor" stroke="none" opacity="0.7" />
-      </svg>
-    ),
-  },
-  {
-    id: 'review',
-    name: say.shell.apps.review,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.6" fill="rgba(255,255,255,0.08)" />
-        <path d="M12 6.8V12l3.6 2.1" strokeWidth="2.4" />
-        <path d="M5.5 3.8 3 6.3M18.5 3.8 21 6.3" strokeWidth="1.6" opacity="0.8" />
-      </svg>
-    ),
-  },
-  {
-    id: 'fleet',
-    name: say.shell.apps.fleet,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <rect x="8.4" y="3.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.2)" stroke="none" />
-        <rect x="3" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
-        <rect x="13.8" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
-        <path d="M12 10.6v1.6M12 12.2l-5 1.2M12 12.2l5 1.2" strokeWidth="1.4" opacity="0.8" />
-      </svg>
-    ),
-  },
-  {
     id: 'settings',
     name: say.shell.settings.title,
-    live: true,
     tip: say.shell.tips.settings,
     sep: true,
     icon: (
@@ -186,9 +141,8 @@ export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean
           {entry.sep && <span className="dock-sep" aria-hidden />}
           <button
             type="button"
-            className={`dock-app${entry.live ? '' : ' is-disabled'}${active === entry.id ? ' is-running' : ''}`}
-            onClick={() => entry.live && onOpen(entry.id as ShellApp)}
-            aria-disabled={!entry.live}
+            className={`dock-app${active === entry.id ? ' is-running' : ''}`}
+            onClick={() => onOpen(entry.id)}
           >
             <span className="tip">{entry.tip}</span>
             <span className={`icon i-${entry.id}`}>{entry.icon}</span>
@@ -221,12 +175,8 @@ export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; 
         </div>
         <div className="swin-side">
           <div className="swin-title">{say.shell.settings.title.toUpperCase()}</div>
-          {([nav.zones, nav.machines, nav.people] as string[]).map((label) => (
-            <div key={label} className="snav is-inert" title={say.notBuiltYet}>{label}</div>
-          ))}
           <button type="button" className={`snav as-nav${pane === 'appearance' ? ' is-active' : ''}`} onClick={() => setPane('appearance')}>{nav.appearance}</button>
           <button type="button" className={`snav as-nav${pane === 'time' ? ' is-active' : ''}`} onClick={() => setPane('time')}>{nav.time}</button>
-          <div className="snav is-inert" title={say.notBuiltYet}>{nav.ai}</div>
         </div>
         {pane === 'time' ? (
         <div className="swin-main">
@@ -303,6 +253,18 @@ export function DriveApp({ open, onEscape }: { open: boolean; onEscape: () => vo
   useEffect(() => {
     onEscapeRef.current = onEscape
   }, [onEscape])
+  // Signing out (by hand, or by a refused token) tells the cockpit first:
+  // Drive is no longer active, then the session is over. The session's
+  // listeners run before React takes the frame down, so the frame is still
+  // there to hear both.
+  useEffect(
+    () =>
+      onSignedOut(() => {
+        postDriveActive(frame.current, false)
+        postDriveSignout(frame.current)
+      }),
+    [],
+  )
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (isDriveEscape(event, frame.current)) onEscapeRef.current()

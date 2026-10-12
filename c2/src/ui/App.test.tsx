@@ -214,6 +214,48 @@ describe('signing out', () => {
   })
 })
 
+describe('signing out with Drive open', () => {
+  // The cockpit keeps the bridge key in its tab's storage. Sign-out used to
+  // leave the next operator holding it, and signing out while armed was
+  // logged as link loss rather than an explicit disarm. So the frame is
+  // told, first that Drive is no longer active and then that the session
+  // ended, at its own origin, while it is still there to hear it.
+  async function signOutFromDrive(how: 'button' | 'refusal') {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const { container } = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    const driveTab = screen.getAllByRole('button', { name: say.shell.apps.drive }).find((b) => b.classList.contains('tab'))!
+    fireEvent.click(driveTab)
+    const frame = container.querySelector('iframe.drive-frame') as HTMLIFrameElement
+    const heard: { message: unknown; origin: string; frameThere: boolean }[] = []
+    vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(((message: unknown, origin: string) => {
+      heard.push({ message, origin, frameThere: frame.isConnected })
+    }) as typeof window.postMessage)
+
+    if (how === 'button') fireEvent.click(screen.getByRole('button', { name: say.signOut }))
+    else FakeSocket.last!.onclose?.({ code: CLOSE_NOT_SIGNED_IN })
+    await waitFor(() => expect(screen.getByRole('heading', { name: say.signIn.title })).toBeTruthy())
+    expect(container.querySelector('iframe.drive-frame')).toBeNull()
+    return heard
+  }
+
+  it('posts active=false, then signout, to the cockpit origin before the frame is gone', async () => {
+    const heard = await signOutFromDrive('button')
+    const origin = driveOrigin()
+    expect(origin).not.toBe('*')
+    expect(heard.slice(-2)).toEqual([
+      { message: { type: 'argus.drive.active', active: false }, origin, frameThere: true },
+      { message: { type: 'argus.drive.signout' }, origin, frameThere: true },
+    ])
+  })
+
+  it('does the same when the site refuses the token', async () => {
+    const heard = await signOutFromDrive('refusal')
+    expect(heard.slice(-1)[0]).toEqual({ message: { type: 'argus.drive.signout' }, origin: driveOrigin(), frameThere: true })
+  })
+})
+
 describe('Esc inside the Drive frame', () => {
   // The cockpit has its own window, so C2 never hears an Esc pressed in
   // it. The cockpit posts argus.drive.escape to its parent instead, and C2
@@ -265,5 +307,34 @@ describe('the settings window', () => {
     const close = container.querySelector('.swin-close')!
     expect(close.getAttribute('aria-label')).toBe(say.shell.settings.close)
     expect(close.getAttribute('title')).toBe(say.shell.settings.closeHint)
+  })
+})
+
+describe('the launcher', () => {
+  // Founder decision, 12 Oct 2026: phantom applications go. The top bar
+  // and the dock offer only what exists.
+  async function station() {
+    vi.stubGlobal('fetch', vi.fn(async () => okJson({ display_name: 'Akash', roles: ['operator'] })))
+    const view = render(<App />)
+    await waitFor(() => expect(FakeSocket.last).toBeTruthy())
+    FakeSocket.last!.open()
+    return view
+  }
+
+  it('offers Operate and Drive in the top bar and Operate, Drive and Settings in the dock', async () => {
+    const { container } = await station()
+    const tabs = [...container.querySelectorAll('.topbar .tabs > *')].map((t) => t.textContent)
+    expect(tabs).toEqual([say.shell.apps.operate, say.shell.apps.drive])
+    const dock = [...container.querySelectorAll('.dock .dock-name')].map((n) => n.textContent)
+    expect(dock).toEqual([say.shell.apps.operate, say.shell.apps.drive, say.shell.settings.title])
+    expect(container.querySelector('.tab.soon, .dock-app.is-disabled')).toBeNull()
+    for (const gone of ['Review', 'Intel', 'Fleet']) expect(screen.queryByText(gone)).toBeNull()
+  })
+
+  it('shows only the settings that exist: Appearance and Time', async () => {
+    const { container } = await station()
+    const nav = [...container.querySelectorAll('.swin-side .snav')].map((n) => n.textContent)
+    expect(nav).toEqual([say.shell.settings.nav.appearance, say.shell.settings.nav.time])
+    expect(container.querySelector('.snav.is-inert')).toBeNull()
   })
 })

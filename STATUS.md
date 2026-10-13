@@ -133,6 +133,5 @@ verdict: keep / refactor / replace / archive / new.
 - OD-19: Local reasoning model selection
 - OD-21: Provisional identity on the wire
 - OD-23: Approvals that go stale between preview and issuance
-- OD-24: Ownership and licence of the team's vehicle firmware
 
 Roadmap and critical path: NEXT-STEPS.md. Target architecture: ARCHITECTURE.md.

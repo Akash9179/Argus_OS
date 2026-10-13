@@ -174,5 +174,6 @@ decisions:
   - id: D-24
     title: Ownership and licence of the team's vehicle firmware
     status: decided
+    date: 2026-10-14
     affects: [bodies.ugv01, bodies.ugv01.firmware_watchdog]
     summary: The ARGUS DRIVE module firmware (ESP32-S3, 4.1.4) and the throttle board sketch (Arduino Nano, AC 1.2) were written by Gulshan Shah and sent to the founder on 13 Oct 2026. Founder decision, 14 Oct 2026, "we, as a company, own everything Gulshan is doing." The sources are company property and may live in the repo under bodies/ugv-01/firmware/; the watchdog additions need no separate licence row (law 9).

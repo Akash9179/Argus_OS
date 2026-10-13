@@ -8,7 +8,7 @@ CI fails if this file drifts from the graph.
 Maturity (law 17): `planned` < `scaffolded` < `simulated` <
 `software_verified` < `hardware_integrated` < `field_validated`.
 `simulated` means proven only against simulated hardware or fixtures.
-Nothing here has been field validated, and 1 component has hardware evidence (listed below).
+Nothing here has been field validated, and 2 components have hardware evidence (listed below).
 Disposition is the 18 Aug 2026 reconciliation
 verdict: keep / refactor / replace / archive / new.
 
@@ -32,7 +32,7 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS PILOT (`edge.pilot`) | simulated | keep | BLOCKED (1); 1 known gap |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
-| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | simulated | keep | BLOCKED (2); 5 known gaps |
+| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | hardware_integrated | keep | BLOCKED (2); 5 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
 | LocomotionDriver interface (`edge.hal.locomotion_interface`) | simulated | refactor | 1 known gap |
 | CommsDriver interface (`edge.hal.comms_interface`) | software_verified | keep | - |
@@ -74,7 +74,7 @@ verdict: keep / refactor / replace / archive / new.
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 4 known gaps |
+| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 5 known gaps |
 | v4 watchdog firmware (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane
@@ -111,6 +111,8 @@ verdict: keep / refactor / replace / archive / new.
 
 ## Hardware evidence (everything else is Mac and CI containers)
 
+- `edge.hal.ugv01`: 2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/.
+- `edge.hal.ugv01`: 2026-10-13, Phase E: throttle held at 20 percent, host silent 15.0 s with ports open; the wheels turned 19 s on a stopwatch until the zero arrived. The accelerator board holds its last duty with no watchdog. The section 6 gate stays shut.
 - `teleop.relay`: 2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in docs/architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved.
 
 ## Open decisions (founder-gated; details in docs/architecture/graph/decisions.yaml)

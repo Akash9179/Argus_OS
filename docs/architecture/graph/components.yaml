@@ -126,13 +126,17 @@ components:
     path: drive/pilot/hal/drivers/ugv01/
     plane: edge
     role: The single owner of ugv-01's ARGUS DRIVE module and accelerator board; pure protocol, serial link, controls with the safety rules, and the bench tool. The teleop bridge's ugv01 adapter is a shim over it (ADR-0009)
-    status: simulated
+    status: hardware_integrated
     disposition: keep
     tests: [tests/test_ugv01_protocol.py, tests/test_ugv01_controls.py, tests/test_ugv01_bridge_adapter.py]
+    evidence:
+      hardware_runs:
+        - "2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/."
+        - "2026-10-13, Phase E: throttle held at 20 percent, host silent 15.0 s with ports open; the wheels turned 19 s on a stopwatch until the zero arrived. The accelerator board holds its last duty with no watchdog. The section 6 gate stays shut."
     known_gaps:
-      - Has never opened a real port; every rule is proven against a fake serial pair only
-      - Steering sense (which direction raises the angle reading) unknown until the bench; closed-loop steer_to() refuses until it is set
-      - A host cannot stop a board through a link that has failed; stop_confirmed is false after any fault, and stop on link loss is not proven on either board
+      - Stop on link loss is PROVEN ABSENT on the accelerator board (13 Oct 2026, 15 s silence, wheels kept turning); the drive module on silence is untested; a host cannot stop a board through a failed link
+      - The horn disturbs both angle sensors while it sounds (NO_SIGNAL and readings outside the limits); feedback faults now latch, but the firmware's own limit enforcement reads the same sensor
+      - Braking force and holding never measured; brake release acknowledged with AT_LIMIT is taken as released only with the human's confirmation and the 61.7 end-stop reading
       - Not yet a LocomotionDriver (set_velocity, goto, pose) and registers nothing with the HAL registry, so firmware versions, limits and faults are not queryable through /registry; that mapping needs vehicle geometry and a speed source that do not exist yet
       - Open from Codex checkpoint 2 (13 Oct 2026), not yet built: an explicit OPENING/READY/FAULTED/CLOSING lifecycle; bounded brake and steering moves with progress checks inside the controls (the bench bounds them from outside); a daemon-to-real-controls integration test with fake ports; a check that the previous owner of the ports has let go before opening
     blockers:
@@ -465,9 +469,10 @@ components:
     status: scaffolded
     disposition: keep
     known_gaps:
-      - Neither new board has a demonstrated firmware watchdog; the accelerator latches its last duty per the team's own code; link-loss behaviour of the drive module is undocumented
-      - The 4.1.3 spec contradicts itself on steer left/right (0x05 01) and brake stop/release (0x06 00); the bench must settle both
-      - Firmware sources for both boards are not in any checkout; STATUS (0x16) reply format and RESET defaults unknown
+      - The accelerator board HOLDS its last duty with no watchdog, measured 13 Oct 2026 (19 s of wheel motion through 15 s of host silence); the drive module on silence is untested
+      - Settled on the bench 13 Oct: 0x05 01 is left and the steering reading increases to the left; 0x06 01 applies (reading rises from the 61.7 released end stop), 0x06 02 releases and stops by itself at the end; STATUS reply is A,ST,BR,SP,GR,LI,IN,HO,WI,CT fields
+      - The horn disturbs both angle sensors while it sounds; the brake's configured 70 to 170 limits do not include its 61.7 released end
+      - Firmware sources for both boards are not in any checkout (Gulshan Shah has them); RESET defaults unknown
       - MCU-PROTOCOL.md, BENCH.md and the August FINDINGS describe the superseded relay path; kept as history
     blockers:
       - Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py

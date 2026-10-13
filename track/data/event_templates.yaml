@@ -207,5 +207,70 @@ errors:
   # same reasoning as a misspelled AI policy profile: a setting the system
   # cannot honour must never be accepted quietly.
   no_such_autonomy_mode: "There is no setting called that. The choices are {choices}."
-  asset_not_answering: "{asset} is not answering right now."
   task_already_finished: "That order has already finished."
+  no_such_layer: "There is no map imagery called that on this station."
+  no_tile: "There is no imagery for that part of the map."
+
+# What an operator reads before approving an order. Each check is one
+# sentence about the machine or the route, and each carries a second
+# sentence saying where the fact came from, because a check with no source
+# is an opinion. A fact we do not hold says so rather than guessing.
+preview_checks:
+  answering_ok: "{asset} is answering."
+  answering_silent: "{asset} has not answered since {at}."
+  answering_never: "{asset} has never answered."
+  battery_ok: "Battery {battery} percent."
+  battery_low: "Battery {battery} percent. That is low for a trip."
+  battery_unknown: "{asset} has not reported its battery."
+  mode_manual: "{asset} is in Manual, so it goes where it is told."
+  mode_automatic: "{asset} is in Automatic. The platform is deciding where it goes. Switch it to Manual to send this yourself."
+  mode_unknown: "{asset} is in a mode this station does not recognise."
+  mode_unset: "Nobody has set a mode for {asset}, so it is Manual and goes where it is told."
+  supports_ok: "{asset} understands this kind of order."
+  supports_no: "{asset} has not said it can {task_phrase}."
+  supports_unknown: "{asset} has not said which orders it understands."
+  keep_out_crosses: "This route crosses {zone}."
+  keep_out_clear: "This route stays out of every keep-out area."
+  # A zone of a type this build has never heard of. Not called safe and
+  # not called closed: the place is named and the operator decides.
+  keep_out_unrecognised: "This route crosses {zone}. This station does not know whether that place is closed."
+  # The machine has not said where it is, so the leg to the first stop is
+  # unknown. Not called clear: that leg may cross a keep-out area.
+  keep_out_start_unknown: "{asset} has not said where it is, so the way there was not checked."
+  # Where each fact came from.
+  sources:
+    heartbeat: "From its last heartbeat at {at}"
+    heartbeat_never: "Nothing has been heard from it"
+    mode_setting: "From the mode set for this machine"
+    mode_default: "No mode has been set, so the default applies"
+    declared: "Declared by the machine when it connected"
+    zones: "From the site's zone list"
+    no_zones: "No zones are defined at this site yet."
+
+# What a machine has said about its own systems, for an operator. Rows are
+# named by what a part does, never by its driver or model: those belong to
+# the admin's registry view, not to a watch. A part the machine has never
+# described is left out rather than invented.
+systems:
+  control_link: "Control link"
+  heard_seconds_ago: "Heard {seconds} s ago"
+  last_heard: "Last heard {at}"
+  never_heard: "Never heard from"
+  working: "Working."
+  problem: "Reporting a problem."
+  hardware_missing: "Some of its hardware was not found."
+  not_reported: "Has not said whether it is working."
+  camera_found: "Found."
+  camera_missing: "Not found."
+  not_reported_note: "{asset} has not reported its systems."
+  reported_note: "Reported by {asset} itself at {at}."
+  reported_note_undated: "Reported by {asset} itself."
+  # What to call each family of driver. A family this build has not heard
+  # of is shown as sent, with underscores turned into spaces.
+  kind_labels:
+    locomotion: "Drive"
+    sensor: "Sensor"
+    comms: "Radio link"
+    localization: "Position fix"
+    camera: "Camera"
+  numbered: "{label} {n}"

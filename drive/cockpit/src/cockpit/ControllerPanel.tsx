@@ -5,11 +5,11 @@ const BUTTON_MAP: { action: string; button: string }[] = [
   { action: 'Steer', button: 'Left stick' },
   { action: 'Drive / accelerate', button: 'R2  ·  right trigger' },
   { action: 'Brake', button: 'L2  ·  left trigger' },
-  { action: 'Gear — Forward', button: 'Triangle  △' },
-  { action: 'Gear — Neutral', button: 'Cross  ✕' },
-  { action: 'Gear — Reverse', button: 'Circle  ○' },
-  { action: 'Blinker — Left', button: 'D-pad ◄' },
-  { action: 'Blinker — Right', button: 'D-pad ►' },
+  { action: 'Gear: forward', button: 'Triangle  △' },
+  { action: 'Gear: neutral', button: 'Cross  ✕' },
+  { action: 'Gear: reverse', button: 'Circle  ○' },
+  { action: 'Blinker: left', button: 'D-pad ◄' },
+  { action: 'Blinker: right', button: 'D-pad ►' },
   { action: 'Hazards', button: 'D-pad ▲' },
   { action: 'Lights', button: 'Square  □' },
   { action: 'Horn', button: 'R1' },
@@ -88,7 +88,7 @@ export function ControllerPanel({ open, onClose }: { open: boolean; onClose: () 
           {!m.connected && (
             <ol className="space-y-1.5 rounded-control border border-line bg-surface-2 px-4 py-3 text-[13px] text-text-2">
               <li><span className="mr-1.5 font-mono text-text-3">1.</span>Plug the DualSense in via USB, or pair it over Bluetooth (hold Create + PS until the light bar flashes).</li>
-              <li><span className="mr-1.5 font-mono text-text-3">2.</span><span className="text-text">Press any button</span> — the browser only shows a gamepad after the first input.</li>
+              <li><span className="mr-1.5 font-mono text-text-3">2.</span><span className="text-text">Press any button</span>. The browser only shows a gamepad after the first input.</li>
               <li><span className="mr-1.5 font-mono text-text-3">3.</span>This panel turns green and the controls below light up as you press them.</li>
             </ol>
           )}

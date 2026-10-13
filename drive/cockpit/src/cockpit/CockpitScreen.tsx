@@ -1,259 +1,186 @@
+/**
+ * Drive: one machine, one driver.
+ *
+ * Left: who is driving what, the self-test in sentences, this session, and
+ * what happens if the link drops. Centre: the video (honestly empty until a
+ * camera is checked) with the two loudest facts on it, safety state and
+ * link latency, then the drive bar. Right: where the machine is facing, the
+ * rear camera, and what Argus is watching. The assistant rail is shown and
+ * plainly not built for Drive yet.
+ *
+ * Everything here is either the vehicle's telemetry, the daemon's session
+ * facts, or this cockpit's own command. Nothing is a placeholder that could
+ * be read as a reading.
+ *
+ * STOP is the bridge's latched stop, sent over the link. It is not an
+ * emergency stop: the only e-stop on the vehicle is the ignition key, and
+ * the button says so.
+ */
+
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button } from '../ui/Button'
-import { SourceTag } from '../ui/Chip'
 import {
   LightsIcon,
   IgnitionIcon,
   BlinkerIcon,
   HazardIcon,
   HornIcon,
-  MapIcon,
-  PipIcon,
-  ExpandIcon,
   FullscreenIcon,
   FullscreenExitIcon,
+  BoltIcon,
 } from '../ui/icons'
-import { LeafletMap } from './LeafletMap'
-import { useDriveLoop, useTelemetry, useVehicleStore } from '../state/store'
+import { armGateOpen, useDriveLoop, useTelemetry, useVehicleStore } from '../state/store'
 import { useGamepad } from '../input/useGamepad'
 import { ControllerPanel } from './ControllerPanel'
-import { GamepadIcon, BoltIcon } from '../ui/icons'
 import { useManualDrive, type DriveDir } from '../input/useManualDrive'
-import { PadGlyph } from '../ui/PadGlyph'
-import { Metric } from '../ui/Metric'
-import { useRemoTransport, type RemoLink } from '../transport/useRemoTransport'
+import { useRemoTransport } from '../transport/useRemoTransport'
 import { useBridgeTransport } from '../transport/useBridgeTransport'
 import { DriveConnect } from '../transport/DriveConnect'
+import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActive'
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
-import type { Telemetry } from '../contract'
-import { BrainPanel } from './BrainPanel'
-import { intentToCommand, clampDurationMs } from '../brain/driveIntent'
-import { assistStep, type AssistState } from '../brain/assistLoop'
-import type { DriveIntent } from '../brain/types'
+import type { PreflightState, SessionFacts, Telemetry } from '../contract'
+import './cockpit.css'
 
 const STEER_MAX_DEG = 30
 const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
-function steerLabel(s: number) {
-  const deg = Math.round(Math.abs(s) * STEER_MAX_DEG)
-  if (deg === 0) return '0°'
-  return `${deg}° ${s > 0 ? 'R' : 'L'}`
+
+/** The words this screen owns. Sentences about the vehicle come from the daemon. */
+const say = {
+  noName: 'This machine',
+  noNameNote: 'No name declared. It is shown by a generic label.',
+  youDrive: 'you have the wheel',
+  youWatch: 'you are watching',
+  notConnected: 'not connected to a vehicle',
+  driving: 'Driving',
+  stopped: 'Stopped',
+  latched: 'Latched: stopped itself',
+  stoppedByYou: 'Stopped by you (latched)',
+  unknownState: (raw: string) => `${raw}: state not understood`,
+  local: 'Local simulation',
+  beforeYouDrive: 'Before you drive',
+  passed: (ok: number, n: number) => `${ok} of ${n} passed`,
+  notRun: 'Not run yet',
+  notRunLine: 'Runs every time ignition comes on. Turn the ignition on to run it.',
+  selfTestLine: 'Runs every time ignition comes on. Arming is refused until all pass.',
+  session: 'This session',
+  driver: 'Driver',
+  since: 'Since',
+  link: 'Link',
+  commands: 'Commands',
+  recording: 'Recording',
+  perSecond: (n: number) => `${n} per second`,
+  linkGood: (ms: number) => `Good · ${ms} ms`,
+  linkDown: 'Not connected',
+  recOn: (t: string) => `On · ${t}`,
+  recOff: 'Off',
+  ifLinkDrops: 'If the link drops',
+  linkDropLine: (name: string, ms: number) =>
+    `${name} stops itself after ${ms} ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.`,
+  linkDropUnknown: 'The vehicle has not said what it does on link loss. Nothing is assumed.',
+  lastReported: (t: string) => `Last reported at ${t}.`,
+  frontCamera: 'Front camera',
+  rearCamera: 'Rear camera',
+  noVideo: 'No video yet',
+  noVideoLine: 'No video yet. Video appears here once a camera on the vehicle is checked.',
+  rearLine: 'No camera has been checked on the vehicle yet.',
+  linkPill: (ms: number) => `Link good · ${ms} ms`,
+  linkLost: 'Link lost',
+  steer: (deg: number, dir: string) => (deg === 0 ? 'Steer straight' : `Steer ${deg}° ${dir}`),
+  headingLabel: 'Heading',
+  facing: 'Facing',
+  compassNote: 'Position source: unverified. The map appears once the machine reports where it is.',
+  whereItIs: 'Where it is',
+  watching: 'Watching with you',
+  nothingSeen: 'Nothing seen',
+  watchingLine: 'Argus will call out a person or vehicle in the camera view when the cameras are live. Until then it watches the map only.',
+  throttle: 'Throttle',
+  steerLabel: 'Steer',
+  ignition: 'Ignition',
+  on: 'On',
+  off: 'Off',
+  noReading: 'No reading',
+  arm: 'ARM',
+  armBlocked: 'Release throttle and steering to arm.',
+  notActive: 'Drive is not the active screen.',
+  armed: 'Armed',
+  stop: 'STOP',
+  stopTitle: 'Sends a latched stop over the link: zero throttle, disarmed, until you re-arm. Not an emergency stop. The only emergency stop is the ignition key on the vehicle.',
+  armTitle: 'Arm the vehicle so throttle commands are obeyed. Refused until the self-test passes.',
+  fullscreen: 'Full screen',
+  exitFullscreen: 'Leave full screen',
+  holdToTalk: 'HOLD TO TALK',
+  railTip: 'The assistant is not in Drive yet. Not in this build.',
+  onScreen: 'On-screen',
+  dualsense: 'DualSense',
+  controllerTip: 'Controller setup and test',
+  lights: 'Headlights',
+  left: 'Left blinker',
+  rightBlink: 'Right blinker',
+  hazards: 'Hazards',
+  horn: 'Horn',
+  joystick: 'Drive joystick',
+  joystickValue: (deg: number, pct: number) => `steer ${deg} degrees, throttle ${pct} percent`,
+  arrowsHint: 'Keyboard arrows also work',
+  steerLeftKey: 'Steer left (left arrow)',
+  accelerateKey: 'Accelerate (up arrow)',
+  brakeKey: 'Brake (down arrow)',
+  steerRightKey: 'Steer right (right arrow)',
+  recStart: 'Start recording',
+  recStop: 'Stop recording',
+  rec: 'REC',
+  kmh: 'km/h',
+  gearGroup: 'Gear',
+  auxGroup: 'Lights and horn',
+  ignitionOnTitle: 'Ignition on. Press to switch off.',
+  ignitionOffTitle: 'Ignition off. Press to switch on; the self-test runs.',
+  /** Gear F is shown as D, as on a car's selector. */
+  gearLabel: (g: 'R' | 'N' | 'F') => (g === 'F' ? 'D' : g),
+  steerLeft: 'left',
+  steerRight: 'right',
+  steerLeftShort: 'L',
+  steerRightShort: 'R',
+  compass8: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+  compass4: ['N', 'E', 'S', 'W'],
 }
 
-type MapView = 'map' | 'sat'
+/* ----------------------------- small helpers ----------------------------- */
 
-/* ─────────────────── Projected drive path (feed) ─────────────────── */
-/* Bicycle-model turn: lateral offset grows with the SQUARE of distance, so the
-   corridor leaves the vehicle pointing straight ahead and sweeps into an arc
-   (Waymo/Tesla-style) — not a straight bar tilting. */
-function PathProjection({ steer }: { steer: number }) {
-  const s = clamp1(steer)
-  const N = 20
-  const yBot = 101
-  const yTop = 46
-  const nearHalf = 17
-  const farHalf = 2.6
-  const BEND = 40 // how hard the arc sweeps at full lock
-  const cx = (t: number) => 50 + s * BEND * t * t // t^2 ⇒ vertical at the car, curving away
-  const hw = (t: number) => nearHalf + (farHalf - nearHalf) * t
-  const yy = (t: number) => yBot + (yTop - yBot) * t
-  const fmt = (x: number, y: number) => `${x.toFixed(2)} ${y.toFixed(2)}`
-
-  const left: string[] = []
-  const right: string[] = []
-  const spine: string[] = []
-  for (let i = 0; i <= N; i++) {
-    const t = i / N
-    const c = cx(t)
-    const w = hw(t)
-    const y = yy(t)
-    left.push(`${i === 0 ? 'M' : 'L'} ${fmt(c - w, y)}`)
-    right.push(`L ${fmt(c + w, y)}`)
-    spine.push(`${i === 0 ? 'M' : 'L'} ${fmt(c, y)}`)
-  }
-  const corridor = left.join(' ') + ' ' + right.reverse().join(' ') + ' Z'
-  const spinePath = spine.join(' ')
-
-  return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id="argus-path" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stopColor="#2E8FFF" stopOpacity="0.5" />
-          <stop offset="55%" stopColor="#2E8FFF" stopOpacity="0.26" />
-          <stop offset="100%" stopColor="#2E8FFF" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={corridor} fill="url(#argus-path)" />
-      <path d={corridor} fill="none" stroke="#2E8FFF" strokeOpacity="0.55" strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
-      <path d={spinePath} fill="none" stroke="#9FD0FF" strokeOpacity="0.7" strokeWidth="1.5" strokeDasharray="5 6" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  )
+function mmss(totalSec: number): string {
+  const m = String(Math.floor(totalSec / 60)).padStart(2, '0')
+  const s = String(Math.floor(totalSec % 60)).padStart(2, '0')
+  return `${m}:${s}`
 }
 
-/* ─────────────────────────── Live feed ─────────────────────────── */
-function FeedScene() {
-  return (
-    <div className="absolute inset-0">
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, #0a0d12 0%, #0e1319 42%, #14161a 56%, #0c0d10 100%)' }} />
-      <div className="absolute left-0 right-0" style={{ top: '46%', height: '120px', background: 'radial-gradient(60% 100% at 50% 0%, rgba(120,150,190,0.10), transparent 70%)' }} />
-      <div className="absolute left-0 right-0" style={{ top: '52%', height: '1px', background: 'rgba(160,180,210,0.10)' }} />
-      <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 0, top: '52%', width: '70%', background: 'linear-gradient(180deg, rgba(70,62,52,0.0) 0%, rgba(78,68,55,0.22) 45%, rgba(96,82,64,0.40) 100%)', clipPath: 'polygon(46% 0, 54% 0, 86% 100%, 14% 100%)' }} />
-      <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: 0, top: '52%', width: '70%', background: 'linear-gradient(180deg, transparent 0%, rgba(150,135,110,0.20) 100%)', clipPath: 'polygon(49.4% 0, 50.6% 0, 53% 100%, 47% 100%)' }} />
-      <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'repeating-linear-gradient(0deg, #ffffff 0px, #ffffff 1px, transparent 1px, transparent 3px)' }} />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/20" />
-    </div>
-  )
+function clock(ms: number): string {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-function RecordControl({ recording, onToggle }: { recording: boolean; onToggle: () => void }) {
-  const [secs, setSecs] = useState(872) // ~14:32 in
+function compassPoint(deg: number): string {
+  return say.compass8[Math.round((((deg % 360) + 360) % 360) / 45) % 8]
+}
+
+/** A count of seconds since a moment, ticking once a second. */
+function useSecondsSince(startMs: number | null): number {
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!recording) return
-    const id = setInterval(() => setSecs((s) => s + 1), 1000)
+    const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [recording])
-  const mm = String(Math.floor(secs / 60)).padStart(2, '0')
-  const ss = String(secs % 60).padStart(2, '0')
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title={recording ? 'Stop recording' : 'Start recording'}
-      className={`inline-flex h-6 items-center gap-1.5 rounded-chip border px-2 font-mono text-[12px] font-semibold uppercase tracking-wider transition-colors ${
-        recording
-          ? 'border-critical/40 bg-critical-weak text-critical hover:bg-critical/20'
-          : 'border-line bg-surface-2/70 text-text-2 hover:text-text'
-      }`}
-    >
-      {recording ? (
-        <>
-          <span className="argus-blink h-2 w-2 rounded-full bg-critical" />
-          REC <span className="tabular-nums">{mm}:{ss}</span>
-          <span className="ml-0.5 h-2.5 w-px bg-critical/40" />
-          <span className="h-2 w-2 rounded-[2px] bg-critical" aria-label="stop" />
-        </>
-      ) : (
-        <>
-          <span className="h-2.5 w-2.5 rounded-full border-[1.5px] border-critical" />
-          REC
-        </>
-      )}
-    </button>
-  )
+  }, [])
+  return startMs === null ? 0 : Math.max(0, (now - startMs) / 1000)
 }
 
-function LiveFeed({
-  steer,
-  recording,
-  onToggleRecord,
-  children,
-}: {
-  steer: number
-  recording: boolean
-  onToggleRecord: () => void
-  children?: ReactNode
-}) {
-  return (
-    <div className="relative h-full min-h-[240px] overflow-hidden rounded-card border border-line bg-surface-inset">
-      <FeedScene />
-      <PathProjection steer={steer} />
-
-      <div className="absolute left-4 top-4 flex items-center gap-3">
-        <RecordControl recording={recording} onToggle={onToggleRecord} />
-        <span className="font-mono text-[12px] font-medium uppercase tracking-wider text-text-2">CAM • GR-1 FWD</span>
-      </div>
-
-      {/* static fake clock + "GROUND ROBOT 1" label removed (not real data) */}
-
-      {children}
-    </div>
-  )
-}
-
-/* ─────────────────────────── Map ─────────────────────────── */
-function MapViewToggle({ view, onView }: { view: MapView; onView: (v: MapView) => void }) {
-  return (
-    <div className="inline-flex items-center gap-1 rounded-control border border-line bg-surface-2 p-0.5">
-      {(['map', 'sat'] as MapView[]).map((v) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onView(v)}
-          className={`rounded-chip px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-            view === v ? 'bg-accent-weak text-accent' : 'text-text-3 hover:text-text-2'
-          }`}
-        >
-          {v === 'map' ? 'Map' : 'Sat'}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function MapPanel({ steer, view, onView, onCollapse }: { steer: number; view: MapView; onView: (v: MapView) => void; onCollapse: () => void }) {
-  return (
-    <div className="relative h-full min-h-[240px] overflow-hidden rounded-card border border-line bg-surface-inset">
-      <LeafletMap view={view} steer={steer} />
-
-      {/* top-left: label + view toggle */}
-      <div className="absolute left-4 top-4 z-[500] flex items-center gap-3">
-        <span className="label text-text-2">Map</span>
-        <MapViewToggle view={view} onView={onView} />
-      </div>
-
-      <button type="button" onClick={onCollapse} title="Collapse map (M)" className="absolute right-4 top-4 z-[500] inline-flex h-8 items-center gap-1.5 rounded-control border border-line bg-surface-2 px-2.5 text-[12px] font-medium text-text-2 hover:bg-surface-3 hover:text-text">
-        <PipIcon width={14} height={14} />
-        Collapse
-      </button>
-    </div>
-  )
-}
-
-function MiniMap({ steer, view, onExpand }: { steer: number; view: MapView; onExpand: () => void }) {
-  return (
-    <div className="group absolute bottom-4 right-4 z-[400] h-[150px] w-[232px] overflow-hidden rounded-control border border-line-strong bg-surface-inset shadow-overlay ring-1 ring-black/40">
-      <LeafletMap view={view} steer={steer} interactive={false} showZoom={false} />
-      <span className="label pointer-events-none absolute left-2.5 top-2 z-[500] text-text-2">{view === 'sat' ? 'Sat' : 'Map'}</span>
-      <button
-        type="button"
-        onClick={onExpand}
-        title="Expand map (M)"
-        className="absolute inset-0 z-[500] flex items-start justify-end p-2"
-      >
-        <span className="grid h-6 w-6 place-items-center rounded-chip bg-surface-2/80 text-text-2 group-hover:text-accent">
-          <ExpandIcon width={13} height={13} />
-        </span>
-      </button>
-    </div>
-  )
-}
-
-/* ─────────────────────────── Joystick ─────────────────────────── */
+/* ------------------------------- joystick ------------------------------- */
 /* Game-controller analog stick: drag the knob (X = steer, Y = throttle);
-   springs back to centre on release. */
+   springs back to centre on release. Kept from the previous cockpit: it is
+   how you drive without a gamepad. */
 function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
   const baseRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
   const rafRef = useRef<number | null>(null)
   const posRef = useRef({ x: 0, y: 0 })
   const [pos, setPos] = useState({ x: 0, y: 0 })
-  // CSS sizes the base fluidly (clamp + vh); measure the real width so knob
-  // travel and size track whatever the viewport gives us.
-  const [dim, setDim] = useState(88)
-  useEffect(() => {
-    const el = baseRef.current
-    if (!el) return
-    const measure = () => setDim(el.getBoundingClientRect().width)
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  const TRAVEL = dim * 0.3 // px the knob can move from centre
+  const dim = 72
+  const TRAVEL = dim * 0.3
   const knob = Math.round(dim * 0.41)
 
   const set = (x: number, y: number) => {
@@ -261,7 +188,6 @@ function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
     setPos({ x, y })
     onChange(x, y)
   }
-
   const moveFrom = (clientX: number, clientY: number) => {
     const el = baseRef.current
     if (!el) return
@@ -274,9 +200,8 @@ function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
       dx /= m
       dy /= m
     }
-    set(clamp1(dx), clamp1(-dy)) // up = +throttle
+    set(clamp1(dx), clamp1(-dy))
   }
-
   const onDown = (e: React.PointerEvent) => {
     draggingRef.current = true
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -298,89 +223,47 @@ function Joystick({ onChange }: { onChange: (x: number, y: number) => void }) {
     }
     rafRef.current = requestAnimationFrame(spring)
   }
-
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
   }, [])
 
   return (
-    <div className="flex items-center gap-3">
+    <div
+      ref={baseRef}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+      role="slider"
+      aria-label={say.joystick}
+      aria-valuetext={say.joystickValue(Math.round(pos.x * STEER_MAX_DEG), Math.round(Math.max(0, pos.y) * 100))}
+      style={{ width: dim, height: dim, position: 'relative', borderRadius: '50%', border: '1px solid var(--line-2)', background: 'var(--card-2)', touchAction: 'none', cursor: 'grab', flex: 'none' }}
+    >
+      <div style={{ position: 'absolute', left: '50%', top: 8, bottom: 8, width: 1, background: 'var(--line)', transform: 'translateX(-50%)' }} />
+      <div style={{ position: 'absolute', top: '50%', left: 8, right: 8, height: 1, background: 'var(--line)', transform: 'translateY(-50%)' }} />
       <div
-        ref={baseRef}
-        onPointerDown={onDown}
-        onPointerMove={onMove}
-        onPointerUp={onUp}
-        onPointerCancel={onUp}
-        className="relative aspect-square h-[clamp(56px,8.5vh,88px)] shrink-0 touch-none cursor-grab rounded-full border border-line bg-surface-inset ring-1 ring-black/30 active:cursor-grabbing"
-        role="slider"
-        aria-label="Drive joystick"
-        aria-valuetext={`steer ${steerLabel(pos.x)}, throttle ${Math.round(Math.max(0, pos.y) * 100)}%`}
+        style={{
+          position: 'absolute', left: '50%', top: '50%', width: knob, height: knob, borderRadius: '50%',
+          border: '1px solid var(--sel)', background: 'var(--sel-bg)', display: 'grid', placeItems: 'center',
+          transform: `translate(calc(-50% + ${pos.x * TRAVEL}px), calc(-50% + ${-pos.y * TRAVEL}px))`,
+        }}
       >
-        {/* concentric guide + crosshair */}
-        <div className="absolute inset-2 rounded-full border border-line/70" />
-        <div className="absolute left-1/2 top-2.5 bottom-2.5 w-px -translate-x-1/2 bg-line" />
-        <div className="absolute top-1/2 left-2.5 right-2.5 h-px -translate-y-1/2 bg-line" />
-        {/* direction ticks */}
-        <span className="absolute left-1/2 top-1 -translate-x-1/2 font-mono text-[10px] tracking-wider text-text-3">FWD</span>
-        {/* knob */}
-        <div
-          className="absolute left-1/2 top-1/2 grid place-items-center rounded-full border border-accent/60 bg-accent-weak shadow-overlay"
-          style={{ width: knob, height: knob, transform: `translate(calc(-50% + ${pos.x * TRAVEL}px), calc(-50% + ${-pos.y * TRAVEL}px))` }}
-        >
-          <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-        </div>
-      </div>
-
-      <div className="font-mono text-[11px] leading-5 text-text-3">
-        <div>
-          STEER <span className={Math.abs(pos.x) > 0.02 ? 'text-accent' : 'text-text-2'}>{steerLabel(pos.x)}</span>
-        </div>
-        <div>
-          THR <span className="text-text-2">{Math.round(Math.max(0, pos.y) * 100)}%</span>
-        </div>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--sel)' }} />
       </div>
     </div>
   )
 }
 
-/* ───────────── On-screen arrow pad (keyboard-mirrored) ───────────── */
-/* Shown when no gamepad is connected. Hold a key to act; release returns to
-   neutral. Same as the arrow keys: ◄ ► steer, accelerate, stop. */
-function HoldKey({
-  dir,
-  press,
-  release,
-  tone = 'neutral',
-  title,
-  children,
-}: {
-  dir: DriveDir
-  press: (d: DriveDir) => void
-  release: (d: DriveDir) => void
-  tone?: 'neutral' | 'accent'
-  title: string
-  children: ReactNode
-}) {
+/* ------------------------ hold-to-act arrow pad ------------------------ */
+function HoldKey({ dir, press, release, title, children }: { dir: DriveDir; press: (d: DriveDir) => void; release: (d: DriveDir) => void; title: string; children: ReactNode }) {
   const start = (e: React.PointerEvent) => {
     e.preventDefault()
     e.currentTarget.setPointerCapture?.(e.pointerId)
     press(dir)
   }
   const end = () => release(dir)
-  const base =
-    tone === 'accent'
-      ? 'border-accent/40 bg-accent-weak text-accent active:bg-accent active:text-white'
-      : 'border-line bg-surface-inset text-text-2 hover:text-text active:bg-surface-3'
   return (
-    <button
-      type="button"
-      title={title}
-      onPointerDown={start}
-      onPointerUp={end}
-      onPointerLeave={end}
-      onPointerCancel={end}
-      className={`grid h-9 min-w-9 select-none place-items-center gap-1 rounded-control border px-2 font-mono text-[12px] font-semibold transition-colors ${base}`}
-    >
+    <button type="button" className="lbtn" title={title} onPointerDown={start} onPointerUp={end} onPointerLeave={end} onPointerCancel={end} style={{ width: 36, height: 36, fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600 }}>
       {children}
     </button>
   )
@@ -388,455 +271,435 @@ function HoldKey({
 
 function ArrowPad({ press, release }: { press: (d: DriveDir) => void; release: (d: DriveDir) => void }) {
   return (
-    <div className="flex items-center gap-1.5" title="Keyboard arrows also work">
-      <HoldKey dir="left" press={press} release={release} title="Steer left (←)">◄</HoldKey>
-      <HoldKey dir="up" press={press} release={release} tone="accent" title="Accelerate (↑)">
-        <BoltIcon width={14} height={14} />
-      </HoldKey>
-      <HoldKey dir="down" press={press} release={release} title="Stop / brake (↓)">■</HoldKey>
-      <HoldKey dir="right" press={press} release={release} title="Steer right (→)">►</HoldKey>
+    <div className="row" style={{ gap: 6 }} title={say.arrowsHint}>
+      <HoldKey dir="left" press={press} release={release} title={say.steerLeftKey}>◄</HoldKey>
+      <HoldKey dir="up" press={press} release={release} title={say.accelerateKey}><BoltIcon width={14} height={14} /></HoldKey>
+      <HoldKey dir="down" press={press} release={release} title={say.brakeKey}>■</HoldKey>
+      <HoldKey dir="right" press={press} release={release} title={say.steerRightKey}>►</HoldKey>
     </div>
   )
 }
 
-/* ─────────────────────── Drive control bar ─────────────────────── */
-/* Bare-word selector: no pill, no border — the active word is simply bright.
-   State is carried by contrast, not chrome. */
-function BareSeg<T extends string>({ options, value, onChange, disabled = [], size = 'sm' }: { options: T[]; value: T; onChange: (v: T) => void; disabled?: T[]; size?: 'sm' | 'lg' }) {
+/* ------------------------------- the cards ------------------------------- */
+
+/**
+ * The vehicle's safety state in words. A latch that followed this
+ * operator's own STOP says so. A value this cockpit does not know is shown
+ * as itself, in a neutral tone, never read as a known state.
+ */
+function safetyTone(state: Telemetry['safetyState'], byOperator: boolean): { text: string; tone: 'ok' | 'warn' | 'act' | 'off' } {
+  if (state === 'DRIVING') return { text: say.driving, tone: 'ok' }
+  if (state === 'STOPPED') return { text: say.stopped, tone: 'warn' }
+  if (state === 'LATCHED') return { text: byOperator ? say.stoppedByYou : say.latched, tone: 'act' }
+  return { text: say.unknownState(String(state)), tone: 'off' }
+}
+
+/** True when the vehicle's latch is the one this operator's STOP caused. */
+const useStoppedByOperator = () => useVehicleStore((s) => s.operatorStop === 'seen')
+
+/** Shown where the safety state was while a link is set up but not open. */
+function linkDownText(everOpen: boolean): string {
+  return everOpen ? say.linkLost : say.linkDown
+}
+
+function MachineCard({ tele, session, remote, down, everOpen }: { tele: Telemetry; session: SessionFacts | null; remote: boolean; down: boolean; everOpen: boolean }) {
+  const name = session?.vehicle ?? say.noName
+  const safety = safetyTone(tele.safetyState, useStoppedByOperator())
+  const battery = tele.battery.percent
   return (
-    <div className={`inline-flex items-center ${size === 'lg' ? 'gap-5' : 'gap-3'}`}>
-      {options.map((opt) => {
-        const active = opt === value
-        const off = disabled.includes(opt)
-        return (
-          <button
-            key={opt}
-            type="button"
-            disabled={off}
-            onClick={() => !off && onChange(opt)}
-            title={off ? 'Coming soon' : undefined}
-            aria-pressed={active}
-            className={`leading-none transition-colors duration-200 ${
-              size === 'lg' ? 'text-[19px] tracking-[0.02em]' : 'font-mono text-[11px] uppercase tracking-[0.14em]'
-            } ${active ? 'font-semibold text-text' : off ? 'cursor-not-allowed font-medium text-text-3/30' : 'font-medium text-text-3 hover:text-text-2'}`}
-          >
-            {opt}
-          </button>
-        )
-      })}
+    <div className={`vcard${remote ? '' : ' is-quiet'}`}>
+      <span className="thumb" aria-hidden>
+        <svg viewBox="0 0 40 28" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <path d="M4 18h32v-6l-6-6H14l-6 6z" />
+          <circle cx="12" cy="20" r="3.5" fill="var(--card-3)" />
+          <circle cx="28" cy="20" r="3.5" fill="var(--card-3)" />
+        </svg>
+      </span>
+      <span className="vbody">
+        <span className="vname">{name}</span>
+        <span className="vtype">
+          {/* No vehicle class is shown: the daemon does not report one, and the cockpit asserts nothing it was not told. */}
+          {!remote ? say.notConnected : session?.role === 'DRIVER' ? say.youDrive : say.youWatch}
+        </span>
+        <span className={`vstate is-${remote ? safety.tone : down ? 'act' : 'off'}`}>
+          <span className="dot" />
+          {remote ? safety.text : down ? linkDownText(everOpen) : say.local}
+        </span>
+      </span>
+      {remote && (
+        <span className="batt">
+          <span className="battbox">
+            <span className={`battfill is-${battery < 15 ? 'act' : battery < 30 ? 'warn' : 'ok'}`} style={{ width: `${battery}%` }} />
+          </span>
+          {battery}%
+        </span>
+      )}
+      {remote && session && !session.vehicle && <span className="sub" style={{ flexBasis: '100%' }}>{say.noNameNote}</span>}
     </div>
   )
 }
 
-/* Icon-only auxiliary control: no border, no fill. ON = lit icon + accent tick. */
-function AuxButton({ title, icon, on, blink = false, onClick }: { title: string; icon: ReactNode; on: boolean; blink?: boolean; onClick: () => void }) {
+function SelfTestCard({ preflight, remote }: { preflight: PreflightState; remote: boolean }) {
+  const ok = preflight.checks.filter((c) => c.ok).length
+  const n = preflight.checks.length
+  const ran = remote && preflight.ran
   return (
-    <button
-      type="button"
-      title={title}
-      aria-pressed={on}
-      onClick={onClick}
-      className="group relative grid h-11 w-11 place-items-center rounded-control transition-colors hover:bg-surface-3"
-    >
-      <span className={`transition-colors ${on ? 'text-text' : 'text-text-3 group-hover:text-text-2'} ${on && blink ? 'argus-blink' : ''}`}>{icon}</span>
-      <span className={`absolute bottom-[5px] left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-accent transition-opacity duration-200 ${on ? 'opacity-100' : 'opacity-0'}`} />
-    </button>
-  )
-}
-
-/** Vertical hairline separating control groups in the drive bar. */
-function Divider() {
-  return <span className="h-8 w-px shrink-0 self-center bg-line-strong" aria-hidden />
-}
-
-/** Shows a controller-button glyph above a control when hints are on. */
-function WithHint({ show, glyph, children }: { show: boolean; glyph: ReactNode; children: ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-1.5">
-      {show && <div className="flex items-center gap-1">{glyph}</div>}
-      {children}
+    <div className="card pad">
+      <div className="row">
+        <span className="h">{say.beforeYouDrive}</span>
+        <span className={`pill right is-${!ran ? 'off' : preflight.pass ? 'ok' : 'act'}`}>{ran ? say.passed(ok, n) : say.notRun}</span>
+      </div>
+      {ran &&
+        preflight.checks.map((check) => (
+          <div key={check.name} className="chk">
+            <span className={`ico is-${check.ok ? 'ok' : 'act'}`} aria-hidden />
+            <div>
+              {/* The daemon's sentence; an older daemon's bare name is shown as itself. */}
+              <span>{check.label ?? check.name.replace(/_/g, ' ')}</span>
+              <small>{check.detail}</small>
+            </div>
+          </div>
+        ))}
+      <span className="sub">{ran ? say.selfTestLine : say.notRunLine}</span>
     </div>
   )
 }
 
-function DriveControlBar({ tele, onStick, padConnected, onOpenController, hints, manual }: { tele: Telemetry; onStick: (x: number, y: number) => void; padConnected: boolean; onOpenController: () => void; hints: boolean; manual: { press: (d: DriveDir) => void; release: (d: DriveDir) => void } }) {
+function SessionCard({ tele, session, remote, hz, linkOpen }: { tele: Telemetry; session: SessionFacts | null; remote: boolean; hz: number; linkOpen: boolean }) {
+  const since = useSecondsSince(session?.since ?? null)
+  const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
+  return (
+    <div className="card pad">
+      <span className="h">{say.session}</span>
+      <div className="kv">
+        <span className="k">{say.driver}</span>
+        <span className="v">{session?.driver || (remote ? '' : say.notConnected)}</span>
+        <span className="k">{say.since}</span>
+        <span className="v">{session ? `${clock(session.since)} · ${Math.floor(since / 60)} min` : ''}</span>
+        <span className="k">{say.link}</span>
+        <span className={`v ${linkOpen ? 'is-ok' : 'is-off'}`}>{linkOpen ? say.linkGood(tele.linkRttMs) : say.linkDown}</span>
+        <span className="k">{say.commands}</span>
+        <span className="v">{linkOpen ? say.perSecond(hz) : ''}</span>
+        <span className="k">{say.recording}</span>
+        <span className={`v ${tele.recording ? 'is-act' : ''}`}>{remote ? (tele.recording ? say.recOn(mmss(rec)) : say.recOff) : ''}</span>
+      </div>
+    </div>
+  )
+}
+
+function LinkLossCard({ session, lastSession }: { session: SessionFacts | null; lastSession: SessionFacts | null }) {
+  // The live session's word, else the last word the vehicle gave, marked as such.
+  const facts = session ?? lastSession
+  const ms = facts?.watchdogMs ?? null
+  return (
+    <div className="card pad" style={{ marginTop: 'auto' }}>
+      <span className="h">{say.ifLinkDrops}</span>
+      <span className="line">{facts && ms !== null ? say.linkDropLine(facts.vehicle ?? say.noName, ms) : say.linkDropUnknown}</span>
+      {facts && ms !== null && !session && <span className="sub">{say.lastReported(clock(facts.since))}</span>}
+    </div>
+  )
+}
+
+function SteerArc({ steer }: { steer: number }) {
+  // A short arc that bends the way the wheels point.
+  const s = clamp1(steer)
+  const cx = 60 + s * 26
+  return (
+    <svg className="steer-arc" viewBox="0 0 120 34" fill="none" aria-hidden>
+      <path d="M12 30 Q60 -8 108 30" stroke="var(--line-2)" strokeWidth="2" />
+      <path d={`M60 30 Q${60 + s * 12} 12 ${cx} 6`} stroke="var(--sel)" strokeWidth="3" strokeLinecap="round" />
+      <circle cx={cx} cy="6" r="4" fill="var(--sel)" />
+    </svg>
+  )
+}
+
+function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, onToggleRecord, fullscreen, onFullscreen }: { tele: Telemetry; session: SessionFacts | null; lastSession: SessionFacts | null; remote: boolean; linkOpen: boolean; down: boolean; everOpen: boolean; onToggleRecord: () => void; fullscreen: boolean; onFullscreen: () => void }) {
+  // The vehicle's own name, live or last given; never a reading from the local simulation.
+  const name = (session ?? lastSession)?.vehicle ?? say.noName
+  const safety = safetyTone(tele.safetyState, useStoppedByOperator())
+  // While the link is down nothing on the HUD is the vehicle's word: no values are shown.
+  const recording = !down && tele.recording
+  const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
+  const dir = tele.steerAngleDeg < 0 ? say.steerLeft : say.steerRight
+  const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
+  return (
+    <div className="card video">
+      <div className="video-ground" />
+      <div className="video-horizon" />
+      <div className="video-empty">
+        <div>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6">
+            <rect x="3" y="7" width="13" height="10" rx="1.5" />
+            <path d="M16 10l5-2.5v9L16 14" />
+          </svg>
+          <span>{say.noVideoLine}</span>
+        </div>
+      </div>
+
+      <div className="hud-tl">
+        <button type="button" className={`rec ${recording ? 'is-on' : 'is-off'}`} onClick={onToggleRecord} title={recording ? say.recStop : say.recStart}>
+          <span className="dot" />
+          {say.rec}{recording ? ` ${mmss(rec)}` : ''}
+        </button>
+        <span className="hud-cam">
+          {name} · {say.frontCamera}
+        </span>
+      </div>
+      <div className="hud-tr">
+        {remote && <span className={`pill ${linkOpen ? 'is-ok' : 'is-act'}`}><span className="dot" />{linkOpen ? say.linkPill(tele.linkRttMs) : say.linkLost}</span>}
+        {remote && <span className={`pill is-loud is-${safety.tone}`}>{safety.text.toUpperCase()}</span>}
+        {!remote && down && <span className="pill is-loud is-act">{linkDownText(everOpen).toUpperCase()}</span>}
+        <button type="button" className="hud-btn" onClick={onFullscreen} title={fullscreen ? say.exitFullscreen : say.fullscreen} aria-label={fullscreen ? say.exitFullscreen : say.fullscreen}>
+          {fullscreen ? <FullscreenExitIcon width={14} height={14} /> : <FullscreenIcon width={14} height={14} />}
+        </button>
+      </div>
+
+      <div className="hud-bl">
+        {down ? (
+          <span className="speed">{say.noReading}</span>
+        ) : (
+          <>
+            <span className="speed">{tele.speedKmh.toFixed(1)}</span>
+            <span className="speed-unit">{say.kmh}</span>
+            <span className="gear-hud">{say.gearLabel(tele.gear)}</span>
+          </>
+        )}
+      </div>
+      {!down && (
+        <div className="hud-bc">
+          <SteerArc steer={tele.steerAngleDeg / STEER_MAX_DEG} />
+          <span className="hud-small">{say.steer(steerDeg, dir)}</span>
+        </div>
+      )}
+      {!down && (
+        <div className="hud-br">
+          <span className="heading">
+            {compassPoint(tele.headingDeg)}
+            <small>{Math.round(tele.headingDeg)}°</small>
+          </span>
+          <span className="hud-k">{say.headingLabel}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DriveBar({ tele, padConnected, onStick, onOpenController, manual, remote, down, armFromCommand }: { tele: Telemetry; padConnected: boolean; onStick: (x: number, y: number) => void; onOpenController: () => void; manual: { press: (d: DriveDir) => void; release: (d: DriveDir) => void }; remote: boolean; down: boolean; armFromCommand: boolean }) {
+  const command = useVehicleStore((s) => s.command)
   const setGear = useVehicleStore((s) => s.setGear)
-  const setMode = useVehicleStore((s) => s.setMode)
   const toggleIgnition = useVehicleStore((s) => s.toggleIgnition)
   const toggleHeadlights = useVehicleStore((s) => s.toggleHeadlights)
   const setBlinker = useVehicleStore((s) => s.setBlinker)
   const toggleHorn = useVehicleStore((s) => s.toggleHorn)
   const estop = useVehicleStore((s) => s.estop)
   const arm = useVehicleStore((s) => s.arm)
-
   const preflight = useVehicleStore((s) => s.preflight)
-  const remoteMode = useVehicleStore((s) => s.remote)
-  const driving = tele.safetyState === 'DRIVING'
-  const latched = tele.safetyState === 'LATCHED'
-  const blinker = tele.lights.blinker
-
-  const selfTest =
-    remoteMode && tele.ignition
-      ? !preflight.ran
-        ? { label: 'SELF-TEST', cls: 'text-warning', dot: 'bg-warning argus-blink' }
-        : preflight.pass
-          ? { label: `SELF-TEST ${preflight.checks.length}/${preflight.checks.length}`, cls: 'text-success', dot: 'bg-success' }
-          : { label: `SELF-TEST FAIL ${preflight.checks.filter((c) => !c.ok).length}`, cls: 'text-critical', dot: 'bg-critical argus-blink' }
-      : null
+  const armRefusal = useVehicleStore((s) => s.armRefusal)
+  // The same vehicle-side gate arm() applies to every input source.
+  const gateOpen = useVehicleStore(armGateOpen)
+  // Never show the local simulation as armed while a link is down: on a
+  // bridge link, Armed needs fresh vehicle telemetry reading DRIVING. A
+  // Remo link has no vehicle telemetry, so there the operator's own arm counts.
+  const driving = !down && tele.safetyState === 'DRIVING' && (!armFromCommand || command.safety.arm)
+  // While the link is down the lights and gear are not the vehicle's word.
+  const lights = down ? null : tele.lights
+  const blinker = lights?.blinker ?? 'off'
+  const gear = down ? null : tele.gear
+  const canArm = !down && !driving && gateOpen && (!remote || (preflight.ran && preflight.pass))
 
   return (
-    <div className="flex flex-wrap items-center gap-x-7 gap-y-3 rounded-card border border-line bg-surface-2 px-6 py-[clamp(10px,1.8vh,16px)]">
-      {/* input — how the human drives */}
-      <WithHint show={hints} glyph={<><PadGlyph k="lstick" /><PadGlyph k="r2" /></>}>
-        <div className="flex items-center gap-4">
-          <Joystick onChange={onStick} />
-          {!padConnected && <ArrowPad press={manual.press} release={manual.release} />}
-          <button
-            type="button"
-            onClick={onOpenController}
-            className="group flex flex-col items-center gap-1 text-text-3 transition-colors hover:text-text-2"
-            title="Open controller setup & test"
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${padConnected ? 'bg-success' : 'bg-text-3 group-hover:bg-text-2'}`} />
-            <span className="font-mono text-[9px] uppercase tracking-[0.14em]">{padConnected ? 'DualSense' : 'On-screen'}</span>
+    <div className="card drivebar">
+      <div className="gears" role="group" aria-label={say.gearGroup}>
+        {(['R', 'N', 'F'] as const).map((g) => (
+          <button key={g} type="button" className={gear === g ? 'on' : ''} onClick={() => setGear(g)} aria-pressed={gear === g}>
+            {say.gearLabel(g)}
           </button>
+        ))}
+      </div>
+
+      <div className="bars">
+        <div className="bar-row">
+          <span>{say.throttle}</span>
+          <span className="bar"><span className="bar-fill" style={{ width: `${Math.round(command.throttle * 100)}%` }} /></span>
+          <span className="num">{Math.round(command.throttle * 100)}%</span>
         </div>
-      </WithHint>
+        <div className="bar-row">
+          <span>{say.steerLabel}</span>
+          <span className="bar"><span className="bar-mid" /><span className="bar-knob" style={{ left: `${50 + command.steer * 50}%` }} /></span>
+          <span className="num">{Math.round(Math.abs(command.steer) * STEER_MAX_DEG)}° {command.steer < -0.02 ? say.steerLeftShort : command.steer > 0.02 ? say.steerRightShort : ''}</span>
+        </div>
+      </div>
 
-      {/* the cluster — gear · speed · power. The number is the hero. */}
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-x-9">
-        <WithHint show={hints} glyph={<><PadGlyph k="circle" /><PadGlyph k="cross" /><PadGlyph k="triangle" /></>}>
-          <BareSeg size="lg" options={['R', 'N', 'F']} value={tele.gear} onChange={setGear} />
-        </WithHint>
-
-        <WithHint show={hints} glyph={<><PadGlyph k="r2" /><PadGlyph k="l2" /></>}>
-          <div
-            className="flex flex-col items-center gap-1"
-            title={selfTest && preflight.ran ? preflight.checks.map((c) => `${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: ${c.detail}`).join('\n') : undefined}
-          >
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-[clamp(30px,4.6vh,40px)] font-light leading-none tabular-nums ${remoteMode ? 'text-text' : 'text-text-2'}`}>
-                {tele.speedKmh.toFixed(0)}
-              </span>
-              <span className="text-[12px] font-medium text-text-3">km/h</span>
-            </div>
-            <div className="flex items-center gap-2 whitespace-nowrap font-mono text-[9.5px] uppercase tracking-[0.16em] text-text-3">
-              <span className={tele.ignition ? 'text-text-2' : ''}>{tele.ignition ? 'IGN ON' : 'IGN OFF'}</span>
-              {selfTest && (
-                <>
-                  <span className="opacity-40">·</span>
-                  <span className={`inline-flex items-center gap-1.5 ${selfTest.cls}`}>
-                    <span className={`h-1 w-1 rounded-full ${selfTest.dot}`} />
-                    {selfTest.label}
-                  </span>
-                </>
-              )}
-              <span className="opacity-40">·</span>
-              <span className={latched ? 'text-critical' : driving ? 'text-success' : ''}>{tele.safetyState}</span>
-            </div>
-          </div>
-        </WithHint>
-
-        <button
-          type="button"
-          onClick={toggleIgnition}
-          aria-pressed={tele.ignition}
-          title={tele.ignition ? 'Ignition on — tap to switch off' : 'Ignition off — tap to start'}
-          className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition-all duration-300 ${
-            tele.ignition
-              ? 'bg-accent-weak text-accent shadow-[0_0_20px_rgba(46,143,255,0.28)]'
-              : 'bg-surface-3 text-text-3 hover:text-text-2'
-          }`}
-        >
-          <IgnitionIcon width={19} height={19} />
+      <div className="inputs">
+        <Joystick onChange={onStick} />
+        {!padConnected && <ArrowPad press={manual.press} release={manual.release} />}
+        <button type="button" className="input-tag" onClick={onOpenController} title={say.controllerTip}>
+          <span className={`dot${padConnected ? ' is-ok' : ''}`} />
+          {padConnected ? say.dualsense : say.onScreen}
         </button>
       </div>
 
-      {/* auxiliaries — quiet, icon-only, lit when active */}
-      <div className="flex items-center gap-1">
-        <BareSeg options={['MANUAL', 'AUTO']} value={tele.mode} onChange={setMode} disabled={['AUTO']} />
-        <span className="mx-3 h-8 w-px bg-line-strong" aria-hidden />
-        <WithHint show={hints} glyph={<PadGlyph k="square" />}>
-          <AuxButton title="Headlights" on={tele.lights.headlights} onClick={toggleHeadlights} icon={<LightsIcon width={17} height={17} />} />
-        </WithHint>
-        <WithHint show={hints} glyph={<PadGlyph k="dleft" />}>
-          <AuxButton title="Left blinker" on={blinker === 'left' || blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'left' ? 'off' : 'left')} icon={<BlinkerIcon width={17} height={17} className="scale-x-[-1]" />} />
-        </WithHint>
-        <WithHint show={hints} glyph={<PadGlyph k="dright" />}>
-          <AuxButton title="Right blinker" on={blinker === 'right' || blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'right' ? 'off' : 'right')} icon={<BlinkerIcon width={17} height={17} />} />
-        </WithHint>
-        <WithHint show={hints} glyph={<PadGlyph k="dup" />}>
-          <AuxButton title="Hazards" on={blinker === 'hazard'} blink onClick={() => setBlinker(blinker === 'hazard' ? 'off' : 'hazard')} icon={<HazardIcon width={17} height={17} />} />
-        </WithHint>
-        <WithHint show={hints} glyph={<PadGlyph k="r1" />}>
-          <AuxButton title="Horn" on={tele.lights.horn} onClick={toggleHorn} icon={<HornIcon width={17} height={17} />} />
-        </WithHint>
+      <div className="aux" role="group" aria-label={say.auxGroup}>
+        <button type="button" className={`lbtn${lights?.headlights ? ' on' : ''}`} title={say.lights} aria-pressed={!!lights?.headlights} onClick={toggleHeadlights}><LightsIcon /></button>
+        <button type="button" className={`lbtn${blinker === 'left' || blinker === 'hazard' ? ' on' : ''}`} title={say.left} onClick={() => setBlinker(blinker === 'left' ? 'off' : 'left')}><BlinkerIcon style={{ transform: 'scaleX(-1)' }} /></button>
+        <button type="button" className={`lbtn${blinker === 'right' || blinker === 'hazard' ? ' on' : ''}`} title={say.rightBlink} onClick={() => setBlinker(blinker === 'right' ? 'off' : 'right')}><BlinkerIcon /></button>
+        <button type="button" className={`lbtn${blinker === 'hazard' ? ' on is-act' : ''}`} title={say.hazards} onClick={() => setBlinker(blinker === 'hazard' ? 'off' : 'hazard')}><HazardIcon /></button>
+        <button type="button" className={`lbtn${lights?.horn ? ' on' : ''}`} title={say.horn} onClick={toggleHorn}><HornIcon /></button>
       </div>
 
-      <Divider />
-
-      {/* safety — the one loud element */}
-      <div className="flex shrink-0 items-center gap-2.5">
-        {!driving && (
-          <WithHint show={hints} glyph={<PadGlyph k="l1r1" />}>
-            <Button variant="primary" onClick={arm} className="h-[clamp(42px,5.4vh,48px)] px-6 text-[14px] font-semibold tracking-wide">
-              ARM
-            </Button>
-          </WithHint>
+      <div className="safety">
+        <div className="ign">
+          <span>{say.ignition}</span>
+          <button type="button" className={`pill ${!down && tele.ignition ? 'is-ok' : ''}`} onClick={toggleIgnition} aria-pressed={!down && tele.ignition} title={tele.ignition ? say.ignitionOnTitle : say.ignitionOffTitle}>
+            <IgnitionIcon width={12} height={12} /> {down ? say.noReading : tele.ignition ? say.on : say.off}
+          </button>
+        </div>
+        {driving ? (
+          <span className="btn is-tall is-sel" aria-live="polite">{say.armed}</span>
+        ) : (
+          <button type="button" className="btn is-tall is-primary" onClick={arm} disabled={!canArm} title={say.armTitle}>
+            {armRefusal === 'stick' ? say.armBlocked : armRefusal === 'inactive' ? say.notActive : say.arm}
+          </button>
         )}
-        <WithHint show={hints} glyph={<PadGlyph k="options" />}>
-          <Button variant="danger" onClick={estop} className="h-[clamp(42px,5.4vh,48px)] px-7 text-[14px] font-semibold tracking-[0.06em]">
-            E-STOP
-          </Button>
-        </WithHint>
+        <button type="button" className="btn is-stop" onClick={estop} title={say.stopTitle} aria-label={`${say.stop}. ${say.stopTitle}`}>
+          {say.stop}
+        </button>
       </div>
     </div>
   )
 }
 
-/* ─────────────────────── View controls (header) ─────────────────── */
-function IconToggle({ active, onClick, title, children }: { active?: boolean; onClick: () => void; title: string; children: ReactNode }) {
+function CompassCard({ tele, remote }: { tele: Telemetry; remote: boolean }) {
+  const deg = tele.headingDeg
   return (
-    <button type="button" onClick={onClick} title={title} aria-pressed={active} className={`grid h-9 w-9 place-items-center rounded-control border transition-colors ${active ? 'border-accent/40 bg-accent-weak text-accent' : 'border-line bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text'}`}>
-      {children}
-    </button>
+    <div className="card compass">
+      <div className="compass-tag">
+        <span className="pill is-sel">{say.whereItIs}</span>
+        {remote && <span className="hud-k" style={{ color: 'var(--ink-2)' }}>{say.facing} {compassPoint(deg)}</span>}
+      </div>
+      <svg viewBox="0 0 100 100" aria-hidden>
+        <circle cx="50" cy="50" r="44" fill="var(--card-2)" stroke="var(--line-2)" />
+        {say.compass4.map((p, i) => (
+          <text key={p} x={50 + 38 * Math.sin((i * Math.PI) / 2)} y={50 - 38 * Math.cos((i * Math.PI) / 2) + 4} textAnchor="middle" fontSize="9" fill="var(--ink-3)" fontFamily="var(--sans)">{p}</text>
+        ))}
+        <g transform={`rotate(${remote ? deg : 0} 50 50)`}>
+          <polygon points="50,18 56,52 50,46 44,52" fill={remote ? 'var(--sel)' : 'var(--ink-4)'} />
+        </g>
+      </svg>
+      <span className="compass-note">{say.compassNote}</span>
+    </div>
   )
 }
 
-/* ─────────────────────────── Screen ─────────────────────────── */
+/* ------------------------------- the screen ------------------------------- */
+
 export function CockpitScreen() {
   useDriveLoop()
   const [driveKey, setDriveKeyState] = useState<string | null>(() => getDriveKey())
   const [entered, setEntered] = useState(false)
   const showConnect = isDriveMode() && !entered
+  // Embedded in C2, Drive commands only while it is the active screen. The
+  // store and the transports read that from the embed module directly, in
+  // the same turn as C2's message; this copy is for display only.
+  const driveActive = useDriveActive()
+  // Sign-out: the auth module forgets the stored key and the transports
+  // close; this screen lets go of its own copy too.
+  useEffect(
+    () =>
+      subscribeSignOut(() => {
+        setDriveKeyState(null)
+        setEntered(false)
+      }),
+    [],
+  )
   const remo = useRemoTransport(driveKey, entered)
   const bridge = useBridgeTransport(driveKey, entered)
   const link = bridge.active ? bridge : remo
   const pad = useGamepad()
-  // keyboard arrows + on-screen pad drive only when no gamepad and cockpit is shown
-  const manual = useManualDrive(!pad.connected && !showConnect)
+  // keyboard arrows and the on-screen pad drive only when no gamepad and the cockpit is shown
+  const manual = useManualDrive(!pad.connected && !showConnect && driveActive)
   const tele = useTelemetry()
-  const remoteMode = useVehicleStore((s) => s.remote)
+  const remote = useVehicleStore((s) => s.remote)
+  const preflight = useVehicleStore((s) => s.preflight)
   const setStick = useVehicleStore((s) => s.setStick)
   const toggleRecord = useVehicleStore((s) => s.toggleRecord)
-
-  const [mapCollapsed, setMapCollapsed] = useState(true)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [mapView, setMapView] = useState<MapView>('sat')
   const [controllerOpen, setControllerOpen] = useState(false)
-  const [hints, setHints] = useState(false)
-  const [assist, setAssist] = useState(false)
-  const [voiceOpen, setVoiceOpen] = useState(false)
-
-  // Brain-issued bounded drive. Safety model:
-  //  - only asserts while "assist" is on and the assert-loop is running;
-  //  - HUMAN OVERRIDE: each tick it re-reads the live command; if it diverged
-  //    from what assist last set (a human moved the stick/keys/gamepad), assist
-  //    aborts immediately — the human always wins;
-  //  - AUTO-NEUTRAL: after the clamped duration it sets neutral once and stops;
-  //  - the relay dead-man + the store's DRIVING gate remain the outer guards.
-  const assistRef = useRef<AssistState | null>(null)
-
-  const handleDriveIntent = useCallback((intent: DriveIntent) => {
-    const store = useVehicleStore.getState()
-    if (intent.action === 'stop' || intent.action === 'none') {
-      assistRef.current = null
-      store.setStick(0, 0)
-      return
-    }
-    const cmd = intentToCommand(intent)
-    assistRef.current = {
-      steer: cmd.steer,
-      throttle: cmd.throttle,
-      until: performance.now() + clampDurationMs(intent.durationMs),
-    }
-    store.setStick(cmd.steer, cmd.throttle)
-  }, [])
-
-  const cancelAssist = useCallback(() => {
-    if (assistRef.current) {
-      assistRef.current = null
-      useVehicleStore.getState().setStick(0, 0)
-    }
-  }, [])
-
-  // Assist assert-loop (20 Hz). Runs only while assist is enabled.
-  useEffect(() => {
-    if (!assist) {
-      cancelAssist()
-      return
-    }
-    const id = setInterval(() => {
-      const store = useVehicleStore.getState()
-      const step = assistStep(assistRef.current, store.command, performance.now())
-      switch (step.kind) {
-        case 'assert':
-          store.setStick(step.steer, step.throttle)
-          break
-        case 'neutralize':
-          assistRef.current = null
-          store.setStick(0, 0)
-          break
-        case 'yield':
-          assistRef.current = null // human took over
-          break
-        case 'idle':
-          break
-      }
-    }, 50)
-    return () => clearInterval(id)
-  }, [assist, cancelAssist])
-
-  const steer = tele.steerAngleDeg / STEER_MAX_DEG
-  const status =
-    tele.safetyState === 'DRIVING'
-      ? { label: 'TELEOP LIVE', wrap: 'bg-success-weak text-success', dot: 'bg-success' }
-      : tele.safetyState === 'STOPPED'
-        ? { label: 'STOPPED', wrap: 'bg-warning-weak text-warning', dot: 'bg-warning' }
-        : { label: 'LATCHED', wrap: 'bg-critical-weak text-critical', dot: 'bg-critical' }
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const session = bridge.active ? bridge.session ?? null : null
+  const lastSession = bridge.active ? bridge.lastSession ?? null : null
+  const linkOpen = remote && link.status === 'open'
+  // A link is set up but not live: nothing on screen is the vehicle's word.
+  // A bridge link is live only while fresh vehicle telemetry arrives.
+  const down = link.active && (link.status !== 'open' || (bridge.active && !remote))
+  const everOpen = !!link.everOpen
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) document.exitFullscreen?.()
     else document.documentElement.requestFullscreen?.()
   }, [])
-
   useEffect(() => {
     const onFs = () => setIsFullscreen(!!document.fullscreenElement)
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
   }, [])
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc inside the frame never reaches C2's window; ask it to go back.
+      if (e.key === 'Escape') {
+        postEscape()
+        return
+      }
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      const k = e.key.toLowerCase()
-      if (k === 'm') setMapCollapsed((v) => !v)
-      else if (k === 'f') toggleFullscreen()
+      if (e.key.toLowerCase() === 'f') toggleFullscreen()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [toggleFullscreen])
 
   return (
-    <div className="flex h-full flex-col gap-[clamp(8px,1.4vh,12px)] p-[clamp(12px,2vh,20px)]">
-      {/* single slim bar: module · live telemetry · view controls · status */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-card border border-line bg-surface-2 px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[14px] font-semibold tracking-[-0.005em] text-text">Ground Platform</span>
-          <SourceTag>GR-1</SourceTag>
+    <div className="drive">
+      <div className="drive-col is-scroll">
+        <MachineCard tele={tele} session={session} remote={remote} down={down} everOpen={everOpen} />
+        <SelfTestCard preflight={preflight} remote={remote} />
+        <SessionCard tele={tele} session={session} remote={remote} hz={bridge.hz ?? 15} linkOpen={linkOpen} />
+        <LinkLossCard session={session} lastSession={lastSession} />
+      </div>
+
+      <div className="drive-col">
+        <Video tele={tele} session={session} lastSession={lastSession} remote={remote} linkOpen={linkOpen} down={down} everOpen={everOpen} onToggleRecord={toggleRecord} fullscreen={isFullscreen} onFullscreen={toggleFullscreen} />
+        <DriveBar tele={tele} padConnected={pad.connected} onStick={setStick} onOpenController={() => setControllerOpen(true)} manual={manual} remote={remote} down={down} armFromCommand={link.active && !bridge.active} />
+      </div>
+
+      <div className="drive-col is-scroll">
+        <CompassCard tele={tele} remote={remote} />
+        <div className="card camera-card">
+          <div className="row">
+            <span className="h" style={{ fontSize: 13 }}>{say.rearCamera}</span>
+            <span className="pill right">{say.noVideo}</span>
+          </div>
+          <div className="tile">{say.rearLine}</div>
         </div>
-        <span className="h-5 w-px bg-line-strong" />
-        {/* Unconnected telemetry shows N/A until wired to the real vehicle.
-            Steer is real (it's the commanded steering). */}
-        <Metric label="Link" value={remoteMode ? 'LIVE' : 'N/A'} valueClass={remoteMode ? 'text-success' : 'text-text-3'} />
-        <Metric label="Battery" value={remoteMode ? `${tele.battery.percent}%` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
-        <Metric label="HDG" value={remoteMode ? `${tele.headingDeg}\u00B0` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
-        <Metric label="Steer" value={steerLabel(steer)} valueClass={Math.abs(steer) > 0.02 ? 'text-accent' : 'text-text'} />
-        <Metric label="Temp" value={remoteMode ? `${tele.tempC}\u00B0C` : 'N/A'} valueClass={remoteMode ? 'text-text' : 'text-text-3'} />
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setVoiceOpen((v) => !v)}
-            title={voiceOpen ? 'Close the Argus voice panel' : 'Talk to Argus — voice, vision, pre-flight'}
-            aria-pressed={voiceOpen}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-control border px-2.5 font-mono text-[12px] font-semibold uppercase tracking-wider transition-colors ${
-              voiceOpen
-                ? 'border-accent/40 bg-accent-weak text-accent'
-                : 'border-line bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-2'
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${voiceOpen ? 'bg-accent' : 'bg-text-3'}`} />
-            Argus
-          </button>
-          <button
-            type="button"
-            onClick={() => setAssist((v) => !v)}
-            title={assist ? 'Brain assist ON — Argus may execute bounded drive nudges' : 'Brain assist OFF — Argus can talk/see but not drive'}
-            aria-pressed={assist}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-control border px-2.5 font-mono text-[12px] font-semibold uppercase tracking-wider transition-colors ${
-              assist
-                ? 'border-accent/40 bg-accent-weak text-accent'
-                : 'border-line bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-2'
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${assist ? 'bg-accent' : 'bg-text-3'}`} />
-            Assist
-          </button>
-          <button
-            type="button"
-            onClick={() => setControllerOpen(true)}
-            title={pad.connected ? `Controller connected — ${pad.id}` : 'Controller — connect & test'}
-            className={`grid h-9 w-9 place-items-center rounded-control border transition-colors ${
-              pad.connected
-                ? 'border-success/40 bg-success-weak text-success'
-                : 'border-line bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text'
-            }`}
-          >
-            <GamepadIcon width={18} height={18} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setHints((v) => !v)}
-            title={hints ? 'Hide controller button hints' : 'Show controller button hints'}
-            className={`grid h-9 w-9 place-items-center rounded-control border font-mono text-[12px] font-bold leading-none transition-colors ${
-              hints
-                ? 'border-accent/40 bg-accent-weak text-accent'
-                : 'border-line bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-2'
-            }`}
-          >
-            ○△
-          </button>
-          <IconToggle active={mapCollapsed} onClick={() => setMapCollapsed((v) => !v)} title={mapCollapsed ? 'Show map (M)' : 'Collapse map (M)'}>
-            <MapIcon width={17} height={17} />
-          </IconToggle>
-          <IconToggle active={isFullscreen} onClick={toggleFullscreen} title="Fullscreen (F)">
-            {isFullscreen ? <FullscreenExitIcon width={17} height={17} /> : <FullscreenIcon width={17} height={17} />}
-          </IconToggle>
-          <span className={`inline-flex h-6 items-center gap-1.5 rounded-chip px-2 font-mono text-[12px] font-medium ${status.wrap}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-            {status.label}
-          </span>
-          {isDriveMode() && (
-            <button
-              type="button"
-              onClick={() => {
-                clearDriveKey()
-                setDriveKeyState(null)
-                setEntered(false)
-              }}
-              title="Log out"
-              className="grid h-9 w-9 place-items-center rounded-control border border-line bg-surface-2 text-text-2 transition-colors hover:border-critical/40 hover:bg-critical-weak hover:text-critical"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-          )}
+        <div className="card pad" style={{ flex: 1 }}>
+          <div className="row">
+            <span className="h" style={{ fontSize: 13 }}>{say.watching}</span>
+            <span className="pill right">{say.nothingSeen}</span>
+          </div>
+          <span className="line">{say.watchingLine}</span>
         </div>
       </div>
 
-      <div className={`grid min-h-0 flex-1 gap-3 ${mapCollapsed ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-[1.7fr_1fr]'}`}>
-        <LiveFeed steer={steer} recording={tele.recording} onToggleRecord={toggleRecord}>
-          {mapCollapsed && <MiniMap steer={steer} view={mapView} onExpand={() => setMapCollapsed(false)} />}
-        </LiveFeed>
-        {!mapCollapsed && <MapPanel steer={steer} view={mapView} onView={setMapView} onCollapse={() => setMapCollapsed(true)} />}
+      <div className="card argus-rail" title={say.railTip} aria-disabled>
+        <span className="glyph" aria-hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="8.5" />
+            <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
+        <span className="vert">{say.holdToTalk}</span>
       </div>
-
-      <DriveControlBar tele={tele} onStick={setStick} padConnected={pad.connected} onOpenController={() => setControllerOpen(true)} hints={hints} manual={manual} />
 
       <ControllerPanel open={controllerOpen} onClose={() => setControllerOpen(false)} />
-
-      {/* Argus voice/brain HUD — opened from the header, closed by default */}
-      {voiceOpen && (
-        <div className="pointer-events-auto fixed right-4 top-24 z-[900] w-[min(340px,calc(100vw-2rem))]">
-          <BrainPanel assistEnabled={assist} onDriveIntent={handleDriveIntent} />
-        </div>
-      )}
-
-      <RemoLinkBadge link={link} />
       {showConnect && (
         <DriveConnect
           link={link}
@@ -852,26 +715,6 @@ export function CockpitScreen() {
           onEnter={() => setEntered(true)}
         />
       )}
-    </div>
-  )
-}
-
-/* ─── Live-hardware link badge (only shown when ?drive=host:port is set) ─── */
-function RemoLinkBadge({ link }: { link: RemoLink }) {
-  if (!link.active) return null
-  const map = {
-    connecting: { dot: 'bg-warning', text: 'text-warning', label: 'LINK · CONNECTING' },
-    open: { dot: 'bg-success', text: 'text-success', label: 'LINK · LIVE' },
-    closed: { dot: 'bg-critical', text: 'text-critical', label: 'LINK · LOST' },
-    error: { dot: 'bg-critical', text: 'text-critical', label: 'LINK · ERROR' },
-  }[link.status]
-  return (
-    <div
-      title={`Live hardware: ${link.label}`}
-      className="pointer-events-none fixed left-4 top-4 z-[1000] inline-flex items-center gap-1.5 rounded-chip border border-line bg-surface-2/90 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider shadow-overlay backdrop-blur"
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${map.dot} ${link.status !== 'open' ? 'argus-blink' : ''}`} />
-      <span className={map.text}>{map.label}</span>
     </div>
   )
 }

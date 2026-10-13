@@ -16,7 +16,7 @@ import asyncio
 
 from link.v1.ontology_pb2 import AssetStatus, TaskState
 
-from tests.conftest import SITE_LAT, SITE_LON, a_manifest, wait_until
+from tests.conftest import SITE_LAT, SITE_LON, a_manifest, heard_from, wait_until
 
 # Far enough that the machine is still driving when the process dies.
 WAYPOINT_FAR = {"latitude_deg": SITE_LAT + 0.02, "longitude_deg": SITE_LON}
@@ -44,7 +44,7 @@ async def test_a_reboot_is_not_amnesia_and_never_resumes_motion(
 
     first = make_machine(manifest, state_path=state)
     first.start()
-    await wait_until(lambda: world.store.get_asset(first.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, first.asset_id))
 
     created = await client.post(
         "/v1/tasks",
@@ -100,7 +100,7 @@ async def test_a_task_that_commands_no_motion_resumes(client, world, make_machin
 
     first = make_machine(manifest, state_path=state)
     first.start()
-    await wait_until(lambda: world.store.get_asset(first.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, first.asset_id))
 
     created = await client.post(
         "/v1/tasks",

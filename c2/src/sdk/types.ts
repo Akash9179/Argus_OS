@@ -119,6 +119,7 @@ export interface Zone {
   name?: string
   zone_type?: string
   geometry?: { exterior?: Position[] }
+  rules?: { rule_type?: string; parameters?: Record<string, string> }[]
 }
 
 /** Already a plain sentence when it arrives. C2 never rewrites it. */
@@ -167,4 +168,61 @@ export interface TaskRequest {
   priority?: number
   /** How the order reached the system, for the audit trail. */
   channel?: string
+}
+
+/** One check the world model ran on an order before it was sent. */
+export interface PreviewCheck {
+  id: string
+  /** pass, needs_you, fail, unknown. Open: a newer server may add one. */
+  state: string
+  /** Already a plain sentence. */
+  text: string
+  /** Where the fact came from, as a sentence (the provenance law). */
+  source: string
+}
+
+/** What would happen if an order were sent. Nothing is issued by asking. */
+export interface TaskPreview {
+  asset_id: string
+  task_type: string
+  waypoints: Position[]
+  /** From the machine's last known position through the waypoints. */
+  path: Position[]
+  /** Null when the machine has not said where it is: the first leg is unknown. */
+  distance_m: number | null
+  /** Null unless the machine declared a speed and its start is known; never a guess. */
+  eta_sec: number | null
+  speed_mps_assumed: number | null
+  checks: PreviewCheck[]
+  can_send: boolean
+}
+
+/** One thing a machine has said about itself, in words. */
+export interface SystemRow {
+  name: string
+  /** ok, warn, act, off, unknown. */
+  state: string
+  text: string
+}
+
+/** What a machine has reported about its own systems. Never invented. */
+export interface SystemsView {
+  asset_id: string
+  reported_at: number | null
+  rows: SystemRow[]
+  cameras: SystemRow[]
+  position_source: string | null
+  note: string
+}
+
+/** An imagery layer held in this station's local tile cache. */
+export interface TileLayerInfo {
+  id: string
+  name: string
+  format: string
+  attribution: string
+  /** west, south, east, north */
+  bounds: [number, number, number, number]
+  min_zoom: number
+  max_zoom: number
 }

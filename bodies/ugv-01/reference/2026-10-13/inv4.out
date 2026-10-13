@@ -1,0 +1,348 @@
+
+===== zed_launch_params
+6:  (or zed_svo.launch.py) when a feed is given a recording instead
+18:Cost: each ZED node runs its own depth and object-detection pipeline on the
+27:      front_serial:=46830888 rear_serial:=43487702
+31:      front_source:=/path/to/front.svo rear_source:=/path/to/rear.svo
+47:# Namespace per feed. These are the `camera_name` passed to the wrapper, so
+53:# Same spelling the wrapper uses for its own svo_path default.
+83:            'serial_number': LaunchConfiguration('%s_serial' % prefix),
+84:            # Positional fallback used only when no serial is given. Front is
+86:            # reason to pass serials instead if that ever changes.
+90:        launch_file = os.path.join(share, 'launch', 'zed_svo.launch.py')
+92:        source_args = {'svo_path': source}
+95:        'camera_model': model,
+96:        'camera_name': namespace,
+154:            'objects_topic': '/%s/zed_node/obj_det/objects' % namespace,
+189:                        'absolute path to a .svo to play on the FRONT feed, '
+193:            description="'live', an absolute path to a .svo, or 'off' for "
+196:            'front_serial', default_value='0',
+200:            'rear_serial', default_value='0',
+
+===== zed_config_files
+dual_live.yaml
+dual_playback.yaml
+svo_playback.yaml
+-- src/zed_bringup/config/dual_live.yaml
+15:#   pos_tracking.imu_fusion  the recordings carried no high-frequency IMU, so
+29:            grab_resolution: 'HD1200'
+30:            grab_frame_rate: 15
+36:            # and its detections are dropped for want of a resolution.
+44:            pub_resolution: 'CUSTOM'
+54:            # here only turns publishing on. area_memory stays off: loop
+56:            pos_tracking_enabled: true
+57:            area_memory: false
+64:            # First live run re-optimizes for HD1200 - a resolution the cached
+67:            depth_mode: 'NEURAL_LIGHT'
+82:            od_enabled: true
+-- src/zed_bringup/config/dual_playback.yaml
+23:            imu_fusion: false
+28:            pos_tracking_enabled: false
+29:            area_memory: false
+40:            depth_mode: 'NEURAL_LIGHT'
+51:            od_enabled: true
+53:            # half-size publish resolution used here - small and distant
+88:        # entirely and its detections are dropped for want of a resolution.
+96:            # STREAM_QUALITY in config/cameras.js), so full-resolution frames
+98:            pub_resolution: 'CUSTOM'
+-- src/zed_bringup/config/svo_playback.yaml
+28:            # Measured against this file: imu_fusion true only works on GEN_1,
+29:            # while imu_fusion false works on GEN_1, GEN_2 and GEN_3 alike.
+33:            imu_fusion: false
+50:            depth_mode: 'NEURAL_LIGHT'
+56:            od_enabled: true
+
+===== safe_area_node
+FILE=src/zed_bringup/zed_bringup/safe_area.py
+"""ROS 2 node "safe_area": where the vehicle can drive, for the console.
+
+Fuses the ZED depth map, the IMU's sense of "up" and the object detector into
+one operator view and one small status message:
+
+  /<ns>/zed_node/depth/depth_registered  (32FC1)  --+
+  /<ns>/zed_node/depth/camera_info                  |
+  /<ns>/zed_node/rgb/color/rect/image    (bgra8)    +--> /<ns>/perception/safe_area (rgb8)
+  /<ns>/zed_node/imu/data                           |    /<ns>/perception/safe_area/status (JSON)
+  /<ns>/zed_node/obj_det/objects                    |    /web_server/camera/in -> /camera
+  /<ns>/zed_node/odom                             --+
+
+The image is the colour frame tinted by class - green drivable ground the
+vehicle can reach, dim green ground it cannot see a straight path to, yellow
+rough ground, red obstacles, purple drops - with the vehicle-width corridor
+drawn on the ground and a bar where it is first blocked. It is published at
+half the depth resolution, which keeps the depth's aspect ratio, so the
+console's normalized detection boxes still line up on top of it.
+
+The geometry lives in freespace.py (pure NumPy, unit tested); this file is
+only ROS plumbing and drawing.
+
+This is an operator aid, NOT a safety system. Nothing here stops the vehicle,
+and single-camera stereo misses thin, transparent and very dark obstacles.
+
+Like depth_colorizer, the depth and colour subscriptions exist only while
+someone watches the image: depth_registered is ~2 MB a frame and holding the
+subscription costs the wrapper publishing time even when nobody looks.
+"""
+
+import json
+import math
+from collections import deque
+
+import numpy as np
+import rclpy
+from nav_msgs.msg import Odometry
+from rclpy.node import Node
+from sensor_msgs.msg import CameraInfo, Image, Imu
+from std_msgs.msg import String
+from zed_msgs.msg import ObjectsStamped
+
+from zed_bringup import freespace as fs
+from zed_bringup.depth_colorizer import decode_depth
+
+STRIDE = 2
+# RGB per class id; UNKNOWN is left untinted.
+TINT = {
+    fs.GROUND: (40, 120, 60),       # ground, but not reachable straight on
+    fs.ROUGH: (240, 200, 40),
+    fs.OBSTACLE: (235, 60, 50),
+    fs.DROP: (170, 70, 230),
+}
+REACHABLE = (40, 225, 90)
+STATUS_RGB = {'CLEAR': (40, 225, 90), 'CAUTION': (245, 170, 30),
+              'STOP': (235, 60, 50)}
+ALPHA = 0.45
+
+
+def draw_polyline(img, us, vs, color, thickness=2):
+
+===== detection_bridge_doc
+"""ROS 2 node "detection_bridge": ZED object detections for the browser.
+
+The video itself goes to the browser as MJPEG from web_video_server. This node
+carries only the boxes, as JSON on the existing authenticated WebSocket:
+
+  /zed/zed_node/obj_det/objects (zed_msgs/ObjectsStamped)
+      -> /web_server/camera/in (std_msgs/String)  -> /camera namespace
+
+Boxes are emitted in **normalized** [0,1] coordinates. The SDK reports pixels in
+the *grab* resolution, but the browser sees whatever size web_video_server (and
+CSS) settled on, so raw pixels would misalign on every layout. Normalized boxes
+scale to any display size without the browser knowing the capture resolution.
+
+The divisor is the grab resolution, which is NOT always what camera_info
+reports. With `pub_resolution: CUSTOM` and `pub_downscale_factor: 2.0` (see
+config/dual_playback.yaml) the wrapper publishes - and describes in
+camera_info - a half-size image while object detection still runs on the full
+grab frame. Dividing by the published size then makes every coordinate exactly
+`pub_downscale_factor` times too large: boxes drift down and to the right, and a
+feed whose objects sit right of centre pushes them off-screen entirely, which
+looks like detection is broken rather than misplaced. So the factor is read
+back from the ZED node itself instead of being assumed.
+
+One instance runs per camera, so every message carries a `camera` field naming
+the feed it belongs to. The console keys its overlays on that field rather than
+assuming a single source: two bridges publish to the same topic at their own
+rates, and a stalled camera stops updating only its own overlay.
+
+Detections arrive at the grab rate (up to 30 Hz). That is more than an operator
+view needs and it shares the socket with /cmd, so publishing is rate-limited.
+"""
+
+import json
+
+import rclpy
+from rcl_interfaces.srv import GetParameters
+from rclpy.node import Node
+from sensor_msgs.msg import CameraInfo
+from std_msgs.msg import String
+from zed_msgs.msg import ObjectsStamped
+
+===== phone_gps
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'frame_id', default_value='gps',
+            description='frame_id stamped on the published NavSatFix.'),
+        Node(
+            package='phone_gps',
+            executable='gps',
+            name='gps',
+            output='screen',
+            parameters=[{
+                'frame_id': LaunchConfiguration('frame_id'),
+            }],
+        ),
+    ])
+
+===== commands_js
+/*
+ * Vehicle command vocabulary + telemetry parsing.
+ *
+ * These tokens are the console's side of the ARGUS DRIVE serial protocol
+ * (firmware v4.1.3). `cmd_node` (serial_control) translates each one into
+ * the firmware's hex-text frame ("0x05 01") in serial_control/argus_protocol.py — that
+ * file is the source of truth; a token it doesn't know is dropped there.
+ * Firmware constraints the UI has to respect:
+ *  - ring / high / low share ONE light channel: selecting one turns the
+ *    others off.
+ *  - left / right indicators and parking share ONE channel too.
+ *  - horn is a fixed 0.5 s pulse (longer pulses are locked in firmware).
+ *  - brake is an actuator (apply / stop / release), not a level, and while
+ *    braking the firmware rejects throttle.
+ */
+
+export const CMD = {
+  // stop = halt the actuator where it is; center = firmware auto-centre
+  steer: { left: 'STEER:L', right: 'STEER:R', stop: 'STEER:STOP', center: 'STEER:C' },
+  light: { ring: 'LIGHT:RING', high: 'LIGHT:HIGH', low: 'LIGHT:LOW', off: 'LIGHT:OFF' },
+  horn: 'HORN',
+  indicator: { left: 'IND:L', right: 'IND:R', park: 'IND:PARK', off: 'IND:OFF' },
+  gear: { D: 'GEAR:D', R: 'GEAR:R', N: 'GEAR:N' },
+  // no firmware equivalent — consumed by the autonomy layer, not the MCU
+  mode: { manual: 'MODE:MANUAL', auto: 'MODE:AUTO' },
+  speed: { 1: 'SPEED:1', 2: 'SPEED:2', 3: 'SPEED:3' },
+  brake: { apply: 'BRAKE:APPLY', stop: 'BRAKE:STOP', release: 'BRAKE:RELEASE' },
+  accel: (pct) => `ACCEL:${Math.round(pct)}`,   // 0..100 %, duty clamped to 20-90% by firmware
+  estop: 'ESTOP',
+
+  // Autonomy waypoints — PLACEHOLDER tokens. There is no waypoint/route
+  // protocol in the firmware yet; these are what the Autonomy tab emits so
+  // there's a single spot to swap in the real protocol when it exists. The
+  // Go button sends start, end, MODE:AUTO, then NAV:GO; Stop sends
+  // NAV:ABORT then MODE:MANUAL.
+  nav: {
+    start: (lat, lon) => `NAV:START:${lat.toFixed(6)},${lon.toFixed(6)}`,
+    end: (lat, lon) => `NAV:END:${lat.toFixed(6)},${lon.toFixed(6)}`,
+    go: 'NAV:GO',
+    abort: 'NAV:ABORT',
+  },
+
+  // Autonomy drive settings — PLACEHOLDER tokens (Autonomy tab's Drive
+  // settings card). Emitted whenever a setting changes.
+  auto: {
+    maxSpeed: (kmph) => `AUTO:MAXSPEED:${kmph}`,  // km/h cap
+    roadDetect: (on) => `AUTO:ROADDET:${on ? 'ON' : 'OFF'}`,
+    objClass: (on) => `AUTO:OBJCLS:${on ? 'ON' : 'OFF'}`,
+  },
+};
+
+/*
+ * Heading + steer angle have no dedicated telemetry namespace yet — the
+ * vehicle would report them as serial lines echoed on /cmd/in. Parse a
+ * lenient `key=value` / `key:value` form so several firmware shapes work,
+ * e.g. "TELEM heading=92 steer=-4.5" or "hdg:92,steering:-4". Returns null
+ * when a line carries no telemetry we recognise, so ordinary /cmd chatter
+ * is left alone.
+ */
+export function parseTelemetry(line) {
+  if (typeof line !== 'string') return null;
+  const out = {};
+  const heading = /(?:heading|hdg)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i.exec(line);
+  const steer = /(?:steer(?:ing)?|angle)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i.exec(line);
+  // No lat/lon here: vehicle position comes from /gps (the phone page) and
+  // has exactly one source. A stray "lat=" in a firmware line must not get
+  // to fight the phone over the same map marker.
+  if (heading) out.heading = parseFloat(heading[1]);
+  if (steer) out.steer = parseFloat(steer[1]);
+  // "TELEM brake=42 brakedeg=111.1": travel % between the brake limits, and
+  // the actuator angle. brake= is absent until the limits are known.
+  const brake = /\bbrake\s*[:=]\s*(-?\d+(?:\.\d+)?)/i.exec(line);
+  const brakeDeg = /\bbrakedeg\s*[:=]\s*(-?\d+(?:\.\d+)?)/i.exec(line);
+  if (brake) out.brake = parseFloat(brake[1]);
+  if (brakeDeg) out.brakeDeg = parseFloat(brakeDeg[1]);
+  return Object.keys(out).length ? out : null;
+}
+
+===== autonomy_tab
+4: * The operator clicks the map to drop a Start (A) then End (B) pin (both
+5: * draggable to fine-tune), and Go arms autonomy. Because there is no route
+48:const OSRM = 'https://router.project-osrm.org/route/v1/driving';
+54:  if (data.code !== 'Ok' || !data.routes?.length) throw new Error(data.code || 'no route');
+55:  const r0 = data.routes[0];
+63:function pinIcon(label, cls) {
+89:  const [route, setRoute] = useState(null);        // { coords, distance, duration }
+90:  const [routeStatus, setRouteStatus] = useState('idle'); // idle|loading|ok|error
+100:  // Latest pins for the map click handler (attached once per map instance).
+104:  // Set the start (A) pin from the vehicle's position — the phone fix, as ROS
+119:  // Fetch the road route whenever both pins are set. Abortable so rapid pin
+139:  // Click to place: first Start, then End, then move whichever pin is nearer.
+154:  // Draw the pins + route line. Rebuilt on every change (and whenever the map
+163:      const m = L.marker([point.lat, point.lon], { icon: pinIcon(label, cls), draggable: true })
+172:    addPin(start, 'A', styles.pinStart, setStart);
+173:    addPin(end, 'B', styles.pinEnd, setEnd);
+175:    if (route?.coords?.length) {
+176:      // Real road route (follows streets). Leaflet paints into an SVG it owns,
+177:      // so these take the autonomy channel's literal hex rather than var().
+178:      layers.push(L.polyline(route.coords, {
+189:  }, [map, start, end, route, setStart, setEnd]);
+265:            <span className={styles.title}><Icon name="route" size={15} /> Autonomy</span>
+301:            {!both && <span className={styles.readoutDim}>Set both points to see the route</span>}
+302:            {both && routeStatus === 'loading' && (
+303:              <span className={styles.readoutDim}>Finding shortest road route…</span>
+305:            {both && routeStatus === 'ok' && route && (
+306:              <>Route <b>{fmtDist(route.distance)}</b> · ETA <b>{fmtDur(route.duration)}</b></>
+308:            {both && routeStatus === 'error' && (
+319:              title="Send waypoints and arm autonomy"
+328:              title="Abort autonomy and return to manual"
+337:              title="Clear both pins"
+
+===== any_autonomy_node
+src/web_server/web_server/power.py
+src/serial_control/serial_control/argus_protocol.py
+src/web_server/web_server/power.py:87:                  'SPEED:', 'PARK:OFF', 'NAV:GO', 'NAV:START', 'NAV:END',
+src/web_server/web_server/power.py:128:        self.auto = False      # MODE:AUTO / NAV:GO engaged
+src/web_server/web_server/power.py:157:        elif t == 'MODE:AUTO' or t.startswith('NAV:GO'):
+src/web_server/web_server/power.py:159:        elif t == 'MODE:MANUAL' or t.startswith('NAV:ABORT'):
+
+===== ros_graph_zed_topics
+/zed_front/joint_states
+/zed_front/perception/safe_area
+/zed_front/perception/safe_area/status
+/zed_front/zed_front_description
+/zed_front/zed_node/depth/camera_info
+/zed_front/zed_node/depth/depth_color
+/zed_front/zed_node/depth/depth_registered
+/zed_front/zed_node/depth/depth_registered/camera_info
+/zed_front/zed_node/depth/depth_registered/compressedDepth
+/zed_front/zed_node/imu/data
+/zed_front/zed_node/obj_det/objects
+/zed_front/zed_node/odom
+/zed_front/zed_node/pose
+/zed_front/zed_node/pose/status
+/zed_front/zed_node/rgb/color/rect/camera_info
+/zed_front/zed_node/rgb/color/rect/image
+/zed_front/zed_node/rgb/color/rect/image/camera_info
+/zed_front/zed_node/rgb/color/rect/image/compressed
+/zed_front/zed_node/rgb/color/rect/image/theora
+/zed_front/zed_node/status/health
+/zed_front/zed_node/status/heartbeat
+/zed_rear/joint_states
+/zed_rear/perception/safe_area
+/zed_rear/perception/safe_area/status
+/zed_rear/zed_node/depth/camera_info
+/zed_rear/zed_node/depth/depth_color
+/zed_rear/zed_node/imu/data
+/zed_rear/zed_node/obj_det/objects
+/zed_rear/zed_node/odom
+/zed_rear/zed_node/rgb/color/rect/camera_info
+/zed_rear/zed_rear_description
+
+===== zed_odom_once
+topic=/zed_front/zed_node/odom
+  frame_id: odom
+child_frame_id: zed_front_camera_link
+pose:
+  pose:
+    position:
+      x: 0.07066972860161963
+      y: 0.06396196067725707
+      z: -0.029709815157880563
+-- hz front rgb
+
+===== vehicle_dims_in_docs

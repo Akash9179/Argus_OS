@@ -1,0 +1,60 @@
+# ugv-01, the first steel, as found on 13 Oct 2026. The real locomotion
+# driver behind the HAL, inhibited until a measured calibration is added
+# here. Position is the configured site position, declared unmeasured,
+# until a GNSS is fitted. The camera stays simulated until the ZED X
+# provider exists (A to B plan, M0 item 2).
+#
+# Rule zero applies to this file: booting it opens two serial ports on the
+# vehicle, which may reset the boards. Wheels up, a person at the key.
+
+asset_id: "01UGV01000000000000000001"
+asset_class: "ugv"
+name: "ugv-01"
+
+# Walking pace until M3 of the A to B plan. These are caps the runtime
+# enforces; the vehicle's real speed per throttle setting is unmeasured.
+max_speed_mps: 1.4
+max_turn_rate_dps: 30.0
+max_accel_mps2: 0.5
+max_decel_mps2: 2.0
+min_turn_radius_m: 4.0    # unmeasured; a Jeep-class chassis, not skid steer
+can_hover: false
+
+dimensions:                # unmeasured; M1 fills these with a tape
+  length_m: 3.2
+  width_m: 1.7
+  height_m: 1.9
+
+battery:
+  capacity_wh: 5200
+  start_fraction: 0.66     # 69.66 of 105 Ah on 13 Oct
+  drain_per_minute: 0.004
+
+supported_task_types:
+  - hold
+
+drivers:
+  - kind: locomotion
+    driver: ugv01_locomotion
+    drive_port: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+    accel_port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0
+    steer_sense: left_increases          # bench, 13 Oct 2026
+    max_duty: 30                         # bench cap until M1
+    # calibration: absent on purpose. Filled by the first ground session
+    # (speed per duty, steering sensor to road wheel, wheelbase). Until it
+    # exists the driver refuses to move.
+
+  - kind: localization
+    driver: static_localization
+    latitude_deg: 23.1905                # the Jabalpur site, from the simulated asset
+    longitude_deg: 79.9859
+    heading_deg: 0.0
+
+  - kind: sensor
+    driver: simulated_camera             # M0 item 2 replaces this with the ZED X provider
+    sightings: []
+
+  - kind: comms
+    driver: mqtt_comms
+    host: "127.0.0.1"                    # the laptop's broker over the SSH tunnel
+    port: 1883

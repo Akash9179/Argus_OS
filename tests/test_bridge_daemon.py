@@ -93,42 +93,290 @@ def test_watchdog_full_cycle_stopped_driving_latched_rearm():
     clock = {"t": 0.0}
     dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
     assert dog.state == "STOPPED"
-    assert dog.command(arm=True, estop=False, throttle=0.0) is True
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)   # a session starts released
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
     assert dog.state == "DRIVING"
 
     clock["t"] += 1.0                      # silence past the timeout
     assert dog.check() is True             # trips exactly once
     assert dog.state == "LATCHED"
     assert dog.check() is False
+    released_through_the_drain(dog, clock)
 
-    # throttle during latch does not re-arm
-    assert dog.command(arm=True, estop=False, throttle=0.5) is False
+    # a press with throttle during latch does not re-arm
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.5, ready=True) is False
     assert dog.state == "LATCHED"
-    # the explicit re-arm gesture does
-    assert dog.command(arm=True, estop=False, throttle=0.0) is True
+    # the explicit re-arm gesture does: release, then press at zero throttle
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
     assert dog.state == "DRIVING"
 
 
 def test_estop_latches_even_while_fed():
     dog = Watchdog(timeout_s=0.7)
-    dog.command(arm=True, estop=False, throttle=0.0)
-    assert dog.command(arm=True, estop=True, throttle=0.0) is False
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    dog.command(arm=True, estop=False, throttle=0.0, ready=True)
+    assert dog.state == "DRIVING"
+    assert dog.command(arm=True, estop=True, throttle=0.0, ready=True) is False
     assert dog.state == "LATCHED"
 
 
 def test_voluntary_disarm_goes_to_stopped_not_latched():
     dog = Watchdog(timeout_s=0.7)
-    dog.command(arm=True, estop=False, throttle=0.0)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    dog.command(arm=True, estop=False, throttle=0.0, ready=True)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
     dog.disarm()
     assert dog.state == "STOPPED"
-    assert dog.command(arm=True, estop=False, throttle=0.0) is True
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
 
 
 def test_link_lost_while_driving_latches():
     dog = Watchdog(timeout_s=0.7)
-    dog.command(arm=True, estop=False, throttle=0.0)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    dog.command(arm=True, estop=False, throttle=0.0, ready=True)
     assert dog.link_lost() is True
     assert dog.state == "LATCHED"
+
+
+# ------------------------------------------------- arm is a rising edge only
+# The rule under test: the watchdog arms only on a false-to-true edge of the
+# arm bit, never on a frame that merely continues arm=true. A session starts
+# as if arm were held, so it needs one arm=false frame before a press counts.
+# Every latch resets the detector the same way. A voluntary disarm keeps
+# the bit of the frame that caused it. Frames
+# queued in a stalled socket keep their stale arm and so can never re-arm.
+
+def released_through_the_drain(dog, clock, step: float = 0.05):
+    """A cockpit back after a silence: arm=false frames at its normal
+    cadence for one watchdog window and a step. Frames received inside the
+    window after a stall cannot release or press, so a test that re-arms
+    after a silence streams through it first, as a real cockpit does."""
+    held_until = clock["t"] + dog.timeout_s + step
+    while clock["t"] <= held_until:
+        dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+        clock["t"] += step
+
+
+def fresh_driving_dog():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.state == "DRIVING"
+    return dog, clock
+
+
+def test_a_latch_ignores_a_run_of_held_arm_frames():
+    dog, clock = fresh_driving_dog()
+    clock["t"] += 1.0
+    assert dog.check() is True
+    assert dog.state == "LATCHED"
+    for _ in range(10):                    # stale frames draining a socket
+        assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+        assert dog.state == "LATCHED"
+
+
+def test_a_latch_rearms_on_release_then_press_at_zero_throttle():
+    dog, clock = fresh_driving_dog()
+    clock["t"] += 1.0
+    dog.check()
+    released_through_the_drain(dog, clock)
+    assert dog.command(arm=False, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "LATCHED"
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.state == "DRIVING"
+
+
+def test_a_press_with_throttle_is_spent_and_holding_it_does_not_rearm():
+    dog, clock = fresh_driving_dog()
+    clock["t"] += 1.0
+    dog.check()
+    released_through_the_drain(dog, clock)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.5, ready=True) is False
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "LATCHED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+
+
+def test_the_confirmation_window_arms_once_and_stays_driving():
+    """The cockpit asserts arm for up to 500 ms after a press: about 25
+    frames at 50 Hz. The first arms; the rest are idempotent."""
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    for _ in range(25):
+        clock["t"] += 0.02
+        assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+        assert dog.state == "DRIVING"
+        assert dog.check() is False
+
+
+def test_a_session_first_frame_with_arm_does_not_arm():
+    dog = Watchdog(timeout_s=0.7)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "STOPPED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+
+
+def test_after_link_loss_the_next_session_needs_a_fresh_press():
+    dog, _ = fresh_driving_dog()
+    assert dog.link_lost() is True
+    # The reconnected session's first frames still carry the old arm.
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "LATCHED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.state == "DRIVING"
+
+
+def test_a_driver_change_while_stopped_also_needs_a_fresh_press():
+    dog = Watchdog(timeout_s=0.7)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.link_lost() is False       # was not driving, nothing trips
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "STOPPED"
+
+
+def test_estop_release_with_arm_held_stays_latched():
+    dog, _ = fresh_driving_dog()
+    dog.command(arm=True, estop=True, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "LATCHED"
+
+
+def test_a_press_before_the_self_test_passed_does_not_arm_later():
+    """The edge is on the operator's own arm bit. A press made while the
+    self-test had not passed is spent; the green light arriving while the
+    arm is still held is not a fresh act."""
+    dog = Watchdog(timeout_s=0.7)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=False)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=False) is False
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+    assert dog.state == "STOPPED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+
+
+def test_ready_must_be_stated_by_every_caller():
+    """No default: a caller that forgets the self-test verdict cannot
+    fail open."""
+    dog = Watchdog(timeout_s=0.7)
+    with pytest.raises(TypeError):
+        dog.command(arm=False, estop=False, throttle=0.0)
+    with pytest.raises(TypeError):
+        dog.command(False, False, 0.0, True)    # keyword only
+
+
+def test_a_first_arm_also_needs_zero_throttle():
+    """The bridge does not trust the cockpit's neutral-stick gate: arming
+    from STOPPED needs zero throttle, as re-arming from LATCHED does."""
+    dog = Watchdog(timeout_s=0.7)
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.3, ready=True) is False
+    assert dog.state == "STOPPED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.state == "DRIVING"
+
+
+# ------------------------------------- a receive gap is a stall in any state
+# The rule under test: a gap between two command frames, on the watchdog's
+# own clock, longer than its window is a stall, whatever the state. After a
+# stall the edge detector holds for one more window: frames that drain in a
+# burst land inside it, so no frame in the burst can be the release or the
+# press. An edge proves order, not freshness.
+
+def test_a_burst_after_a_stall_cannot_arm_from_stopped():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    clock["t"] += 1.0                      # the socket stalls while STOPPED
+    # the queue drains at once: releases, a press, then throttle
+    burst = [(False, 0.0), (False, 0.0), (True, 0.0), (True, 0.5), (True, 0.5)]
+    for arm, throttle in burst:
+        assert dog.command(arm=arm, estop=False, throttle=throttle, ready=True) is False
+        assert dog.state == "STOPPED"
+
+
+def test_the_first_late_frame_reports_the_stall():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.stalled is False
+    clock["t"] += 0.71
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.stalled is True
+    clock["t"] += 0.05
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.stalled is False
+
+
+def test_a_gap_inside_the_window_is_not_a_stall():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    clock["t"] += 0.69
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.stalled is False
+    assert dog.state == "DRIVING"
+
+
+def test_after_a_stall_a_release_then_press_past_the_window_arms():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    clock["t"] += 1.0
+    dog.command(arm=True, estop=False, throttle=0.0, ready=True)   # the drain
+    released_through_the_drain(dog, clock)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+    assert dog.state == "DRIVING"
+
+
+def test_a_held_arm_through_the_window_still_needs_a_release():
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    clock["t"] += 1.0
+    for _ in range(30):                    # arm held, frames at 20 Hz
+        assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is False
+        clock["t"] += 0.05
+    assert dog.state == "STOPPED"
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
+
+
+def test_a_command_gap_while_driving_latches_even_with_heartbeats():
+    """Heartbeats keep the silence check fed, but a command frame that
+    comes after a gap longer than the window is still a stall. While
+    DRIVING it latches on that frame, before its throttle reaches the
+    vehicle."""
+    dog, clock = fresh_driving_dog()
+    for _ in range(10):                    # heartbeats only, 100 ms apart
+        clock["t"] += 0.1
+        dog.feed()
+        assert dog.check() is False
+    assert dog.command(arm=True, estop=False, throttle=0.5, ready=True) is False
+    assert dog.state == "LATCHED"
+    assert dog.stalled is True
+
+
+def test_a_new_session_does_not_inherit_the_last_frame_time():
+    """link_lost starts the next driver's session clean: its first command
+    frame has no predecessor to measure a gap from."""
+    clock = {"t": 0.0}
+    dog = Watchdog(timeout_s=0.7, now=lambda: clock["t"])
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    dog.link_lost()
+    clock["t"] += 5.0
+    dog.command(arm=False, estop=False, throttle=0.0, ready=True)
+    assert dog.stalled is False
+    assert dog.command(arm=True, estop=False, throttle=0.0, ready=True) is True
 
 
 # ----------------------------------------------------- daemon over a socket
@@ -208,6 +456,7 @@ def test_auth_role_telemetry_and_control(daemon):
     c.send({"t": "auth", "password": "pw"})
     assert c.recv_until("role")["role"] == "DRIVER"
 
+    c.send(drive_frame(arm=False))     # a session's first frame never arms
     cmd = Command(gear="F", ignition=True, arm=True).to_wire()
     cmd["t"] = "cmd"
     c.send(cmd)
@@ -240,6 +489,7 @@ def test_driver_silence_latches_the_vehicle(daemon):
     c = WsClient(port)
     c.send({"t": "auth", "password": "pw"})
     c.recv_until("role")
+    c.send(drive_frame(arm=False))     # a session's first frame never arms
     cmd = Command(gear="F", throttle=0.0, ignition=True, arm=True).to_wire()
     cmd["t"] = "cmd"
     c.send(cmd)
@@ -326,12 +576,13 @@ class FakeLink:
         return True
 
 
-def make_reporter(vehicle):
+def make_reporter(vehicle, name=None):
     from bridge.link_reporter import LinkReporter
     r = LinkReporter.__new__(LinkReporter)
     from sim.link_client import LinkClient
     r.vehicle = vehicle
     r.lat, r.lon = 51.5055, -0.118
+    r.name = name
     r._link = FakeLink()
     r._client = LinkClient("01BENCHUGV0000000000000001", r._link, "argus", on_task=lambda t: None)
     import threading
@@ -381,6 +632,47 @@ def test_reporter_standby_when_not_driving():
     hb_raw = [p for t, p in r._link.published if t.endswith("heartbeat")][0]
     hb = Heartbeat(); hb.ParseFromString(hb_raw)
     assert hb.status == ASSET_STATUS_STANDBY
+
+
+def declarations(r):
+    """The telemetry messages the reporter sent that carry a payload."""
+    from link.v1.messages_pb2 import Telemetry as LinkTelemetry
+
+    out = []
+    for topic, raw in r._link.published:
+        if not topic.endswith("telemetry"):
+            continue
+        tel = LinkTelemetry(); tel.ParseFromString(raw)
+        if tel.HasField("payload"):
+            out.append(tel)
+    return out
+
+
+def test_reporter_with_a_name_declares_it_in_a_registry_manifest():
+    """The same declaration the sim makes, so TRACK shows the name."""
+    from google.protobuf.json_format import MessageToDict
+
+    r = make_reporter(MockVehicle(), name="Tessy")
+    r.declare()
+    r.step(dt=0.5, send_heartbeat=True)
+
+    declared = declarations(r)
+    assert len(declared) == 1
+    payload = MessageToDict(declared[0].payload)
+    assert payload == {"registry": {"manifest": {"name": "Tessy"}}}
+    assert declared[0].asset_id == "01BENCHUGV0000000000000001"
+
+
+def test_reporter_without_a_name_declares_nothing():
+    """No name was given, so none is invented: TRACK keeps its fallback."""
+    r = make_reporter(MockVehicle())
+    r.declare()
+    r.step(dt=0.5, send_heartbeat=True)
+
+    assert declarations(r) == []
+    # Ordinary reporting is unaffected.
+    assert any(t.endswith("telemetry") for t, _ in r._link.published)
+    assert any(t.endswith("heartbeat") for t, _ in r._link.published)
 
 
 # ------------------------------------- identity and the session log (ADR-0009)
@@ -452,7 +744,8 @@ def test_a_session_can_be_reconstructed_from_its_log(daemon, tmp_path):
     deadline = time.monotonic() + 2
     while c.recv_until("telemetry")["safetyState"] != "LATCHED":
         assert time.monotonic() < deadline
-    c.send(drive_frame(throttle=0.0))         # explicit re-arm
+    c.send(drive_frame(arm=False))            # release the stop and the arm
+    c.send(drive_frame(throttle=0.0))         # explicit re-arm: a fresh press
     deadline = time.monotonic() + 2
     while c.recv_until("telemetry")["safetyState"] != "DRIVING":
         assert time.monotonic() < deadline
@@ -509,6 +802,183 @@ def test_silence_while_driving_is_latched_in_the_log(daemon):
         time.sleep(0.05)
     assert latched and latched[0]["reason"] == "operator_silence"
     c.close()
+
+
+def wait_for_event(d, predicate, timeout: float = 2.0) -> list:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        events = read_events(d.log.path)
+        if any(predicate(e) for e in events):
+            return events
+        time.sleep(0.02)
+    raise AssertionError("expected log event never arrived")
+
+
+def test_queued_armed_frames_after_a_lost_link_do_not_rearm(daemon):
+    """The stalled-socket gap. A driver's link dies while DRIVING and the
+    vehicle latches. The next session's first frames still carry arm=true,
+    as frames queued before the cockpit noticed would. They must not
+    re-arm. Only a release then a press does, and the log records it as a
+    re-arm in that session, as before."""
+    d, port = daemon
+    a = WsClient(port)
+    a.send({"t": "auth", "password": "pw"})
+    a.recv_until("role")
+    a.send(drive_frame(arm=False))
+    a.recv_until("preflight")
+    a.send(drive_frame())
+    deadline = time.monotonic() + 2
+    while a.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    a.close()
+    wait_for_event(d, lambda e: e["event"] == "latched" and e.get("reason") == "link_lost")
+    assert d.watchdog.state == "LATCHED"
+
+    b = WsClient(port)
+    b.send({"t": "auth", "password": "pw"})
+    assert b.recv_until("role")["role"] == "DRIVER"
+    for _ in range(5):                       # the stale burst, all armed
+        b.send(drive_frame(throttle=0.0))
+    b.send({"t": "preflight"})               # read in order after the burst
+    b.recv_until("preflight")
+    assert d.watchdog.state == "LATCHED"
+
+    b.send(drive_frame(arm=False))           # release
+    b.send(drive_frame(throttle=0.0))        # fresh press
+    deadline = time.monotonic() + 2
+    while b.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    b.send(drive_frame(arm=False))           # disarm before leaving
+    b.send({"t": "preflight"})
+    b.recv_until("preflight")
+    b.close()
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        events = read_events(d.log.path)
+        if sum(e["event"] == "session_close" for e in events) == 2:
+            break
+        time.sleep(0.02)
+    sessions = [e["session"] for e in events if e["event"] == "session_open"]
+    story_b = [e["event"] for e in events if e.get("session") == sessions[1]]
+    assert story_b == [
+        "session_open", "preflight", "rearmed", "disarmed", "preflight",
+        "session_close",
+    ]
+
+
+def test_a_withdrawn_self_test_under_a_held_arm_does_not_rearm(daemon):
+    """DRIVING, then ignition off with the arm still held: the self-test is
+    withdrawn and the daemon disarms. Ignition back on with the arm still
+    held passes the self-test again, but that is not a fresh press."""
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+    c.send(drive_frame(arm=False))
+    c.recv_until("preflight")
+    c.send(drive_frame())
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    c.send(drive_frame(ignition=False))       # arm held, green light gone
+    assert c.recv_until("preflight")["pass"] is False
+    assert d.watchdog.state == "STOPPED"
+    c.send(drive_frame())                     # ignition back, arm still held
+    assert c.recv_until("preflight")["pass"] is True
+    assert d.watchdog.state == "STOPPED"
+    c.send(drive_frame(arm=False))            # release, then a fresh press
+    c.send(drive_frame())
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    c.close()
+
+
+def test_a_press_with_throttle_does_not_arm_and_logs_nothing(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+    c.send(drive_frame(arm=False))
+    c.recv_until("preflight")
+    c.send(drive_frame(throttle=0.3))         # press with throttle held
+    c.send({"t": "preflight"})                # read in order after it
+    c.recv_until("preflight")
+    assert d.watchdog.state == "STOPPED"
+    assert not any(e["event"] in ("armed", "rearmed")
+                   for e in read_events(d.log.path))
+    c.send(drive_frame(arm=False))            # release, then press at zero
+    c.send(drive_frame(throttle=0.0))
+    deadline = time.monotonic() + 2
+    while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+        assert time.monotonic() < deadline
+    c.send(drive_frame(arm=False))
+    c.send({"t": "preflight"})
+    c.recv_until("preflight")
+    armed = [e for e in read_events(d.log.path) if e["event"] == "armed"]
+    assert len(armed) == 1
+    c.close()
+
+
+class RecordingVehicle(MockVehicle):
+    """The mock, with every command that reached it kept."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.applied: list[Command] = []
+
+    def apply(self, cmd: Command) -> None:
+        self.applied.append(cmd)
+        super().apply(cmd)
+
+
+def test_a_queued_press_drained_after_a_stall_does_not_arm_or_move(tmp_path):
+    """Codex P1. STOPPED; the socket stalls; the operator presses arm and
+    pushes throttle inside the cockpit's confirmation window; the request
+    expires. When the queue drains, its frames hold a valid release then
+    press edge at zero throttle. They arrive past the watchdog window, so
+    they are a stall's drain: nothing arms and nothing moves. A release and
+    a press sent after the drain, at a cockpit's cadence, arm as normal."""
+    vehicle = RecordingVehicle()
+    d = BridgeDaemon(vehicle, operators=two_operators(),
+                     host="127.0.0.1", port=0, watchdog_timeout_s=0.3,
+                     log_path=tmp_path / "sessions.jsonl")
+    d.start()
+    try:
+        c = WsClient(d._server.getsockname()[1])
+        c.send({"t": "auth", "password": "pw"})
+        c.recv_until("role")
+        c.send(drive_frame(arm=False))           # STOPPED, ignition on
+        c.recv_until("preflight")
+        assert d.watchdog.state == "STOPPED"
+
+        time.sleep(0.5)                           # the stall, past 300 ms
+        burst = ([drive_frame(arm=False)] * 3 + [drive_frame(throttle=0.0)]
+                 + [drive_frame(throttle=0.6)] * 5 + [drive_frame(arm=False)])
+        for frame in burst:                       # the queue drains at once
+            c.send(frame)
+        c.send({"t": "preflight"})                # read in order after it
+        c.recv_until("preflight")
+
+        assert d.watchdog.state == "STOPPED"
+        events = read_events(d.log.path)
+        assert not any(e["event"] in ("armed", "rearmed") for e in events)
+        assert any(e["event"] == "stall" for e in events)
+        assert all(cmd.throttle == 0.0 for cmd in vehicle.applied)
+        assert vehicle.read().speedKmh == 0.0
+
+        deadline = time.monotonic() + 0.4         # released past the window
+        while time.monotonic() < deadline:
+            c.send(drive_frame(arm=False))
+            time.sleep(0.05)
+        c.send(drive_frame(throttle=0.0))         # the fresh press
+        deadline = time.monotonic() + 2
+        while c.recv_until("telemetry")["safetyState"] != "DRIVING":
+            assert time.monotonic() < deadline
+        c.close()
+    finally:
+        d.stop()
 
 
 def test_operator_directory_round_trips_through_its_file(tmp_path):
@@ -604,3 +1074,46 @@ def test_a_successful_auth_clears_the_slate(tmp_path):
         again.close()
     finally:
         d.stop()
+
+
+# --------------------------------------------------------- session facts
+
+
+def test_role_carries_the_session_facts_a_cockpit_shows(daemon):
+    """Driver name, the machine's name (none here), and the watchdog window,
+    so the cockpit states link-loss behaviour with the daemon's own figure."""
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    role = c.recv_until("role")
+    assert role["role"] == "DRIVER"
+    assert role["driver"] == "Akash"
+    assert role["vehicle"] is None
+    assert role["watchdog_ms"] == 300
+    c.close()
+
+
+def test_preflight_checks_carry_a_sentence(daemon):
+    d, port = daemon
+    c = WsClient(port)
+    c.send({"t": "auth", "password": "pw"})
+    c.recv_until("role")
+    cmd = Command(gear="F", ignition=True).to_wire(); cmd["t"] = "cmd"
+    c.send(cmd)
+    pf = c.recv_until("preflight")
+    labels = {chk["name"]: chk["label"] for chk in pf["checks"]}
+    assert labels["mcu_link"] == "Control link answers"
+    assert labels["watchdog"] == "Watchdog armed"
+    # the firmware's own fields survive beside the sentence
+    assert all({"name", "ok", "detail", "label"} <= set(chk) for chk in pf["checks"])
+    c.close()
+
+
+def test_a_frame_that_may_not_drive_still_carries_the_brake():
+    """The rebuilt not-armed Command must keep aux.brake: dropping it would
+    send the vehicle a brake release the operator never asked for."""
+    from bridge.daemon import BridgeDaemon
+    from bridge.identity import OperatorDirectory
+    import inspect
+    src = inspect.getsource(BridgeDaemon._handle)
+    assert "brake=cmd.brake" in src

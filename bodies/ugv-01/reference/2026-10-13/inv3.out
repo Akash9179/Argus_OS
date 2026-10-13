@@ -1,0 +1,279 @@
+
+===== who_is_active
+tessy_01 :1           2026-10-13 19:10 (:1)
+    PID    PPID ELAPSED TT       COMMAND
+  44569   43468    1364 pts/0    claude
+  52812   51705     757 pts/6    claude
+  53672   52812     719 ?        /bin/bash -c source /home/tessy_01/.claude/shell-snapshots/snapshot-bash-1791898950654-p01kh1.sh 2>/dev/null || true 
+  53720   53673     718 ?        /usr/bin/python3 /opt/ros/humble/bin/ros2 launch bms_monitor bringup.launch.py
+  53721   53673     718 ?        /usr/bin/python3 /opt/ros/humble/bin/ros2 launch phone_gps gps.launch.py
+  53722   53673     718 ?        /usr/bin/python3 /opt/ros/humble/bin/ros2 launch mobile_remote mobile_remote.launch.py
+  53723   53673     718 ?        /usr/bin/python3 /opt/ros/humble/bin/ros2 launch zed_bringup dual_camera.launch.py
+52812 cwd=/home/tessy_01/Desktop/ros2_new
+44569 cwd=/home/tessy_01/Desktop/ros2_new
+53672 cwd=/home/tessy_01/Desktop/ros2_new
+total 32
+drwxrwxr-x 4 tessy_01 tessy_01 4096 Oct 13 19:12 -home-tessy-01-Desktop-ros2-new
+drwx------ 4 tessy_01 tessy_01 4096 Oct  9 16:38 -home-tessy-01
+drwxrwxr-x 3 tessy_01 tessy_01 4096 Sep 29 20:37 -home-tessy-01-Desktop-steer-mech
+drwxrwxr-x 3 tessy_01 tessy_01 4096 Sep 29 19:52 -home-tessy-01-Desktop-steer-mech60
+drwxrwxr-x 5 tessy_01 tessy_01 4096 Sep 19 19:38 -home-tessy-01-Desktop
+
+===== link_state_latched
+data: '{"connected": true, "message": "connected to /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 @ 115200 baud"}'
+---
+data: '{"connected": true, "message": "connected to /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 @ 115200 baud"}'
+---
+
+===== rx_4s
+data: 0x04;OK;0601
+data: 0x03;OK;0263
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+data: 0x04;OK;0601
+data: 0x03;OK;0269
+
+===== bms_once
+data: '{"timestamp": "2026-10-13 19:25:02", "basic": {"voltage_V": 52.63, "current_A": 0.0, "remaining_Ah": 69.66, "full_Ah": 105.0, "c...'
+---
+
+===== gps_once
+
+===== cmd_launch_log
+LOGDIR=/home/tessy_01/.ros/log/2026-10-13-19-12-54-439262-ubuntu-53721/
+
+===== spec_search
+/home/tessy_01/Desktop/ros2_new/docs/secret/ARGUS_DRIVE_Serial_Protocol_v4.1.3.pdf
+/usr/lib/firmware/dvb-fe-xc5000c-4.1.30.7.fw
+-- docs/secret
+total 28
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Oct  4 14:26 .
+drwxr-xr-x 4 tessy_01 tessy_01  4096 Oct  4 14:27 ..
+-rw-rw-r-- 1 tessy_01 tessy_01 19295 Oct  4 14:26 ARGUS_DRIVE_Serial_Protocol_v4.1.3.pdf
+
+===== firmware_sources
+/home/tessy_01/argus/bodies/ugv-01/firmware/ugv01_mcu.ino
+/home/tessy_01/argus/bodies/ugv-01/firmware/ugv01_mcu_watchdog.ino
+
+===== serial_control_changes
+ .../frontend/src/components/MapView.module.css     |  42 ++-
+ .../frontend/src/components/MapWindow.module.css   |   3 +-
+ src/web_server/frontend/src/components/Sidebar.jsx |   1 +
+ .../frontend/src/components/Sidebar.module.css     |  20 +-
+ .../frontend/src/components/StatusCheck.module.css |  30 +-
+ .../frontend/src/components/SteerGauge.module.css  |   6 +-
+ .../src/components/SystemTerminal.module.css       |  12 +-
+ src/web_server/frontend/src/components/TopBar.jsx  |  38 +++
+ .../frontend/src/components/TopBar.module.css      |  58 +++-
+ .../frontend/src/components/VideoPanel.jsx         | 189 ++++++++--
+ .../frontend/src/components/VideoPanel.module.css  | 147 +++++++-
+ src/web_server/frontend/src/config/commands.js     |  39 ++-
+ .../frontend/src/gps/GpsSender.module.css          |  12 +-
+ src/web_server/frontend/src/index.css              |  83 +++--
+ .../frontend/src/lib/useVehicleSocket.js           | 208 ++++++++++-
+ src/web_server/setup.py                            |  10 +
+ src/web_server/test/test_socket_manager.py         | 110 ++++++
+ src/web_server/web_server/socket_manager.py        |  52 ++-
+ src/web_server/web_server/web_server_node.py       | 159 ++++++++-
+ 40 files changed, 2214 insertions(+), 343 deletions(-)
+-- file dates
+2026-10-09 16:54:23 src/serial_control/serial_control/accel_protocol.py
+2026-10-09 16:10:34 src/serial_control/serial_control/argus_protocol.py
+2026-10-09 16:55:23 src/serial_control/serial_control/cmd_node.py
+2026-07-31 17:34:55 src/serial_control/serial_control/__init__.py
+2026-10-09 16:54:43 src/serial_control/serial_control/serial_link.py
+2026-10-09 15:52:41 src/serial_control/launch/serial.launch.py
+-- serial_link diff
+diff --git a/src/serial_control/launch/serial.launch.py b/src/serial_control/launch/serial.launch.py
+index 6cee3dd..9296a4a 100644
+--- a/src/serial_control/launch/serial.launch.py
++++ b/src/serial_control/launch/serial.launch.py
+@@ -13,6 +13,14 @@ def generate_launch_description():
+         DeclareLaunchArgument(
+             'baud', default_value='115200',
+             description='Baud rate.'),
++        DeclareLaunchArgument(
++            'accel_device',
++            default_value='/dev/serial/by-id/'
++                          'usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0',
++            description='Accelerator board serial device path.'),
++        DeclareLaunchArgument(
++            'accel_baud', default_value='115200',
++            description='Accelerator board baud rate.'),
+         Node(
+             package='serial_control',
+             executable='cmd',
+@@ -21,6 +29,8 @@ def generate_launch_description():
+             parameters=[{
+                 'device': LaunchConfiguration('device'),
+                 'baud': LaunchConfiguration('baud'),
++                'accel_device': LaunchConfiguration('accel_device'),
++                'accel_baud': LaunchConfiguration('accel_baud'),
+             }],
+         ),
+     ])
+diff --git a/src/serial_control/serial_control/serial_link.py b/src/serial_control/serial_control/serial_link.py
+index 5125e54..ecbeed0 100644
+--- a/src/serial_control/serial_control/serial_link.py
++++ b/src/serial_control/serial_control/serial_link.py
+@@ -7,6 +7,7 @@ Mirrors the shape of bms_monitor's stream(): a reader loop that survives
+ the device unplugging, plus a thread-safe write(). Callbacks:
+ 
+   on_line(text)                one decoded line from the device
++                               (decode(raw_bytes) -> text; default UTF-8)
+   on_status(connected, msg)    link transitions only (never spammed)
+ """
+ 
+@@ -21,17 +22,23 @@ RECONNECT_DELAY = 3.0
+ READ_TIMEOUT = 1.0
+ 
+ 
++def _decode_utf8(raw):
++    return raw.decode('utf-8', errors='replace').strip()
++
++
+ class SerialLink:
+ 
+     def __init__(self, device=DEFAULT_DEVICE, baud=DEFAULT_BAUD,
+-                 on_line=None, on_status=None):
++                 on_line=None, on_status=None, decode=None):
+         self.device = device
+         self.baud = baud
+         self.on_line = on_line or (lambda line: None)
+         self.on_status = on_status or (lambda connected, msg: None)
++        self.decode = decode or _decode_utf8
+         self._port = None
+         self._connected = False
+         self._stop = threading.Event()
++        self._reset_reason = None
+         self._write_lock = threading.Lock()
+         self._thread = None
+ 
+@@ -47,6 +54,15 @@ class SerialLink:
+         self._stop.set()
+         self._close()
+ 
++    def reset(self, reason):
++        """Drop the port and let the loop reopen it.
++
++        For a port that is open but dead - e.g. a stalled USB endpoint, where
++        writes still "succeed" into the tty buffer and nothing ever arrives.
++        """
++        self._reset_reason = reason
++        self._close()
++
+     @property
+     def connected(self):
+         return self._connected
+@@ -72,13 +88,24 @@ class SerialLink:
+                 while not self._stop.is_set():
+                     raw = port.readline()  # b'' on timeout
+                     if raw:
+-                        line = raw.decode('utf-8', errors='replace').strip()
++                        line = self.decode(raw)
+                         if line:
+                             self.on_line(line)
+-            except (serial.SerialException, OSError) as e:
+
+===== tests_head
+"""Unit tests for the ARGUS DRIVE v4.1.3 command encoder."""
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from serial_control.argus_protocol import (  # noqa: E402
+    UnknownCommand, brake_angle_deg, brake_limits_deg, brake_percent,
+    describe, encode, firmware_version, format_reply,
+    parse_reply, relative_steer, steer_angle_deg, steer_limits_deg)
+
+
+@pytest.mark.parametrize('token, frame', [
+    # examples straight from section 4 of the spec, written as the
+    # firmware actually accepts them: hex as ASCII text, LF-terminated
+    ('INFO', b'0x01\n'),
+    ('ACCEL:50', b'0x02 32\n'),
+    ('READ:BRAKE', b'0x03\n'),
+    ('READ:STEER', b'0x04\n'),
+    ('STEER:L', b'0x05 01\n'),
+    ('STEER:R', b'0x05 02\n'),
+    ('STEER:STOP', b'0x05 00\n'),
+    ('BRAKE:APPLY', b'0x06 01\n'),
+    ('BRAKE:STOP', b'0x06 00\n'),
+    ('BRAKE:RELEASE', b'0x06 02\n'),
+    ('SPEED:2', b'0x07 02\n'),
+    ('GEAR:D', b'0x08 01\n'),
+    ('GEAR:N', b'0x08 02\n'),
+    ('GEAR:R', b'0x08 03\n'),
+    ('LIGHT:OFF', b'0x09 00\n'),
+    ('LIGHT:RING', b'0x09 01\n'),
+    ('LIGHT:HIGH', b'0x09 02\n'),
+    ('LIGHT:LOW', b'0x09 03\n'),
+    ('IND:OFF', b'0x0A 00\n'),
+    ('IND:L', b'0x0A 01\n'),
+    ('IND:R', b'0x0A 02\n'),
+    ('IND:PARK', b'0x0A 03\n'),
+    ('HORN', b'0x0B 01\n'),
+    ('READ:BRKLIM', b'0x0F\n'),
+    ('READ:STRLIM', b'0x10\n'),
+    ('STEER:C', b'0x14\n'),
+    ('STATUS', b'0x16\n'),
+])
+def test_tokens_encode_to_spec_frames(token, frame):
+    assert encode(token) == [frame]
+
+
+-- accel test
+"""Unit tests for the accelerator board encoder and the drive/accel router."""
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from serial_control.accel_protocol import (  # noqa: E402
+    INFO, ZERO, ThrottleLocked, duty_frame, firmware_version, route)
+from serial_control.argus_protocol import UnknownCommand  # noqa: E402
+
+
+# -- frames -------------------------------------------------------------------
+
+def test_info_frame():
+    assert INFO == b'0x01\n'
+
+
+@pytest.mark.parametrize('pct, frame', [(0, b'0x02;00\n'), (10, b'0x02;0A\n'),
+                                        (50, b'0x02;32\n'),
+                                        (100, b'0x02;64\n')])
+def test_duty_is_hex_text_after_a_semicolon(pct, frame):
+    assert duty_frame(pct) == frame
+
+
+def test_zero_is_duty_zero():
+    assert ZERO == b'0x02;00\n'
+
+
+@pytest.mark.parametrize('pct', [-1, 101])
+def test_duty_out_of_range_is_refused(pct):
+    with pytest.raises(ValueError):
+        duty_frame(pct)
+
+
+@pytest.mark.parametrize('data, version', [('AC0102', '1.2'),
+                                           ('ac0110', '1.10')])
+def test_firmware_version(data, version):

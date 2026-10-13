@@ -1,30 +1,20 @@
 /**
  * The operating-system shell: desktop, dock, and the application layer.
  *
- * The dock is the honest launcher: applications that exist are live, and
- * applications that do not are visible and plainly disabled, because hiding
- * them would misrepresent what the system is. Names are always shown; an
+ * The dock offers only the applications that exist: Operate, Drive and
+ * Settings (founder decision, 12 Oct 2026). Names are always shown; an
  * operator should never have to know what a symbol means.
  *
  * Drive is today its own dev application (drive/cockpit). The shell hosts
  * it full-bleed through an iframe: the documented microfrontend seam until
- * the cockpit folds into this SDK application. Override the address with
- * localStorage 'argus.driveUrl'; the default matches the local dev pair.
+ * the cockpit folds into this SDK application. Its address is in driveUrl.ts.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { clockDate, clockTime, setClockPrefs, useClockPrefs, zoneChoices } from './clockPrefs'
+import { driveUrl, holdDriveFrame, isDriveEscape, postDriveActive } from './driveUrl'
 import { say } from './wording'
 
 export type ShellApp = 'desktop' | 'operate' | 'drive' | 'settings'
-
-const DRIVE_URL_KEY = 'argus.driveUrl'
-export function driveUrl(): string {
-  return (
-    window.localStorage.getItem(DRIVE_URL_KEY) ??
-    (import.meta.env.VITE_DRIVE_URL as string | undefined) ??
-    'http://localhost:5174/?bridge=localhost:8090&key=Argus@2026'
-  )
-}
 
 /* ------------------------------ wallpaper ------------------------------ */
 /* The site itself, drawn: sky, terrain contours, the road, the survey grid.
@@ -89,10 +79,9 @@ export function Desktop({ nowSec, line, healthy, open }: { nowSec: number; line:
 /* --------------------------------- dock --------------------------------- */
 
 interface DockEntry {
-  id: ShellApp | 'intel' | 'review' | 'fleet'
+  id: ShellApp
   sep?: boolean
   name: string
-  live: boolean
   tip: string
   icon: ReactNode
 }
@@ -103,7 +92,6 @@ const DOCK: DockEntry[] = [
   {
     id: 'operate',
     name: say.shell.apps.operate,
-    live: true,
     tip: say.shell.tips.operate,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
@@ -116,7 +104,6 @@ const DOCK: DockEntry[] = [
   {
     id: 'drive',
     name: say.shell.apps.drive,
-    live: true,
     tip: say.shell.tips.drive,
     icon: (
       <svg viewBox="0 0 24 24" {...stroke}>
@@ -127,50 +114,8 @@ const DOCK: DockEntry[] = [
     ),
   },
   {
-    id: 'intel',
-    name: say.shell.apps.intel,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.6" opacity="0.9" />
-        <path d="M12 12 L18.6 7.6 A8.6 8.6 0 0 0 12 3.4 Z" fill="rgba(255,255,255,0.22)" stroke="none" />
-        <circle cx="8.6" cy="14.2" r="1.3" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="15.6" r="1" fill="currentColor" stroke="none" opacity="0.7" />
-      </svg>
-    ),
-  },
-  {
-    id: 'review',
-    name: say.shell.apps.review,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <circle cx="12" cy="12" r="8.6" fill="rgba(255,255,255,0.08)" />
-        <path d="M12 6.8V12l3.6 2.1" strokeWidth="2.4" />
-        <path d="M5.5 3.8 3 6.3M18.5 3.8 21 6.3" strokeWidth="1.6" opacity="0.8" />
-      </svg>
-    ),
-  },
-  {
-    id: 'fleet',
-    name: say.shell.apps.fleet,
-    live: false,
-    tip: say.notBuiltYet,
-    icon: (
-      <svg viewBox="0 0 24 24" {...stroke}>
-        <rect x="8.4" y="3.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.2)" stroke="none" />
-        <rect x="3" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
-        <rect x="13.8" y="13.4" width="7.2" height="7.2" rx="2" fill="rgba(255,255,255,0.12)" stroke="none" />
-        <path d="M12 10.6v1.6M12 12.2l-5 1.2M12 12.2l5 1.2" strokeWidth="1.4" opacity="0.8" />
-      </svg>
-    ),
-  },
-  {
     id: 'settings',
     name: say.shell.settings.title,
-    live: true,
     tip: say.shell.tips.settings,
     sep: true,
     icon: (
@@ -183,19 +128,20 @@ const DOCK: DockEntry[] = [
 ]
 
 export function Dock({ active, away, onOpen }: { active: ShellApp; away: boolean; onOpen: (app: ShellApp) => void }) {
+  // While an application is open the dock is put away entirely (no hover
+  // strip to bring it back): at 1280 wide it used to cover Drive's control
+  // bar. The top bar's tabs, the ARGUS mark and Esc all return to the
+  // desktop, so nothing is lost.
   return (
     <>
-      {/* hot strip: brushing the bottom edge brings the dock back while an app is open */}
-      {away && <div className="dock-reveal" aria-hidden />}
-      <div className={`dock${away ? ' is-away' : ''}`}>
+      <div className={`dock${away ? ' is-away' : ''}`} aria-hidden={away}>
         {DOCK.map((entry) => (
           <span key={entry.id} style={{ display: 'contents' }}>
           {entry.sep && <span className="dock-sep" aria-hidden />}
           <button
             type="button"
-            className={`dock-app${entry.live ? '' : ' is-disabled'}${active === entry.id ? ' is-running' : ''}`}
-            onClick={() => entry.live && onOpen(entry.id as ShellApp)}
-            aria-disabled={!entry.live}
+            className={`dock-app${active === entry.id ? ' is-running' : ''}`}
+            onClick={() => onOpen(entry.id)}
           >
             <span className="tip">{entry.tip}</span>
             <span className={`icon i-${entry.id}`}>{entry.icon}</span>
@@ -223,17 +169,13 @@ export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; 
     <div className={`shell-app is-settings${open ? '' : ' is-away'}`} aria-hidden={!open}>
       <div className="swindow">
         <div className="swin-bar">
-          <button type="button" className="swin-close" onClick={onClose} title="Close (Esc)" aria-label="Close settings" />
+          <button type="button" className="swin-close" onClick={onClose} title={say.shell.settings.closeHint} aria-label={say.shell.settings.close} />
           <span className="swin-bar-title">{say.shell.settings.title}</span>
         </div>
         <div className="swin-side">
           <div className="swin-title">{say.shell.settings.title.toUpperCase()}</div>
-          {([nav.zones, nav.machines, nav.people] as string[]).map((label) => (
-            <div key={label} className="snav is-inert" title={say.notBuiltYet}>{label}</div>
-          ))}
           <button type="button" className={`snav as-nav${pane === 'appearance' ? ' is-active' : ''}`} onClick={() => setPane('appearance')}>{nav.appearance}</button>
           <button type="button" className={`snav as-nav${pane === 'time' ? ' is-active' : ''}`} onClick={() => setPane('time')}>{nav.time}</button>
-          <div className="snav is-inert" title={say.notBuiltYet}>{nav.ai}</div>
         </div>
         {pane === 'time' ? (
         <div className="swin-main">
@@ -293,10 +235,45 @@ export function SettingsApp({ open, theme, onTheme, onClose }: { open: boolean; 
 
 /* ------------------------------ drive app ------------------------------ */
 
-export function DriveApp({ open }: { open: boolean }) {
+export function DriveApp({ open, onEscape }: { open: boolean; onEscape: () => void }) {
+  // The frame stays mounted while the operator is elsewhere, so it is told
+  // on every change whether Drive is the active screen, and again whenever
+  // it loads. Leaving Drive relinquishes control (founder decision, 12 Oct
+  // 2026); the cockpit drops the arm and stops commanding.
+  const frame = useRef<HTMLIFrameElement>(null)
+  const openRef = useRef(open)
+  useEffect(() => {
+    openRef.current = open
+    postDriveActive(frame.current, open)
+  }, [open])
+  // Esc inside the cockpit stays in the cockpit's window. The cockpit posts
+  // an escape request instead, believed only from this frame and origin.
+  const onEscapeRef = useRef(onEscape)
+  useEffect(() => {
+    onEscapeRef.current = onEscape
+  }, [onEscape])
+  // Signing out (by hand, or by a refused token) tells the cockpit first:
+  // Drive is no longer active, then the session is over. The station keeps
+  // this frame mounted until the cockpit answers (signOutDrive), so it is
+  // named where the sign-out can find it.
+  useEffect(() => holdDriveFrame(frame.current), [])
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (isDriveEscape(event, frame.current)) onEscapeRef.current()
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
   return (
     <div className={`shell-app${open ? '' : ' is-away'}`} aria-hidden={!open}>
-      <iframe className="drive-frame" src={driveUrl()} title={say.shell.apps.drive} allow="camera; microphone; gamepad" />
+      <iframe
+        ref={frame}
+        className="drive-frame"
+        src={driveUrl()}
+        title={say.shell.apps.drive}
+        allow="camera; microphone; gamepad"
+        onLoad={() => postDriveActive(frame.current, openRef.current)}
+      />
     </div>
   )
 }

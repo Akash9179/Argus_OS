@@ -1,6 +1,12 @@
 export type Gear = 'R' | 'N' | 'F'
 export type DriveMode = 'MANUAL' | 'AUTO'
-export type SafetyState = 'DRIVING' | 'STOPPED' | 'LATCHED'
+/**
+ * The vehicle's safety state. Telemetry is parsed from JSON unchecked, so a
+ * newer daemon may send a value this cockpit does not know. It passes
+ * through as itself and is shown as not understood, never dropped or
+ * mapped onto a known state.
+ */
+export type SafetyState = 'DRIVING' | 'STOPPED' | 'LATCHED' | (string & {})
 export type Blinker = 'off' | 'left' | 'right' | 'hazard'
 
 export interface Command {
@@ -46,6 +52,23 @@ export interface PreflightCheck {
   name: string
   ok: boolean
   detail: string
+  /** The check as a sentence, from the daemon. Absent from an older daemon. */
+  label?: string
+}
+
+/**
+ * What the daemon tells a cockpit when it grants a role: who is driving (as
+ * the operator file spells it), what the machine is called (null when it
+ * has no declared name), and the watchdog window, so the cockpit can state
+ * what happens on link loss with the daemon's own figure.
+ */
+export interface SessionFacts {
+  role: 'DRIVER' | 'SPECTATOR'
+  driver: string
+  vehicle: string | null
+  watchdogMs: number | null
+  /** When this cockpit was granted its role, ms since the epoch. */
+  since: number
 }
 
 export interface PreflightState {

@@ -11,9 +11,10 @@ are on a machine that can move, and that outranks every command below.
 - Do NOT follow the install or dev commands in this file or in INSTALL.md by
   default. They assume a laptop. On a vehicle, read `bodies/<body-id>/SURVEY.md`
   first and do only what it says.
-- The mock bridge (`python3 -m drive.bridge`, mock is the only adapter that
-  exists) never touches a serial port and is safe. Anything else that reaches
-  hardware is not, yet.
+- The mock bridge (`python3 -m drive.bridge`, the default adapter) never
+  touches a serial port and is safe. `--vehicle ugv01` and
+  `pilot.hal.drivers.ugv01.bench` open the two real boards' ports, which
+  may reset them: human at the key, wheels up, typed go, nothing else.
 - The hardware safety gate in ARCHITECTURE.md section 6 is absolute: no
   autonomous moving test before the MCU fail-safe path is bench-proven.
 
@@ -113,6 +114,7 @@ Prerequisites: buf, protoc, node/npm, python3 (all on PATH). One-time setup:
 - Run all tests (sim loop, pilot criteria, voice, laws, graph; no broker, ~12s): `.venv/bin/python -m pytest -q`
 - Engineering graph: `.venv/bin/python scripts/argus_graph.py validate | status --write | incomplete | blockers | component <id> | impact <id> | decisions --open | risks`
 - Operator app tests: `cd c2 && npm test` (plus typecheck and build)
+- Cockpit for C2's Drive tab: `cd drive/cockpit && npx vite --port 5174`. The default address is `http://localhost:5174/?bridge=localhost:8090`; change it with `VITE_DRIVE_URL` in c2/.env.local. VITE_DRIVE_URL holds only the address, and the cockpit asks for the bridge key.
 - Start the brokers: `redis-server --daemonize yes && mosquitto -d`
 - Run the world model server: `DB_PATH=var/track.db TOKENS_PATH=var/tokens.yaml PORT=8100 .venv/bin/python -m track.main`
 - Run a simulated vehicle against it: `.venv/bin/python -m sim.main`
@@ -156,3 +158,22 @@ that waits for Nav2 before starting the machine deadlocks. And `rclpy` is
 initialised once per session in `drive/pilot/ros/tests/conftest.py`: a module
 that shuts it down leaves the next module unable to bring it back, and the
 symptom looks like a Nav2 fault.
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec

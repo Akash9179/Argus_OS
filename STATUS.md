@@ -8,7 +8,7 @@ CI fails if this file drifts from the graph.
 Maturity (law 17): `planned` < `scaffolded` < `simulated` <
 `software_verified` < `hardware_integrated` < `field_validated`.
 `simulated` means proven only against simulated hardware or fixtures.
-Nothing here has been field validated, and 1 component has hardware evidence (listed below).
+Nothing here has been field validated, and 3 components have hardware evidence (listed below).
 Disposition is the 18 Aug 2026 reconciliation
 verdict: keep / refactor / replace / archive / new.
 
@@ -18,19 +18,21 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS LINK (`platform.link`) | software_verified | keep | - |
 | ARGUS TRACK (`platform.track`) | software_verified | keep | 2 known gaps |
-| ARGUS C2 (`platform.c2`) | software_verified | keep | 3 known gaps |
+| ARGUS C2 (`platform.c2`) | software_verified | keep | 5 known gaps |
+| Design tokens (`platform.design`) | software_verified | keep | - |
 | AI Gateway (`platform.gateway`) | software_verified | keep | 1 known gap |
 | Voice service (`platform.voice`) | software_verified | keep | 1 known gap |
 | Argus Sync (`platform.sync`) | planned | new | - |
-| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 1 known gap |
+| Teleop cockpit (`teleop.cockpit`) | software_verified | refactor | 2 known gaps |
 | Simulated vehicle (`sim.vehicle`) | simulated | keep | - |
 
 ## Edge (the machine)
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ARGUS PILOT (`edge.pilot`) | simulated | keep | BLOCKED (1); 1 known gap |
+| ARGUS PILOT (`edge.pilot`) | hardware_integrated | keep | BLOCKED (1); 2 known gaps |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
+| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | hardware_integrated | keep | BLOCKED (2); 5 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
 | LocomotionDriver interface (`edge.hal.locomotion_interface`) | simulated | refactor | 1 known gap |
 | CommsDriver interface (`edge.hal.comms_interface`) | software_verified | keep | - |
@@ -40,11 +42,11 @@ verdict: keep / refactor / replace / archive / new.
 | Navigator (Direct and Nav2) (`edge.navigator`) | simulated | keep | 3 known gaps |
 | WorldSlice (`edge.worldslice`) | software_verified | keep | - |
 | Edge LINK client (`edge.link_client`) | software_verified | keep | - |
-| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 1 known gap |
+| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 3 known gaps |
 | Bridge relay (`teleop.relay`) | hardware_integrated | refactor | 1 known gap |
 | Teleop watchdog (`teleop.watchdog`) | software_verified | keep | 1 known gap |
 | Brain prototype (`drive.brain`) | scaffolded | archive | 1 known gap; succeeded by `core.cognitive_runtime` |
-| ZED provider (`perception.zed`) | planned | new | BLOCKED (3) |
+| ZED provider (`perception.zed`) | planned | new | BLOCKED (2); 1 known gap |
 | Object detector (RF-DETR) (`perception.detector`) | planned | new | - |
 
 ## Core (the cognitive architecture, target)
@@ -72,8 +74,9 @@ verdict: keep / refactor / replace / archive / new.
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (1); 2 known gaps |
-| v4 watchdog firmware (`bodies.ugv01.firmware_v4`) | scaffolded | keep | BLOCKED (1); 1 known gap |
+| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 5 known gaps |
+| Silence watchdogs for the two boards (AC 1.3, 4.1.5) (`bodies.ugv01.firmware_watchdog`) | scaffolded | keep | BLOCKED (1); 2 known gaps |
+| v4 watchdog firmware (relay board, superseded) (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane
 
@@ -99,14 +102,20 @@ verdict: keep / refactor / replace / archive / new.
 ## Blockers
 
 - `edge.pilot`: First boot on the actual Jetson (phase 3)
-- `perception.zed`: Installed ZED SDK 5.4.1 bundles ZED X GMSL drivers for L4T 35.x; flashed kernel is L4T 36.5; the matching SDK must be installed when the camera arrives
-- `perception.zed`: Camera ORDERED 18 Aug 2026, delivery expected within days, WITH the ZED Link GMSL2 capture card and cable (founder-confirmed); hardware connection path complete on arrival, driver bring-up remains
+- `edge.hal.ugv01`: Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
+- `edge.hal.ugv01`: Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run
+- `perception.zed`: An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
 - `perception.zed`: Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
-- `bodies.ugv01`: Bench verification of the relay map, wheels off the ground, one relay at a time
-- `bodies.ugv01.firmware_v4`: Bench verification is the hard safety gate; no autonomous moving test happens before it passes (ARCHITECTURE.md section 6)
+- `bodies.ugv01`: Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
+- `bodies.ugv01`: A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
+- `bodies.ugv01.firmware_watchdog`: Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
+- `bodies.ugv01.firmware_v4`: The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
 ## Hardware evidence (everything else is Mac and CI containers)
 
+- `edge.pilot`: 2026-10-13: first boot on the Jetson AGX Orin in the vehicle, in the argus-pilot:dev container built on the Jetson (arm64, 173 s): simulated locomotion, dead-reckoning localization, simulated camera, MQTT comms to the laptop's broker over an SSH tunnel on Tailscale; registry served on the Jetson and read from the Mac; registered in TRACK as 01PILOT00000000000000UGV1 (STANDBY) with --prefix argus. No ROS2 in the path, no real driver. Logs: bodies/ugv-01/reference/2026-10-13/pilot_*.log.
+- `edge.hal.ugv01`: 2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/.
+- `edge.hal.ugv01`: 2026-10-13, Phase E: throttle held at 20 percent, host silent 15.0 s with ports open and the board powered; the wheels turned (19 s by a human stopwatch) until the zero arrived. No stop on silence occurred in that window. Finite, powered, ports-open test; port close and reset not tested. The section 6 gate stays shut.
 - `teleop.relay`: 2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in docs/architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved.
 
 ## Open decisions (founder-gated; details in docs/architecture/graph/decisions.yaml)
@@ -123,5 +132,6 @@ verdict: keep / refactor / replace / archive / new.
 - OD-18: Containers vs host on the Jetson
 - OD-19: Local reasoning model selection
 - OD-21: Provisional identity on the wire
+- OD-23: Approvals that go stale between preview and issuance
 
 Roadmap and critical path: NEXT-STEPS.md. Target architecture: ARCHITECTURE.md.

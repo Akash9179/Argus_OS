@@ -18,33 +18,32 @@ export const say = {
 
   find: { placeholder: 'Find a place or a machine', filter: 'Filter', all: 'All' },
 
-  /**
-   * The menus this application contributes to the operating system's menu
-   * bar. Only Operate is built, so the rest are shown and plainly disabled:
-   * hiding them would misrepresent what the system is, and a menu that
-   * looks live but does nothing is worse than one that says it is not ready.
-   */
-  menus: ['View', 'Machines', 'Zones', 'Voice'],
   notBuiltYet: 'Not in this build yet.',
 
   /** The operating system's own furniture: desktop, dock, application names. */
   shell: {
     desktop: 'Desktop',
+    /** The product name the wordmark spells, for assistive technology. */
+    brand: 'ARGUS',
+    /** Under the mark in the top bar: what kind of station this is. */
+    station: 'Ground operations',
+    /** The name of the top bar's application strip, for assistive technology. */
+    launcher: 'Applications',
+    /** Only the applications that exist (founder decision, 12 Oct 2026). */
     apps: {
       operate: 'Operate',
       drive: 'Drive',
-      intel: 'Intel',
-      review: 'Review',
-      fleet: 'Fleet',
     },
     tips: {
       operate: 'The site: map, machines, events, voice.',
       drive: 'Take the wheel of one machine.',
-      settings: 'Zones, machines, people, appearance, AI policy.',
+      settings: 'Appearance and time.',
     },
     settings: {
       title: 'Settings',
-      nav: { zones: 'Zones', machines: 'Machines', people: 'People', appearance: 'Appearance', time: 'Time', ai: 'AI policy' },
+      close: 'Close settings',
+      closeHint: 'Close (Esc)',
+      nav: { appearance: 'Appearance', time: 'Time' },
       appearance: {
         heading: 'Appearance',
         sub: 'Dark is easier at night and keeps your eyes adjusted. Day is brighter, for working outside in sunlight.',
@@ -197,6 +196,14 @@ export const say = {
      * when it is not known.
      */
     seenByAgo: (who: string, ago: string) => `Seen by ${who}, ${ago}.`,
+    /**
+     * A contact whose observations carry no time. Saying "a few seconds
+     * ago" would claim a recency nothing reported.
+     */
+    noTimeReported: 'No time reported',
+    seenByNoTime: (who: string) => `Seen by ${who}. No time reported.`,
+    lastSeenAgo: (ago: string) => `Last seen ${ago}.`,
+    noTimeAlone: 'No time reported.',
   },
 
   counts: {
@@ -261,6 +268,115 @@ export const say = {
     confirmLabel: 'Confirm this order',
     yes: 'Yes, send it',
     no: 'No',
+  },
+
+  /** The Operate screen's own furniture, in the approved card layout. */
+  operate: {
+    fleet: 'Fleet',
+    /** A machine's class, in the letters an operator uses. Unknown reads as itself. */
+    classes: { ugv: 'UGV', uav: 'UAV', usv: 'USV', uuv: 'UUV' } as Record<string, string>,
+    addMachine: 'Add machine',
+    all: 'All',
+    orders: 'Orders',
+    alerts: 'Alerts',
+    viewAll: 'View all',
+    fewer: 'Fewer',
+    noOrders: 'No orders yet.',
+    noAlerts: 'Nothing needs you.',
+    /** A proposal the assistant has drawn but nobody has approved. */
+    awaitingYou: 'Awaiting you',
+    proposedNotSent: (machine: string) => `${machine} · proposed by Argus, not sent`,
+    /** Order states, in words. Anything unknown reads as itself. */
+    taskState: {
+      PENDING: 'Waiting',
+      ACCEPTED: 'Accepted',
+      RUNNING: 'Under way',
+      DONE: 'Done',
+      FAILED: 'Failed',
+      CANCELLED: 'Stopped',
+    } as Record<string, string>,
+    map: {
+      imagery: 'Imagery',
+      zones: 'Zones',
+      machines: 'Machines',
+      marks: 'Marks',
+      credit: "Imagery from this station's local cache",
+      noImagery: 'Terrain drawn locally. No imagery is cached for this site yet.',
+      zoomIn: 'Zoom in',
+      zoomOut: 'Zoom out',
+    },
+    camera: {
+      front: 'Front camera',
+      noVideo: 'No video yet',
+      noCamera: 'No camera',
+      noCameraText: (machine: string) => `${machine} has not reported any cameras.`,
+      videoLater: 'Video appears here once it is checked.',
+    },
+    readings: {
+      title: 'Readings',
+      live: 'Live',
+      quiet: 'Not answering',
+      speed: 'Speed',
+      battery: 'Battery',
+      link: 'Link',
+      /**
+       * The world model carries no link latency, so the link tile says
+       * only when the machine was last heard. Never a verdict like "Good"
+       * that nothing measured.
+       */
+      heard: (ago: string) => `Heard ${ago}`,
+      positionSource: 'Position source',
+      unverified: 'Unverified',
+      currentOrder: 'Current order',
+      nothingOrdered: 'Nothing ordered',
+      standingByIn: (mode: string) => `Standing by in ${mode}.`,
+      standingBy: 'Standing by.',
+    },
+    activity: 'Recent activity',
+    systems: 'Vehicle systems',
+    /** The name of the fleet rail's two tabs, for assistive technology. */
+    detailTabs: 'Systems and activity',
+    asking: 'Asking the machine.',
+    noneSelected: 'Select a machine to see its readings.',
+  },
+
+  assistant: {
+    name: 'ARGUS',
+    badge: 'Assistant',
+    tagline: 'Proposes. Never moves anything without you.',
+    collapse: 'Put the assistant away',
+    expand: 'Bring the assistant back',
+    /**
+     * The request carries the operator's words and nothing else, so the
+     * prompt names no machine. The machine an order is for is the one the
+     * server resolves, shown on the proposal.
+     */
+    placeholder: 'Ask about the site, or hold the mic',
+    send: 'Send',
+    approve: 'Approve and send',
+    decline: 'No, drop it',
+    checking: 'Checking the order.',
+    noChecks: 'The world model could not check this order, so it cannot be approved here. Drop it, or order from the map.',
+    checksPassed: (n: number) => `${n} ${n === 1 ? 'check' : 'checks'} passed`,
+    needYou: (n: number) => `${n} ${n === 1 ? 'needs' : 'need'} you`,
+    blocked: (n: number) => `${n} ${n === 1 ? 'check' : 'checks'} failed`,
+    showAll: 'Show all',
+    you: 'you',
+    byVoice: 'by voice',
+    typed: 'typed',
+    /** Distance and time, plainly. Never more precise than the figure. */
+    distance: (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`),
+    eta: (sec: number) => {
+      const min = Math.round(sec / 60)
+      return min < 1 ? 'under a minute' : `about ${min} min`
+    },
+    stops: (n: number) => `${n} ${n === 1 ? 'stop' : 'stops'}`,
+    noEta: 'time unknown',
+    /** The machine has not said where it is, so the way there is unmeasured. */
+    noDistance: 'distance unknown',
+    unreachable: 'Cannot reach the assistant. Orders go through the map.',
+    cannotUnderstand: 'The assistant cannot take orders here. Orders go through the map.',
+    suggestions: ['What could go wrong?', 'What is everything doing?'],
   },
 
   errors: {

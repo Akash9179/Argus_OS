@@ -39,6 +39,7 @@ from link.v1.ontology_pb2 import (
     TaskStateChange,
     Track,
     TrackState,
+    Zone,
 )
 
 from track import geo, live
@@ -56,7 +57,7 @@ from track.fusion import TrackManager
 from track.ids import epoch_now, new_id, now_ts, to_epoch
 from track.store import Event, Store
 from track.transport import UPWARD_KINDS, Topics, Transport
-from track.zones import ZoneEvaluator
+from track.zones import RULE_ALERT_ON_ENTRY, ZoneEvaluator
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +71,51 @@ OPEN_TASK_STATES = (
 
 class TaskRejected(Exception):
     """An order could not be created. The message is operator-facing."""
+
+
+# How recently a machine must have been heard for a proposal to call it
+# answering. Wider than the watchdog's offline threshold on purpose: the
+# proposal is read by a person about to act, and a machine a few seconds
+# quiet is worth a "fail" only once the watchdog has actually given up on
+# it, which the status check beside this constant also honours.
+ANSWERING_WINDOW_S = 30.0
+
+# Below this, a battery reading turns a proposal amber. It does not block
+# the order: whether a fifth of a charge is enough is the operator's call.
+BATTERY_ENOUGH_FRACTION = 0.2
+
+# Zone types a route must stay out of, alongside any zone that alerts on
+# entry. An open vocabulary elsewhere; these two are the ones that mean
+# keep out today.
+KEEP_OUT_ZONE_TYPES = ("restricted", "protected")
+
+# Stream kinds a sensor driver declares when it is an imager. The names are
+# the hardware layer's own vocabulary for what a sensor provides.
+IMAGE_STREAM_KINDS = frozenset({"frames", "depth"})
+
+
+def _check(check_id: str, state: str, text: str, source: str) -> dict:
+    return {"id": check_id, "state": state, "text": text, "source": source}
+
+
+def _first_failure(checks: list[dict]) -> dict | None:
+    """The first check that blocks an order, or none.
+
+    Only "fail" blocks. "needs_you" and "unknown" are the operator's call,
+    which they made when they approved. The proposal's can_send and the
+    refusal at issue both come from here, so they cannot disagree.
+    """
+    return next((c for c in checks if c["state"] == "fail"), None)
+
+
+def _latlon(position) -> dict:
+    return {"latitude_deg": position.latitude_deg, "longitude_deg": position.longitude_deg}
+
+
+def _is_keep_out(zone: Zone) -> bool:
+    if zone.zone_type in KEEP_OUT_ZONE_TYPES:
+        return True
+    return any(rule.rule_type == RULE_ALERT_ON_ENTRY for rule in zone.rules)
 
 
 # The autonomy modes this build actually enforces, named by the code that
@@ -648,13 +694,16 @@ class WorldModel:
         Every order, whether it came from the map, from voice, or from
         another system, passes through here. There is no second path.
         """
+        # The proposal the operator approved, taken again now. The world
+        # may have moved since: the machine gone quiet, or an order it no
+        # longer says it understands. One set of checks serves both paths,
+        # so an order is issued exactly when a proposal taken at this moment
+        # could be sent, and a refusal reads as the check that failed.
+        proposal = self.preview_task(asset_id, task_type, parameters)
+        failed = _first_failure(proposal["checks"])
+        if failed is not None:
+            raise TaskRejected(failed["text"])
         asset = self.store.get_asset(asset_id)
-        if asset is None:
-            raise TaskRejected(self.language.error("no_such_asset"))
-        if asset.status == AssetStatus.ASSET_STATUS_OFFLINE:
-            raise TaskRejected(
-                self.language.error("asset_not_answering", asset=self.language.asset_name(asset))
-            )
 
         task = Task(
             task_id=new_id(),
@@ -674,6 +723,341 @@ class WorldModel:
         await self._emit(self.events.task_event("task_issued", task, asset))
         await self.bus.publish(live.TASK_UPDATED, {"task": self.task_view(task), "progress": 0.0})
         return task
+
+    # -- before an order is sent -----------------------------------------------
+
+    def preview_task(self, asset_id: str, task_type: str, parameters: TaskParameters) -> dict:
+        """What would happen if this order were sent. Nothing is issued.
+
+        The proposal an operator reads before approving: the route, how far
+        it is, how long it would take if the machine has said how fast it
+        goes, and a short list of checks. Every check names where its fact
+        came from, because a check that cannot say how it knows is an
+        opinion, and every fact this platform does not hold is reported as
+        unknown rather than guessed.
+
+        The distance is the straight legs between the points. It is not a
+        planned path: the machine plans its own, and this platform has no
+        business promising a route it will not drive.
+        """
+        asset = self.store.get_asset(asset_id)
+        if asset is None:
+            raise TaskRejected(self.language.error("no_such_asset"))
+        name = self.language.asset_name(asset)
+
+        waypoints = list(parameters.waypoints)
+        path = list(waypoints)
+        # Where the machine starts. Without it the first leg is unknown, so
+        # the distance is too: a sum of the later legs read as the whole
+        # trip would understate it, and from a single stop it would be zero.
+        start_known = asset.HasField("position")
+        if start_known:
+            path.insert(0, asset.position)
+        if task_type == "patrol" and waypoints:
+            path.append(waypoints[0])
+
+        distance = None
+        if start_known:
+            legs = (geo.distance_m(path[i], path[i + 1]) for i in range(len(path) - 1))
+            distance = round(sum(legs), 1)
+        speed = self._declared_number(asset, "max_speed_mps")
+        eta = int(round(distance / speed)) if distance is not None and speed and speed > 0 else None
+
+        checks = [
+            self._check_answering(asset, name),
+            self._check_battery(asset, name),
+            self._check_mode(asset, name),
+            self._check_supports(asset, name, task_type),
+            self._check_keep_out(path, start_known, name),
+        ]
+        return {
+            "asset_id": asset_id,
+            "task_type": task_type,
+            "waypoints": [_latlon(p) for p in waypoints],
+            "path": [_latlon(p) for p in path],
+            "distance_m": distance,
+            "eta_sec": eta,
+            "speed_mps_assumed": speed if eta is not None else None,
+            "checks": checks,
+            "can_send": _first_failure(checks) is None,
+        }
+
+    def _heard_ago(self, asset: Asset) -> tuple[float | None, str]:
+        """How long since the machine was heard, and that moment in words."""
+        heard = to_epoch(asset.last_heartbeat)
+        if not heard:
+            return None, ""
+        when = self.language.time_of_day(
+            asset.last_heartbeat.ToDatetime(), today=datetime.now(timezone.utc).date()
+        )
+        return max(0.0, epoch_now() - heard), when
+
+    def _check_answering(self, asset: Asset, name: str) -> dict:
+        ago, at = self._heard_ago(asset)
+        if ago is None:
+            return _check(
+                "answering",
+                "fail",
+                self.language.preview_check("answering_never", asset=name),
+                self.language.preview_source("heartbeat_never"),
+            )
+        source = self.language.preview_source("heartbeat", at=at)
+        answering = ago <= ANSWERING_WINDOW_S and asset.status != AssetStatus.ASSET_STATUS_OFFLINE
+        if answering:
+            return _check("answering", "pass", self.language.preview_check("answering_ok", asset=name), source)
+        return _check(
+            "answering",
+            "fail",
+            self.language.preview_check("answering_silent", asset=name, at=at),
+            source,
+        )
+
+    def _check_battery(self, asset: Asset, name: str) -> dict:
+        _, at = self._heard_ago(asset)
+        source = (
+            self.language.preview_source("heartbeat", at=at)
+            if at
+            else self.language.preview_source("heartbeat_never")
+        )
+        if not asset.HasField("battery_fraction"):
+            return _check(
+                "battery", "unknown", self.language.preview_check("battery_unknown", asset=name), source
+            )
+        percent = round(asset.battery_fraction * 100)
+        if asset.battery_fraction >= BATTERY_ENOUGH_FRACTION:
+            return _check("battery", "pass", self.language.preview_check("battery_ok", battery=percent), source)
+        return _check(
+            "battery", "needs_you", self.language.preview_check("battery_low", battery=percent), source
+        )
+
+    def _check_mode(self, asset: Asset, name: str) -> dict:
+        recorded = self.store.get_autonomy(asset.asset_id)
+        mode = recorded or self.language.default_autonomy_mode
+        source = self.language.preview_source("mode_setting" if recorded else "mode_default")
+        if mode == "manual":
+            key = "mode_manual" if recorded else "mode_unset"
+            return _check("mode", "pass", self.language.preview_check(key, asset=name), source)
+        if mode == "automatic":
+            return _check(
+                "mode", "needs_you", self.language.preview_check("mode_automatic", asset=name), source
+            )
+        return _check("mode", "unknown", self.language.preview_check("mode_unknown", asset=name), source)
+
+    def _check_supports(self, asset: Asset, name: str, task_type: str) -> dict:
+        source = self.language.preview_source("declared")
+        declared = None
+        if asset.HasField("capabilities"):
+            value = asset.capabilities.fields.get("supported_task_types")
+            if value is not None and value.HasField("string_value"):
+                declared = [t.strip() for t in value.string_value.split(",") if t.strip()]
+        if declared is None:
+            return _check(
+                "supports", "unknown", self.language.preview_check("supports_unknown", asset=name), source
+            )
+        if task_type in declared:
+            return _check("supports", "pass", self.language.preview_check("supports_ok", asset=name), source)
+        return _check(
+            "supports",
+            "fail",
+            self.language.preview_check(
+                "supports_no", asset=name, task_phrase=self.language.task_phrase(task_type)
+            ),
+            source,
+        )
+
+    def _check_keep_out(self, path: list, start_known: bool, name: str) -> dict:
+        """Does the route pass through a place it should stay out of.
+
+        A zone of a type this build does not recognise is an open question,
+        not a clear answer: the vocabulary is open, and a newer station's
+        "no_go" must not be reported as safe because this build never
+        learned the word. It is named, and the operator decides.
+
+        When the machine has not said where it is, the way to the first
+        stop is unknown. What is known is still checked, so a stop inside a
+        keep-out is still reported. A route that is otherwise clear is not
+        called clear, because the leg nobody can see may cross a zone.
+        """
+        zones = self.store.list_zones()
+        if not zones:
+            return _check(
+                "keep_out",
+                "pass",
+                self.language.preview_check("keep_out_clear"),
+                self.language.preview_source("no_zones"),
+            )
+        source = self.language.preview_source("zones")
+        unrecognised = None
+        for zone in zones:
+            if not geo.path_crosses_polygon(path, zone.geometry):
+                continue
+            if _is_keep_out(zone):
+                return _check(
+                    "keep_out",
+                    "needs_you",
+                    self.language.preview_check("keep_out_crosses", zone=zone.name),
+                    source,
+                )
+            unrecognised = unrecognised or zone
+        if unrecognised is not None:
+            return _check(
+                "keep_out",
+                "unknown",
+                self.language.preview_check("keep_out_unrecognised", zone=unrecognised.name),
+                source,
+            )
+        if not start_known:
+            return _check(
+                "keep_out",
+                "unknown",
+                self.language.preview_check("keep_out_start_unknown", asset=name),
+                source,
+            )
+        return _check("keep_out", "pass", self.language.preview_check("keep_out_clear"), source)
+
+    @staticmethod
+    def _declared_number(asset: Asset, key: str) -> float | None:
+        """A number the machine declared about itself, or nothing.
+
+        Never a guess: a speed this platform assumed would put an arrival
+        time on screen that nothing stands behind.
+        """
+        if not asset.HasField("capabilities"):
+            return None
+        value = asset.capabilities.fields.get(key)
+        if value is None or not value.HasField("number_value"):
+            return None
+        return float(value.number_value)
+
+    # -- what a machine says about its own systems ---------------------------
+
+    def systems_view(self, asset_id: str) -> dict:
+        """An operator-safe summary of what a machine has reported about itself.
+
+        Built only from what the machine sent: its registry, when it has one,
+        and its heartbeat. A machine that has never described itself gets a
+        control-link row and a sentence saying so, never rows invented from
+        what its kind of machine usually carries. The full registry, with
+        driver versions and bus scans, stays behind the admin interface.
+        """
+        asset = self.store.get_asset(asset_id)
+        if asset is None:
+            raise TaskRejected(self.language.error("no_such_asset"))
+        name = self.language.asset_name(asset)
+        lang = self.language
+
+        rows = [self._control_link_row(asset)]
+        cameras: list[dict] = []
+        position_source = None
+
+        registry = self.store.get_registry(asset_id)
+        if registry is None:
+            return {
+                "asset_id": asset_id,
+                "reported_at": None,
+                "rows": rows,
+                "cameras": cameras,
+                "position_source": position_source,
+                "note": lang.systems("not_reported_note", asset=name),
+            }
+
+        drivers = [d for d in registry.get("drivers", []) if isinstance(d, dict)]
+        devices = [d for d in registry.get("devices", []) if isinstance(d, dict)]
+        health = {
+            h.get("driver"): h
+            for h in registry.get("health", [])
+            if isinstance(h, dict) and h.get("driver")
+        }
+
+        # Rows are named by what a part does. Two of a kind are numbered so
+        # neither disappears behind the other.
+        kind_counts: dict[str, int] = {}
+        for driver in drivers:
+            kind_counts[driver.get("kind", "")] = kind_counts.get(driver.get("kind", ""), 0) + 1
+        seen: dict[str, int] = {}
+        for driver in drivers:
+            kind = driver.get("kind", "")
+            driver_name = driver.get("name", "")
+            label = lang.systems_kind_label(kind)
+            if kind_counts[kind] > 1:
+                seen[kind] = seen.get(kind, 0) + 1
+                label = lang.systems("numbered", label=label, n=seen[kind])
+            missing = any(
+                d.get("driver") == driver_name and d.get("present") is False for d in devices
+            )
+            entry = health.get(driver_name)
+            if entry is None:
+                state, text = "unknown", lang.systems("not_reported")
+            elif not entry.get("healthy", False):
+                state, text = "act", lang.systems("problem")
+            elif missing:
+                state, text = "warn", lang.systems("hardware_missing")
+            else:
+                state, text = "ok", lang.systems("working")
+            rows.append({"name": label, "state": state, "text": text})
+
+            if kind == "localization" and position_source is None:
+                position_source = lang.systems_kind_label(driver_name) if driver_name else None
+
+        # A camera is a device whose driver declares an image stream, the
+        # capability the hardware layer itself reports, or failing that one
+        # whose kind or description says camera. Either way the machine
+        # said so; nothing here decides what a camera is by its model.
+        by_driver = {d.get("name"): d for d in drivers}
+        for device in devices:
+            driver = by_driver.get(device.get("driver"), {})
+            streams = driver.get("streams") or []
+            words = " ".join(
+                str(device.get(k, "")) for k in ("identifier", "description")
+            ) + " " + str(driver.get("kind", ""))
+            if not (set(streams) & IMAGE_STREAM_KINDS) and "camera" not in words.lower():
+                continue
+            present = device.get("present")
+            if present is True:
+                state, text = "ok", lang.systems("camera_found")
+            elif present is False:
+                state, text = "off", lang.systems("camera_missing")
+            else:
+                state, text = "unknown", lang.systems("not_reported")
+            cameras.append(
+                {
+                    "name": str(device.get("description") or lang.systems_kind_label("camera")),
+                    "state": state,
+                    "text": text,
+                }
+            )
+
+        reported_at = registry.get("received_at")
+        if reported_at:
+            at = lang.time_of_day(
+                datetime.fromtimestamp(reported_at, tz=timezone.utc),
+                today=datetime.now(timezone.utc).date(),
+            )
+            note = lang.systems("reported_note", asset=name, at=at)
+        else:
+            note = lang.systems("reported_note_undated", asset=name)
+        return {
+            "asset_id": asset_id,
+            "reported_at": reported_at,
+            "rows": rows,
+            "cameras": cameras,
+            "position_source": position_source,
+            "note": note,
+        }
+
+    def _control_link_row(self, asset: Asset) -> dict:
+        lang = self.language
+        ago, at = self._heard_ago(asset)
+        name = lang.systems("control_link")
+        if ago is None:
+            return {"name": name, "state": "off", "text": lang.systems("never_heard")}
+        if ago <= ANSWERING_WINDOW_S and asset.status != AssetStatus.ASSET_STATUS_OFFLINE:
+            return {
+                "name": name,
+                "state": "ok",
+                "text": lang.systems("heard_seconds_ago", seconds=int(ago)),
+            }
+        return {"name": name, "state": "off", "text": lang.systems("last_heard", at=at)}
 
     async def cancel_task(self, task_id: str) -> Task:
         """Cancel an order and tell the asset.

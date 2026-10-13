@@ -25,26 +25,39 @@ components:
     role: Fleet world model server; MQTT ingest, fusion, zones, events, tasks, autonomy modes, REST/WS
     status: software_verified
     disposition: keep
-    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py]
+    tests: [tests/test_api.py, tests/test_fusion.py, tests/test_zones_and_language.py, tests/test_sim_loop.py, tests/test_preview_and_systems.py, tests/test_tiles.py]
     known_gaps:
       - Single station, SQLite single-writer, full-scan association; fine for one site, not a dense theater
       - Provisional identity is convention only; indistinguishable from resolved identity on the wire
-    notes: Target direction expands it toward Maven-like fleet intelligence (phase 7) without making it required for local execution.
+    notes: Target direction expands it toward Maven-like fleet intelligence (phase 7) without making it required for local execution. TRACK serves a local MBTiles cache (empty until tiles are sourced).
 
   - id: platform.c2
     name: ARGUS C2
     type: Application
     path: c2/
     plane: platform
-    role: Operator application; map, force rail, event feed, voice bar, autonomy modes
+    role: Operator application; Operate (map, fleet rail, event feed, assistant, autonomy modes), Drive hosted in a frame, local imagery layer
     status: software_verified
     disposition: keep
-    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/wording.test.ts, c2/src/state/world.test.ts]
+    tests: [c2/src/ui/Operate.test.tsx, c2/src/ui/Assistant.test.tsx, c2/src/ui/App.test.tsx, c2/src/ui/wording.test.ts, c2/src/ui/driveUrl.test.ts, c2/src/ui/driveAddress.test.ts, c2/src/state/world.test.ts, c2/src/map/frame.test.ts]
     known_gaps:
-      - Gate-2 founder review of the built surface still pending
-      - Bearer token stored in localStorage
+      - Gate-2 closed 10 Sep 2026; the approved redesign is being built (Argus_Wiki/program/c2-build-plan.md). M1 and M2 Operate are software_verified (vitest, CI job operator-application); M3 Drive is built but in progress
+      - M3 Drive is proven by tests only. It has not been driven in a real browser inside C2 yet
+      - Bearer token stored in localStorage (a refused token now returns to sign-in; storage itself unchanged)
+      - Imagery tiles carry the bearer token as a query parameter (browsers cannot set headers on images); it lands in request logs and the browser cache. Same debt as the stream's token.
       - No video pane; WebRTC documented but nonexistent anywhere
-    notes: Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite runs in its own CI job.
+    notes: Operate was rebuilt to the approved design (M2). The 12 Oct 2026 change pass (founder decision) gave the map the room. The camera and readings are one strip under it. Vehicle systems and recent activity are two tabs on the fleet rail. The first map frame is the site zones, else the answering machines, else the machines heard within a day. The launcher offers only Operate, Drive and Settings, and Settings only Appearance and Time. The link reading says when the machine was last heard, because the world model carries no latency. The assistant folds to its rail while the voice service is unreachable and opens again when it answers. The assistant previews one task, shows the five server checks with their sources, and sends only after the readback is confirmed. Drive hosts drive/cockpit in an iframe and tells it when Drive is the active screen; leaving Drive relinquishes control (founder decision, 12 Oct 2026). On sign-out C2 posts active=false and then argus.drive.signout to the frame at the cockpit origin, before the frame is removed; the cockpit side of that message is another change. The Drive address comes from localStorage, then VITE_DRIVE_URL in c2/.env.local; no bridge key is accepted from configuration. The page drops any key parameter, covered by vitest. The build drops it too, shown by a canary build on 12 Oct 2026 but not by a test. The cockpit asks for the key. Esc pressed inside the cockpit returns to the desktop through a message C2 accepts only from that frame and origin. The map draws imagery from TRACK's local MBTiles cache when one is present. Target adds brain state, diagnostics, explainability, and goal-based fleet queries (phase 7). Vitest suite and ESLint run in their own CI job.
+
+  - id: platform.design
+    name: Design tokens
+    type: Component
+    path: design/
+    plane: platform
+    role: The one visual language (colours, radii, type) shared by every application; a CSS file both c2/ and drive/cockpit/ import
+    status: software_verified
+    disposition: keep
+    known_gaps: []
+    notes: Source is the Gate-2 canvas confirmed 10 Sep 2026. Day variant included. Fonts are bundled from @fontsource (OFL), no CDN.
 
   - id: platform.gateway
     name: AI Gateway
@@ -88,11 +101,15 @@ components:
     path: drive/pilot/
     plane: edge
     role: The machine edge runtime; boots from a manifest, loads drivers, runs the autonomy loop, speaks LINK
-    status: simulated
+    status: hardware_integrated
+    evidence:
+      hardware_runs:
+        - "2026-10-13: first boot on the Jetson AGX Orin in the vehicle, in the argus-pilot:dev container built on the Jetson (arm64, 173 s): simulated locomotion, dead-reckoning localization, simulated camera, MQTT comms to the laptop's broker over an SSH tunnel on Tailscale; registry served on the Jetson and read from the Mac; registered in TRACK as 01PILOT00000000000000UGV1 (STANDBY) with --prefix argus. No ROS2 in the path, no real driver. Logs: bodies/ugv-01/reference/2026-10-13/pilot_*.log."
     disposition: keep
     tests: [tests/test_pilot_loop.py]
     known_gaps:
-      - Has never run on the Jetson; all evidence is Mac and CI containers
+      - Ran on the Jetson once (13 Oct 2026) with simulated drivers only; Nav2 in the container on the Jetson untested; the real locomotion driver (edge.hal.ugv01) is registered but inhibited until calibrated, and no real sensor driver exists yet; PILOT's default --prefix site does not match TRACK's argus
+      - With drive/pilot/manifests/ugv-01.yaml the configured site position goes out in every heartbeat and telemetry as a bare Position (the LINK proto carries no source); TRACK labels the position source from the registry's localization driver name, C2 does not yet show that label, so an operator can read an unmeasured position as a reading (law 7). The core no longer adopts an unhealthy estimate as home (14 Oct 2026)
     blockers:
       - First boot on the actual Jetson (phase 3)
 
@@ -106,6 +123,29 @@ components:
     disposition: keep
     tests: [tests/test_pilot_loop.py]
     notes: The most rigorously executed part of the codebase per the as-built audit. The seam grows two new provider kinds (perception streams, localization) rather than being replaced.
+
+  - id: edge.hal.ugv01
+    name: ugv-01 vehicle driver (two boards)
+    type: Adapter
+    path: drive/pilot/hal/drivers/ugv01/
+    plane: edge
+    role: The single owner of ugv-01's ARGUS DRIVE module and accelerator board; pure protocol, serial link, controls with the safety rules, and the bench tool. The teleop bridge's ugv01 adapter is a shim over it (ADR-0009)
+    status: hardware_integrated
+    disposition: keep
+    tests: [tests/test_ugv01_protocol.py, tests/test_ugv01_controls.py, tests/test_ugv01_bridge_adapter.py, tests/test_ugv01_locomotion.py]
+    evidence:
+      hardware_runs:
+        - "2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/."
+        - "2026-10-13, Phase E: throttle held at 20 percent, host silent 15.0 s with ports open and the board powered; the wheels turned (19 s by a human stopwatch) until the zero arrived. No stop on silence occurred in that window. Finite, powered, ports-open test; port close and reset not tested. The section 6 gate stays shut."
+    known_gaps:
+      - Stop on link loss is PROVEN ABSENT on the accelerator board (13 Oct 2026, 15 s silence, wheels kept turning); the drive module on silence is untested; a host cannot stop a board through a failed link
+      - The horn disturbs both angle sensors while it sounds (NO_SIGNAL and readings outside the limits); feedback faults now latch, but the firmware's own limit enforcement reads the same sensor
+      - Braking force and holding never measured; the code treats a release answered AT_LIMIT as released unconditionally (an interlock exception, not a measurement); on 13 Oct it coincided with the human's confirmation and the 61.7 end-stop reading
+      - A LocomotionDriver shell since 14 Oct 2026 (ugv01_locomotion, registered, manifest drive/pilot/manifests/ugv-01.yaml): opens the boards, reports identity and health through /registry, accepts a stop, and REFUSES to move until the manifest carries a measured calibration (speed per duty, steering mapping, wheelbase). goto() and pose() are unsupported on this body; static_localization reports the site position as unmeasured. No service brake until the stroke is characterised
+      - Open from Codex checkpoint 2 (13 Oct 2026), not yet built: an explicit OPENING/READY/FAULTED/CLOSING lifecycle; bounded brake and steering moves with progress checks inside the controls (the bench bounds them from outside); a daemon-to-real-controls integration test with fake ports; a check that the previous owner of the ports has let go before opening
+    blockers:
+      - Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
+      - "Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run"
 
   - id: edge.hal.sensor_interface
     name: SensorDriver interface (Detection-only)
@@ -214,12 +254,14 @@ components:
     type: Service
     path: drive/bridge/
     plane: edge
-    role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock only), optional LINK reporter
+    role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock, and the ugv01 shim over edge.hal.ugv01), optional LINK reporter
     status: software_verified
     disposition: refactor
-    tests: [tests/test_bridge_daemon.py]
+    tests: [tests/test_bridge_daemon.py, tests/test_ugv01_bridge_adapter.py, tests/test_contract_brake.py]
     known_gaps:
       - Own JSON wire contract and own vehicle abstraction, parallel to the HAL
+      - The ugv01 adapter's self-test keeps stop_on_link_loss false, so the daemon cannot arm on the real vehicle until the section 6 gate is proven (13 Oct 2026)
+      - Telemetry the boards cannot supply (speed, battery, heading, temperature) is sent as zero because the contract has no unknown; the cockpit must learn an unknown before this drives a real HUD
     notes: Convergence direction (ADR-0009) makes its VehicleAdapter a shim over the HAL locomotion driver so exactly one process owns the hardware. Do not build the real MCU adapter twice. 18 Aug 2026, the software half of ADR-0009 point 4 landed, per-operator tokens (drive/bridge/identity.py) and an append-only session log (drive/bridge/session_log.py) from which a session is reconstructed in CI; the old relay (argus_relay.py) still runs on the shared password and retires at convergence.
 
   - id: teleop.relay
@@ -241,24 +283,27 @@ components:
     type: Application
     path: drive/cockpit/
     plane: platform
-    role: Browser driving UI; gamepad and keyboard, ignition control, HUD telemetry
+    role: Browser driving UI; gamepad and keyboard, ignition control, HUD telemetry; runs standalone or inside C2's Drive frame
     status: software_verified
     disposition: refactor
+    tests: [drive/cockpit/src/cockpit/CockpitScreen.test.tsx, drive/cockpit/src/cockpit/CockpitScreen.link.test.tsx, drive/cockpit/src/input/release.test.ts, drive/cockpit/src/transport/useBridgeTransport.test.ts, drive/cockpit/src/transport/useRemoTransport.test.ts, drive/cockpit/src/state/store.test.ts, drive/cockpit/src/embed/driveActive.test.ts]
     known_gaps:
       - No video pane
-    notes: Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
+      - Inside C2 it is proven by tests only; not yet driven in a real browser inside C2
+    notes: Rebuilt for C2 M3 on the shared design tokens (design/). When embedded, it commands the vehicle only while C2 says Drive is the active screen (drive/cockpit/src/embed/driveActive.ts). Leaving Drive drops the arm and stops commanding; the operator must return and arm again. Only the parent window may send that message, and an embedded cockpit that has heard nothing is inactive. The embed module is the single source of truth; the store and the transports read it and act in the same turn as the message. C2's sign-out message disarms, forgets the stored key, and closes the socket cleanly, then the cockpit answers argus.drive.signout.done at the framer's origin; C2 keeps the frame mounted until that answer or 500 ms. An arm press is a momentary request. It is refused unless Drive is active, the stick is neutral, and on a bridge link fresh telemetry reads ignition on and a passed self-test. It is asserted for 500 ms until the vehicle confirms DRIVING, then held only while it reads DRIVING. While it is pending, outgoing frames carry zero throttle and the steer unchanged; throttle passes only after the DRIVING reading. STOPPED readings during the window are normal, and so is a latch that was already there at the press; a reading that moves to LATCHED, or an unknown state, ends the request at once. A bridge link is live only while telemetry is fresh; silence past the vehicle's declared watchdog window (1000 ms if undeclared) is treated as link loss, which drops the arm and the ignition command and needs a fresh arm. While the link is down the HUD shows no values. Lint clean; its own CI job. Manual teleop remains a permanent fallback capability in the target architecture, converged onto one contract and one safety story.
 
   - id: teleop.watchdog
     name: Teleop watchdog
     type: Component
     path: drive/bridge/watchdog.py
     plane: edge
-    role: STOPPED / DRIVING / LATCHED; 700 ms silence or link loss latches a safe stop, re-arm always explicit
+    role: STOPPED / DRIVING / LATCHED; 700 ms silence, a 700 ms command gap, or link loss latches a safe stop, arm and re-arm always explicit
     status: software_verified
     disposition: keep
     tests: [tests/test_bridge_daemon.py]
     known_gaps:
       - Mock-tested only; hardware validation pending, and the layer below it (MCU firmware) is not yet failsafe
+    notes: Arming is a rising edge of the operator's arm bit, never a level. A frame that only continues arm=true never arms, so frames queued in a stalled socket cannot re-arm a latch when they drain. A session starts as if the arm were held and needs one arm=false frame before a press counts. Every latch (estop, silence, link loss) resets the detector the same way. A press made before the self-test passed is spent. Every arm, first or re-arm, needs zero throttle; the bridge does not trust the cockpit's neutral-stick gate. The self-test verdict is a required argument, so a caller cannot fail open by leaving it out. While DRIVING, a held arm is idempotent, which the cockpit's 500 ms confirmation window relies on. An edge proves order, not freshness. A receive gap between two command frames longer than the watchdog window is a stall in every state, measured on the daemon's own clock, never a client timestamp. After a stall the edge detector holds for one more window from the first late frame, so frames that drain in a burst cannot release or press, even when the burst holds a release then a press at zero throttle. A stall while DRIVING latches on the late frame. Each stall is logged. Heartbeats do not close a gap.
 
   - id: drive.brain
     name: Brain prototype
@@ -372,9 +417,10 @@ components:
     role: Stereolabs ZED X behind the perception interface; depth, tracking, detections as capability streams
     status: planned
     disposition: new
+    known_gaps:
+      - On 13 Oct 2026 the front ZED X was observed working on the Jetson under the team's own ROS 2 wrapper (zedlink-duo 1.4.3 for L4T 36.5, zed_x_daemon active, odometry publishing, colour at 9 Hz); the rear camera reports CAMERA NOT DETECTED. ARGUS has no ZED provider of its own yet (bodies/ugv-01/FINDINGS-2026-10-13.md)
     blockers:
-      - Installed ZED SDK 5.4.1 bundles ZED X GMSL drivers for L4T 35.x; flashed kernel is L4T 36.5; the matching SDK must be installed when the camera arrives
-      - Camera ORDERED 18 Aug 2026, delivery expected within days, WITH the ZED Link GMSL2 capture card and cable (founder-confirmed); hardware connection path complete on arrival, driver bring-up remains
+      - An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
       - Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
 
   - id: perception.detector
@@ -423,27 +469,46 @@ components:
     type: Hardware
     path: bodies/ugv-01/
     plane: hardware
-    role: The first steel; survey findings, MCU protocol notes, wiring, firmware
+    role: The first steel; findings, protocol notes, wiring, firmware. Since 13 Oct 2026 the serial path is an ARGUS DRIVE v4.1.4 module (CH340) plus an accelerator board v1.2 (FTDI); the Arduino relay path the August pages describe is no longer on the wire
     status: scaffolded
     disposition: keep
     known_gaps:
-      - Relay map is verbal and unverified
-      - Deployed MCU firmware holds last throttle forever on link loss; steering feedback disconnected; brake relays disconnected; no ignition or e-stop relay
+      - The accelerator board HOLDS its last duty with no watchdog, measured 13 Oct 2026 (19 s of wheel motion through 15 s of host silence); the drive module on silence is untested
+      - Settled on the bench 13 Oct: 0x05 01 is left and the steering reading increases to the left; 0x06 01 applies (reading rises from the 61.7 released end stop), 0x06 02 releases (stopping at the released end on its own is not proven; our stop frame coincided); STATUS reply is A,ST,BR,SP,GR,LI,IN,HO,WI,CT fields
+      - The horn disturbs both angle sensors while it sounds; the brake's configured 70 to 170 limits do not include its 61.7 released end
+      - Firmware sources for both boards arrived 13 Oct 2026 and are kept outside git on the founder's Mac (~/Projects/Argus/_reference/ugv-01-team-2026-10-13/firmware/); RESET defaults unknown
+      - MCU-PROTOCOL.md, BENCH.md and the August FINDINGS describe the superseded relay path; kept as history
     blockers:
-      - Bench verification of the relay map, wheels off the ground, one relay at a time
+      - Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
+      - A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
 
-  - id: bodies.ugv01.firmware_v4
-    name: v4 watchdog firmware
+  - id: bodies.ugv01.firmware_watchdog
+    name: Silence watchdogs for the two boards (AC 1.3, 4.1.5)
     type: Firmware
     path: bodies/ugv-01/firmware/
     plane: hardware
-    role: Replacement MCU firmware; opt-in latching watchdog, break-before-make on both reversing relay pairs
+    role: ARGUS additions to the team's firmware so each board stops by itself on host silence; Nano throttle logic in a tested header plus sketch, ESP32-S3 watchdog as two files and a patch (nano_throttle_watchdog/, esp32_drive_watchdog/, README-WATCHDOG.md)
     status: scaffolded
     disposition: keep
+    tests: [bodies/ugv-01/firmware/nano_throttle_watchdog/test/test_throttle_logic.cpp]
     known_gaps:
-      - Written but never flashed and never bench-verified
+      - Never flashed, never bench-run; the Nano sketch is not compiled on the Mac (x86-only AVR toolchain), the ESP32 tree compiles with PlatformIO; Codex reviewed three times
+      - Keepalive is any accepted command, so a host that polls angles keeps a stuck actuator alive on the drive module; the host-side heartbeat in the controls covers that case
     blockers:
-      - Bench verification is the hard safety gate; no autonomous moving test happens before it passes (ARCHITECTURE.md section 6)
+      - Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
+
+  - id: bodies.ugv01.firmware_v4
+    name: v4 watchdog firmware (relay board, superseded)
+    type: Firmware
+    path: bodies/ugv-01/firmware/ugv01_mcu_watchdog.ino
+    plane: hardware
+    role: Replacement firmware for the Arduino relay board; opt-in latching watchdog, break-before-make on both reversing relay pairs. That board is no longer on the serial path (13 Oct 2026)
+    status: scaffolded
+    disposition: archive
+    known_gaps:
+      - Written but never flashed; targets a 14-relay Nano pin map and PWM 42 that the vehicle no longer presents. Do not flash it onto the accelerator board
+    blockers:
+      - The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
   # --------------------------------------------------------------------- sim
   - id: sim.vehicle

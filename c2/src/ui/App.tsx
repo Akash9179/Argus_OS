@@ -2,18 +2,20 @@
  * The application shell.
  *
  * The menu bar belongs to the operating system and is identical in every
- * application. Only Operate exists in this build; the rest of the launcher
- * is visible and plainly disabled, because hiding it would misrepresent
- * what the system is.
+ * application. It offers only what exists: Operate and Drive as tabs, and
+ * Settings behind the person (founder decision, 12 Oct 2026).
  */
 
 import { useEffect, useState } from 'react'
-import { forgetToken, saveToken, savedToken, track as api } from '../sdk/client'
+import { saveToken, savedToken, track as api } from '../sdk/client'
+import { onSignedOut, signOut } from '../sdk/session'
 import { isAnswering, useWorld } from '../state/world'
+import { ArgusWordmark } from './ArgusMark'
 import { Operate } from './Operate'
 import { Desktop, Dock, DriveApp, SettingsApp, Wallpaper, type ShellApp } from './Shell'
+import { signOutDrive } from './driveUrl'
 import { say } from './wording'
-import { clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
+import { clockDate, clockTime, useClockPrefs, zoneLabel } from './clockPrefs'
 
 type Theme = 'dark' | 'day'
 
@@ -25,11 +27,16 @@ export function App() {
     document.documentElement.dataset.theme = theme
   }, [theme])
 
+  // A token refused by any interface ends the session here, so a revoked
+  // key shows sign-in rather than a station that has apparently lost the
+  // site. A mounted Drive frame is told first, and kept until the cockpit
+  // answers or a short wait passes, so its disarm and key cleanup finish.
+  useEffect(() => onSignedOut(() => signOutDrive(() => setSignedIn(false))), [])
+
   if (!signedIn) return <SignIn onSignedIn={() => setSignedIn(true)} />
-  return <Station theme={theme} onTheme={setTheme} onSignOut={() => {
-    forgetToken()
-    setSignedIn(false)
-  }} />
+  // signOut takes an optional refused token. The operator's own sign-out
+  // passes nothing, never the click event, or it reads as a late refusal.
+  return <Station theme={theme} onTheme={setTheme} onSignOut={() => signOut()} />
 }
 
 function Station({
@@ -91,42 +98,42 @@ function Station({
     }
   }, [])
 
-  const appName =
-    screen === 'desktop'
-      ? say.shell.desktop
-      : screen === 'drive'
-        ? say.shell.apps.drive
-        : screen === 'settings'
-          ? say.shell.settings.title
-          : say.shell.apps.operate
   const glanceLine =
     link === 'lost' ? say.shell.glance.linkDown : say.shell.glance.allQuiet(answeringCount)
 
   return (
     <div className="station">
-      <header className="menubar">
+      <header className="topbar">
         <button className="mark as-button" onClick={() => setScreen('desktop')} title={say.shell.desktop}>
-          ARGUS
+          <ArgusWordmark className="mark-name" />
+          <span className="mark-sub">{say.shell.station}</span>
         </button>
-        <span className="app-name">{appName}</span>
-        <nav className="menubar-items">
-          {say.menus.map((item) => (
-            <span key={item} className="menu-item is-inert" title={say.notBuiltYet}>
-              {item}
-            </span>
-          ))}
+        <nav className="tabs" aria-label={say.shell.launcher}>
+          <button className={`tab${screen === 'operate' ? ' on' : ''}`} onClick={() => openApp('operate')}>
+            {say.shell.apps.operate}
+          </button>
+          <button className={`tab${screen === 'drive' ? ' on' : ''}`} onClick={() => openApp('drive')}>
+            {say.shell.apps.drive}
+          </button>
         </nav>
-        <div className="menubar-right">
-          <span className={`stat is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>
+        <div className="topbar-right">
+          <span className={`pill is-${link === 'good' ? 'ok' : link === 'lost' ? 'act' : 'warn'}`}>
             <span className="dot" />
             {link === 'good' ? say.link.good : link === 'lost' ? say.link.lost : say.link.connecting}
+            {link === 'good' && ` · ${say.counts.answering(answeringCount, world.assets.size)}`}
           </span>
-          <span className="stat">{say.counts.answering(answeringCount, world.assets.size)}</span>
-          <button className="chip" onClick={() => onTheme(theme === 'dark' ? 'day' : 'dark')}>
-            {theme === 'dark' ? say.theme.dark : say.theme.day}
+          <span className="clock">
+            {clockDate(now, clockPrefs)}&nbsp;&nbsp;{clockTime(now, clockPrefs)} {zoneLabel(now, clockPrefs)}
+          </span>
+          <button className="who as-button" onClick={() => openApp('settings')} title={say.shell.tips.settings}>
+            <span className="avatar" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="8.5" r="3.6" />
+                <path d="M5 19.5c1.4-3.2 4-4.6 7-4.6s5.6 1.4 7 4.6" />
+              </svg>
+            </span>
+            {who && <span className="who-name">{who}</span>}
           </button>
-          {who && <span className="stat">{who}</span>}
-          <span className="stat mono">{clockTime(now, clockPrefs)} {zoneLabel(now, clockPrefs)}</span>
           <button className="chip" onClick={onSignOut}>
             {say.signOut}
           </button>
@@ -143,7 +150,7 @@ function Station({
             <div className="waiting">{say.link.connecting}</div>
           )}
         </div>
-        {driveOpened && <DriveApp open={screen === 'drive'} />}
+        {driveOpened && <DriveApp open={screen === 'drive'} onEscape={() => setScreen('desktop')} />}
         <SettingsApp open={screen === 'settings'} theme={theme} onTheme={onTheme} onClose={() => setScreen('desktop')} />
         <Dock active={screen} away={screen !== 'desktop'} onOpen={openApp} />
       </div>
@@ -177,7 +184,7 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <div className="signin">
       <form onSubmit={submit}>
-        <span className="mark">ARGUS</span>
+        <ArgusWordmark className="mark" />
         <h1>{say.signIn.title}</h1>
         <p>{say.signIn.prompt}</p>
         <label>

@@ -1,0 +1,1459 @@
+
+===== src/serial_control/launch/serial.launch.py (36 lines)
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'device',
+            default_value='/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0',
+            description='Serial device path.'),
+        DeclareLaunchArgument(
+            'baud', default_value='115200',
+            description='Baud rate.'),
+        DeclareLaunchArgument(
+            'accel_device',
+            default_value='/dev/serial/by-id/'
+                          'usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0',
+            description='Accelerator board serial device path.'),
+        DeclareLaunchArgument(
+            'accel_baud', default_value='115200',
+            description='Accelerator board baud rate.'),
+        Node(
+            package='serial_control',
+            executable='cmd',
+            name='cmd',
+            output='screen',
+            parameters=[{
+                'device': LaunchConfiguration('device'),
+                'baud': LaunchConfiguration('baud'),
+                'accel_device': LaunchConfiguration('accel_device'),
+                'accel_baud': LaunchConfiguration('accel_baud'),
+            }],
+        ),
+    ])
+
+===== src/serial_control/serial_control/cmd_node.py (475 lines)
+"""ROS 2 node "cmd": bridge between the /cmd namespace and a serial device.
+
+Python port of the Go websocket<->serial bridge, recast onto the existing
+web_server plumbing (which already owns the socket, auth and namespaces).
+The device is the ARGUS DRIVE controller (firmware v4.1.3): each console
+token is translated to hex-text frames by argus_protocol; tokens outside its
+vocabulary are logged and never reach the wire. On every (re)connect the
+node sends INFO (0x01) so the firmware version shows up in the log.
+
+Steering feedback: the node polls READ:STEER (0x04) at steer_poll_hz and
+reads the steering limits (0x10) on connect. The angle goes out as degrees
+from the centre of the limits (the point STEER:C centres to), as a
+"TELEM steer=<deg>" line the console's parseTelemetry already understands.
+Poll traffic is logged at debug level and not echoed raw to the browser.
+
+Brake feedback works the same way: READ:BRAKE (0x03) is polled with the
+steering, the brake limits (0x0F) are read on connect, and the angle goes
+out as "TELEM brake=<0-100 %> brakedeg=<deg>" (brake= only once the limits
+are known). 0 % is the min limit; brake_invert flips it.
+
+Throttle lives on a second serial device, the accelerator board
+(accel_protocol). ACCEL tokens go only there; everything else goes to ARGUS.
+The node enforces the brake interlock the ARGUS firmware used to: BRAKE:APPLY
+and ESTOP send duty 0 to the accel board first, and ACCEL is refused while
+the brake is applied. The accel board also gets duty 0 on its own (re)connect
+and whenever the drive link drops, since the brake is then unreachable.
+
+The board resets when its port opens, so the node waits accel_boot_s before
+the first frames (duty 0, INFO). After that every frame must be answered: a
+USB-serial link can stall (kernel "urb stopped: -32") while writes still
+"succeed" on the host. No reply within accel_reply_timeout_s raises
+ACCEL_LINK and reopens the port. Throttle above 0 is refused
+("0x02;ERR;ACCEL_NOT_READY") until the board has answered since connecting.
+
+  /web_server/cmd/out  (browser -> here)   tokens, encoded and written
+  /web_server/cmd/in   (here -> browser)   serial lines + TELEM steer=
+  ~/rx                                     serial lines for ROS consumers
+  ~/status                                 drive link state JSON
+  ~/accel_status                           accel link state JSON
+  ~/steer_angle        Float32             absolute steering angle, deg
+  ~/steer              Float32             deg from centre (+ per steer_invert)
+  ~/brake_angle        Float32             absolute brake actuator angle, deg
+  ~/brake              Float32             brake travel 0-100 % of the limits
+
+Alert system (same JSON shape as bms_monitor, rendered by the same UI):
+  - SERIAL_LINK   critical on link loss, cleared on reconnect
+  - ACCEL_LINK    same, for the accelerator board
+  - SERIAL_WRITE  warning when a command can't be written (edge-triggered,
+                  cleared by the next successful write); ACCEL_WRITE likewise
+  - DEVICE_MSG    warning for device lines matching alert_patterns
+                  (default: ERR, FAULT, ALERT)
+"""
+
+import json
+import threading
+import time
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (QoSDurabilityPolicy, QoSProfile,
+                       QoSReliabilityPolicy)
+from std_msgs.msg import Float32, String
+
+from serial_control import accel_protocol, argus_protocol
+from serial_control.serial_link import DEFAULT_BAUD, DEFAULT_DEVICE, SerialLink
+
+STEER_REPLY = '0x04'
+LIMITS_REPLY = '0x10'
+BRAKE_REPLY = '0x03'
+BRAKE_LIMITS_REPLY = '0x0F'
+
+# FT232R adapters carry a unique serial, so by-id stays stable even next to
+# the CH340 (whose by-id name has no serial and would collide with a twin).
+ACCEL_DEVICE = '/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0'
+
+# Latched so the status checker can read the current link state on demand.
+LATCHED = QoSProfile(
+    depth=1,
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+
+
+class CmdNode(Node):
+
+    def __init__(self):
+        super().__init__('cmd')
+        self.declare_parameter('device', DEFAULT_DEVICE)
+        self.declare_parameter('baud', DEFAULT_BAUD)
+        self.declare_parameter('alert_patterns', ['ERR', 'FAULT', 'ALERT'])
+        # 0 disables polling. Each poll is one short read-only line.
+        self.declare_parameter('steer_poll_hz', 5.0)
+        # flip the sign of ~/steer if the angle grows towards the left
+        self.declare_parameter('steer_invert', False)
+        # flip ~/brake if the angle shrinks as the brake applies
+        self.declare_parameter('brake_invert', False)
+        self.declare_parameter('accel_device', ACCEL_DEVICE)
+        self.declare_parameter('accel_baud', DEFAULT_BAUD)
+        self.declare_parameter('accel_max_pct', accel_protocol.DEFAULT_MAX_PCT)
+        # the board reboots on port open; nothing sent to it lands until then
+        self.declare_parameter('accel_boot_s', 2.5)
+        self.declare_parameter('accel_reply_timeout_s', 1.0)
+        device = str(self.get_parameter('device').value)
+        baud = int(self.get_parameter('baud').value)
+        self.patterns = [str(p).upper()
+                         for p in self.get_parameter('alert_patterns').value]
+        poll_hz = float(self.get_parameter('steer_poll_hz').value)
+        self.steer_invert = bool(self.get_parameter('steer_invert').value)
+        self.brake_invert = bool(self.get_parameter('brake_invert').value)
+        accel_device = str(self.get_parameter('accel_device').value)
+        accel_baud = int(self.get_parameter('accel_baud').value)
+        self.accel_max_pct = int(self.get_parameter('accel_max_pct').value)
+        if not 0 <= self.accel_max_pct <= 100:
+            raise ValueError('accel_max_pct must be 0-100, got %d'
+                             % self.accel_max_pct)
+
+        self.rx_pub = self.create_publisher(String, '~/rx', 10)
+        self.status_pub = self.create_publisher(String, '~/status', LATCHED)
+        self.accel_status_pub = self.create_publisher(
+            String, '~/accel_status', LATCHED)
+        self.web_cmd_pub = self.create_publisher(
+            String, '/web_server/cmd/in', 10)
+        self.web_alert_pub = self.create_publisher(
+            String, '/web_server/alert/in', 10)
+        self.alerts_pub = self.create_publisher(String, '~/alerts', 10)
+        self.steer_angle_pub = self.create_publisher(
+            Float32, '~/steer_angle', 10)
+        self.steer_pub = self.create_publisher(Float32, '~/steer', 10)
+        self.brake_angle_pub = self.create_publisher(
+            Float32, '~/brake_angle', 10)
+        self.brake_pub = self.create_publisher(Float32, '~/brake', 10)
+
+        self.create_subscription(
+            String, '/web_server/cmd/out', self.on_command, 10)
+
+        self._write_failed = {}
+        self._brake_on = False
+        # Serialises throttle decisions (executor thread) against the drive
+        # reader thread zeroing the throttle on link loss, so an ACCEL that
+        # passed the link check cannot land after that zero.
+        self._throttle_lock = threading.Lock()
+        # accel board liveness: hello is due at _accel_hello_at after a
+        # connect; _accel_alive once it has answered since then
+        self._accel_boot_s = float(self.get_parameter('accel_boot_s').value)
+        self._accel_watch = accel_protocol.AckWatch(float(
+            self.get_parameter('accel_reply_timeout_s').value))
+        self._accel_hello_at = None
+        self._accel_hello_sent = False
+        self._accel_alive = False
+        self.create_timer(0.25, self._accel_tick)
+        self._steer_limits = None
+        self._steer_error = False
+        self._steer_frame = argus_protocol.encode('READ:STEER')[0]
+        self._limits_frame = argus_protocol.encode('READ:STRLIM')[0]
+        self._brake_limits = None
+        self._brake_error = False
+        self._brake_frame = argus_protocol.encode('READ:BRAKE')[0]
+        self._brake_limits_frame = argus_protocol.encode('READ:BRKLIM')[0]
+        self._polls = 0
+        if poll_hz > 0:
+            self.create_timer(1.0 / poll_hz, self.poll_steer)
+        self.link = SerialLink(device=device, baud=baud,
+                               on_line=self.on_line,
+                               on_status=self.on_status,
+                               decode=argus_protocol.format_reply)
+        self.accel_link = SerialLink(device=accel_device, baud=accel_baud,
+                                     on_line=self.on_accel_line,
+                                     on_status=self.on_accel_status,
+                                     decode=argus_protocol.format_reply)
+        self.get_logger().info(
+            'bridging %s @ %d baud <-> /cmd namespace' % (device, baud))
+        self.get_logger().info(
+            'throttle on %s @ %d baud, capped at %d%%'
+            % (accel_device, accel_baud, self.accel_max_pct))
+        # publish the initial state so the latched topics are never empty
+        self.status_pub.publish(String(data=json.dumps(
+            {'connected': False,
+             'message': 'waiting for %s' % device})))
+        self.accel_status_pub.publish(String(data=json.dumps(
+            {'connected': False,
+             'message': 'waiting for %s' % accel_device})))
+        self.link.start()
+        self.accel_link.start()
+
+    # -- browser -> serial ---------------------------------------------------
+
+    def on_command(self, msg):
+        with self._throttle_lock:
+            self._command(msg)
+
+    def _command(self, msg):
+        drive_up = self.link.connected
+        try:
+            r = accel_protocol.route(msg.data, self._brake_on,
+                                     max_pct=self.accel_max_pct,
+                                     drive_up=drive_up)
+        except accel_protocol.ThrottleLocked as e:
+            self.get_logger().warning(str(e))
+            # same shape the ARGUS firmware used for this refusal
+            self.web_cmd_pub.publish(String(
+                data='0x02;ERR;' + ('BRAKE_ACTIVE' if drive_up
+                                    else 'DRIVE_LINK_DOWN')))
+            return
+        except (argus_protocol.UnknownCommand, ValueError) as e:
+            self.get_logger().warning('ignored command: %s' % e)
+            return
+        if r.brake_on:
+            # engaging locks the throttle even if the brake frame is lost
+            self._brake_on = True
+        if (r.accel and not self._accel_alive
+                and any(f != accel_protocol.ZERO for f in r.accel)):
+            self.get_logger().warning(
+                '%s refused: accelerator board not answering' % msg.data)
+            self.web_cmd_pub.publish(String(data='0x02;ERR;ACCEL_NOT_READY'))
+            return
+        if not r.main and not r.accel:
+            self.get_logger().debug(
+                'console-only command %r, nothing sent' % msg.data)
+            return
+        # throttle off before the brake moves
+        if r.accel:
+            self._send(self.accel_link, r.accel, 'ACCEL_WRITE', 'accel',
+                       msg.data)
+        if r.main and self._send(self.link, r.main, 'SERIAL_WRITE', 'serial',
+                                 msg.data):
+            self._brake_on = r.brake_on
+
+    def _send(self, link, frames, code, name, token):
+        """Write frames to one link, with edge-triggered write alerts."""
+        if all(link.write_bytes(f) for f in frames):
+            if link is self.accel_link:
+                self._accel_sent()
+            self.get_logger().info('%s <- %s [%s]'
+                                   % (name, token,
+                                      argus_protocol.describe(frames)))
+            if self._write_failed.get(code):
+                self._write_failed[code] = False
+                self._alert('clear', code, 'info',
+                            '%s writes working again' % name)
+            return True
+        self.get_logger().warning('%s dropped command %r (no link)'
+                                  % (name, token))
+        if not self._write_failed.get(code):
+            self._write_failed[code] = True
+            self._alert('trigger', code, 'warning',
+                        'command %r dropped: %s device not connected'
+                        % (token, name))
+        return False
+
+    # -- steering feedback ------------------------------------------------
+
+    def poll_steer(self):
+        if not self.link.connected:
+            return
+        self.link.write_bytes(self._steer_frame)
+        self.link.write_bytes(self._brake_frame)
+        # limits are read on connect; retry about once a second until known
+        self._polls += 1
+        if self._polls % 5 == 0:
+            if self._steer_limits is None:
+                self.link.write_bytes(self._limits_frame)
+            if self._brake_limits is None:
+                self.link.write_bytes(self._brake_limits_frame)
+
+    def on_steer_reply(self, status, data):
+        if status != 'OK':
+            if not self._steer_error:
+                self._steer_error = True
+                self.get_logger().warning(
+                    'steering angle read failed: %s' % data)
+            return
+        angle = argus_protocol.steer_angle_deg(data)
+        if angle is None:
+            return
+        if self._steer_error:
+            self._steer_error = False
+            self.get_logger().info('steering angle readable again')
+        self.steer_angle_pub.publish(Float32(data=angle))
+        rel = argus_protocol.relative_steer(
+            angle, self._steer_limits, invert=self.steer_invert)
+        if rel is not None:
+            self.steer_pub.publish(Float32(data=rel))
+            self.web_cmd_pub.publish(String(data='TELEM steer=%.1f' % rel))
+
+    def on_limits_reply(self, status, data):
+        limits = argus_protocol.steer_limits_deg(data) if status == 'OK' else None
+        if limits and limits != self._steer_limits:
+            self._steer_limits = limits
+            self.get_logger().info(
+                'steering limits %.1f..%.1f deg, centre %.1f'
+                % (limits[0], limits[1], sum(limits) / 2.0))
+
+    def on_brake_reply(self, status, data):
+        if status != 'OK':
+            if not self._brake_error:
+                self._brake_error = True
+                self.get_logger().warning(
+                    'brake feedback read failed: %s' % data)
+            return
+        angle = argus_protocol.brake_angle_deg(data)
+        if angle is None:
+            return
+        if self._brake_error:
+            self._brake_error = False
+            self.get_logger().info('brake feedback readable again')
+        self.brake_angle_pub.publish(Float32(data=angle))
+        pct = argus_protocol.brake_percent(
+            angle, self._brake_limits, invert=self.brake_invert)
+        telem = 'TELEM brakedeg=%.1f' % angle
+        if pct is not None:
+            self.brake_pub.publish(Float32(data=pct))
+            telem = 'TELEM brake=%.0f brakedeg=%.1f' % (pct, angle)
+        self.web_cmd_pub.publish(String(data=telem))
+
+    def on_brake_limits_reply(self, status, data):
+        limits = (argus_protocol.brake_limits_deg(data)
+                  if status == 'OK' else None)
+        if limits and limits != self._brake_limits:
+            self._brake_limits = limits
+            self.get_logger().info('brake limits %.1f..%.1f deg' % limits)
+
+    # -- serial -> browser/ROS -------------------------------------------------
+
+    def on_line(self, line):
+        reply = argus_protocol.parse_reply(line)
+        if reply and reply[0].upper() == STEER_REPLY.upper():
+            # 5 Hz poll traffic: keep it out of the log and the browser
+            self.get_logger().debug('serial -> %r' % line)
+            self.rx_pub.publish(String(data=line))
+            self.on_steer_reply(reply[1], reply[2])
+            return
+        if reply and reply[0].upper() == BRAKE_REPLY.upper():
+            self.get_logger().debug('serial -> %r' % line)
+            self.rx_pub.publish(String(data=line))
+            self.on_brake_reply(reply[1], reply[2])
+            return
+        self.get_logger().info('serial -> %r' % line)
+        self.rx_pub.publish(String(data=line))
+        self.web_cmd_pub.publish(String(data=line))
+        if reply and reply[0].upper() == LIMITS_REPLY.upper():
+            self.on_limits_reply(reply[1], reply[2])
+        if reply and reply[0].upper() == BRAKE_LIMITS_REPLY.upper():
+            self.on_brake_limits_reply(reply[1], reply[2])
+        if reply and reply[0].lower() == '0x01' and reply[1] == 'OK':
+            version = argus_protocol.firmware_version(reply[2])
+            if version:
+                self.get_logger().info('ARGUS DRIVE firmware v%s' % version)
+        upper = line.upper()
+        for pattern in self.patterns:
+            if pattern in upper:
+                self._alert('trigger', 'DEVICE_MSG', 'warning',
+                            'device: %s' % line)
+                break
+
+    def on_status(self, connected, message):
+        # rclpy loggers cache severity per call site — one shared log(msg)
+        # line for both severities raises ValueError, so branch explicitly.
+        if connected:
+            self.get_logger().info(message)
+        else:
+            self.get_logger().error(message)
+        self.status_pub.publish(String(data=json.dumps(
+            {'connected': connected, 'message': message})))
+        if connected:
+            self._alert('clear', 'SERIAL_LINK', 'info', message)
+            self.link.write_bytes(argus_protocol.encode('INFO')[0])
+            self.link.write_bytes(self._limits_frame)
+            self.link.write_bytes(self._brake_limits_frame)
+        else:
+            # the brake is unreachable now, so take the throttle off
+            with self._throttle_lock:
+                if self.accel_link.write_bytes(accel_protocol.ZERO):
+                    self._accel_sent()
+            self._alert('trigger', 'SERIAL_LINK', 'critical',
+                        'serial link down: %s' % message)
+
+    # -- accelerator board ----------------------------------------------------
+
+    def _accel_sent(self):
+        # only once the board has booted: frames sent into its reboot are
+        # expected to go unanswered
+        if self._accel_hello_sent:
+            self._accel_watch.sent(time.monotonic())
+
+    def _accel_tick(self):
+        now = time.monotonic()
+        if (self._accel_hello_at is not None and not self._accel_hello_sent
+                and now >= self._accel_hello_at):
+            self._accel_hello_sent = True
+            # start from a known-safe duty, whatever the board held before
+            for frame in (accel_protocol.ZERO, accel_protocol.INFO):
+                if self.accel_link.write_bytes(frame):
+                    self._accel_sent()
+            return
+        if self._accel_watch.dead(now):
+            self._accel_watch.reset()
+            self._accel_alive = False
+            self.get_logger().error(
+                'accelerator board not answering - reopening %s'
+                % self.accel_link.device)
+            self._alert('trigger', 'ACCEL_LINK', 'critical',
+                        'accelerator board not answering (USB link stalled?)'
+                        ' - reopening; replug its USB cable if this repeats')
+            self.accel_link.reset('no reply')
+
+    def on_accel_line(self, line):
+        self.get_logger().info('accel -> %r' % line)
+        self._accel_watch.replied(time.monotonic())
+        if not self._accel_alive:
+            self._accel_alive = True
+            self._alert('clear', 'ACCEL_LINK', 'info',
+                        'accelerator board answering')
+        self.rx_pub.publish(String(data=line))
+        self.web_cmd_pub.publish(String(data=line))
+        reply = argus_protocol.parse_reply(line)
+        if reply and reply[0].lower() == '0x01' and reply[1] == 'OK':
+            version = accel_protocol.firmware_version(reply[2])
+            if version:
+                self.get_logger().info('accelerator firmware v%s' % version)
+        upper = line.upper()
+        for pattern in self.patterns:
+            if pattern in upper:
+                self._alert('trigger', 'DEVICE_MSG', 'warning',
+                            'accel: %s' % line)
+                break
+
+    def on_accel_status(self, connected, message):
+        if connected:
+            self.get_logger().info('accel: %s' % message)
+        else:
+            self.get_logger().error('accel: %s' % message)
+        self.accel_status_pub.publish(String(data=json.dumps(
+            {'connected': connected, 'message': message})))
+        self._accel_watch.reset()
+        self._accel_alive = False
+        self._accel_hello_sent = False
+        if connected:
+            # ACCEL_LINK clears on the board's first reply, not here: an
+            # open port says nothing about whether frames arrive
+            self._accel_hello_at = time.monotonic() + self._accel_boot_s
+        else:
+            self._accel_hello_at = None
+            self._alert('trigger', 'ACCEL_LINK', 'critical',
+                        'accelerator link down: %s' % message)
+
+    # -- alerts ---------------------------------------------------------------
+
+    def _alert(self, event, code, level, message):
+        raw = json.dumps({'event': event, 'code': code, 'level': level,
+                          'message': message, 'value': None, 'limit': None,
+                          'ts': time.time() * 1000.0})
+        self.alerts_pub.publish(String(data=raw))
+        self.web_alert_pub.publish(String(data=raw))
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = CmdNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # the board latches its last duty, so zero it before letting go
+        with node._throttle_lock:
+            node.accel_link.write_bytes(accel_protocol.ZERO)
+        node.accel_link.stop()
+        node.link.stop()
+        node.destroy_node()
+        # Ctrl-C: rclpy's own signal handler has already shut down
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+
+===== src/serial_control/serial_control/serial_link.py (147 lines)
+"""Serial device link with automatic reconnect.
+
+(Named serial_link, not serial — a module called serial.py would shadow
+the pyserial package it depends on.)
+
+Mirrors the shape of bms_monitor's stream(): a reader loop that survives
+the device unplugging, plus a thread-safe write(). Callbacks:
+
+  on_line(text)                one decoded line from the device
+                               (decode(raw_bytes) -> text; default UTF-8)
+  on_status(connected, msg)    link transitions only (never spammed)
+"""
+
+import threading
+import time
+
+import serial
+
+DEFAULT_DEVICE = '/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0'
+DEFAULT_BAUD = 115200
+RECONNECT_DELAY = 3.0
+READ_TIMEOUT = 1.0
+
+
+def _decode_utf8(raw):
+    return raw.decode('utf-8', errors='replace').strip()
+
+
+class SerialLink:
+
+    def __init__(self, device=DEFAULT_DEVICE, baud=DEFAULT_BAUD,
+                 on_line=None, on_status=None, decode=None):
+        self.device = device
+        self.baud = baud
+        self.on_line = on_line or (lambda line: None)
+        self.on_status = on_status or (lambda connected, msg: None)
+        self.decode = decode or _decode_utf8
+        self._port = None
+        self._connected = False
+        self._stop = threading.Event()
+        self._reset_reason = None
+        self._write_lock = threading.Lock()
+        self._thread = None
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def start(self):
+        """Run the reader/reconnect loop in a daemon thread."""
+        self._thread = threading.Thread(target=self.run, daemon=True)
+        self._thread.start()
+        return self._thread
+
+    def stop(self):
+        self._stop.set()
+        self._close()
+
+    def reset(self, reason):
+        """Drop the port and let the loop reopen it.
+
+        For a port that is open but dead - e.g. a stalled USB endpoint, where
+        writes still "succeed" into the tty buffer and nothing ever arrives.
+        """
+        self._reset_reason = reason
+        self._close()
+
+    @property
+    def connected(self):
+        return self._connected
+
+    # -- reader loop -----------------------------------------------------------
+
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                port = serial.Serial(self.device, self.baud,
+                                     timeout=READ_TIMEOUT)
+            except (serial.SerialException, OSError) as e:
+                self._set_status(
+                    False, 'cannot open %s (%s), retrying in %.0fs'
+                    % (self.device, type(e).__name__, RECONNECT_DELAY))
+                self._stop.wait(RECONNECT_DELAY)
+                continue
+
+            self._port = port
+            self._set_status(True, 'connected to %s @ %d baud'
+                             % (self.device, self.baud))
+            try:
+                while not self._stop.is_set():
+                    raw = port.readline()  # b'' on timeout
+                    if raw:
+                        line = self.decode(raw)
+                        if line:
+                            self.on_line(line)
+            except (serial.SerialException, OSError, TypeError) as e:
+                # TypeError: stop() closed the port under readline() and
+                # pyserial read from fd None. Expected on shutdown only.
+                if self._stop.is_set():
+                    break
+                reason, self._reset_reason = self._reset_reason, None
+                if reason is not None:
+                    # reset() closed the port under readline(), on purpose
+                    self._set_status(False, 'reset (%s), reopening' % reason)
+                elif isinstance(e, TypeError):
+                    raise           # a real bug, not a link fault
+                else:
+                    self._set_status(
+                        False, 'link lost (%s), retrying in %.0fs'
+                        % (type(e).__name__, RECONNECT_DELAY))
+            finally:
+                self._close()
+            self._stop.wait(RECONNECT_DELAY)
+
+    # -- writing ------------------------------------------------------------
+
+    def write(self, text):
+        """Send one line to the device. Returns True on success."""
+        return self.write_bytes((text.rstrip('\n') + '\n').encode('utf-8'))
+
+    def write_bytes(self, data):
+        """Send raw bytes, unmodified. Returns True on success."""
+        with self._write_lock:
+            port = self._port
+            if port is None or not self._connected:
+                return False
+            try:
+                port.write(data)
+                return True
+            except (serial.SerialException, OSError, TypeError, ValueError):
+                # TypeError/ValueError: the reader closed the port under us
+                return False
+
+    # -- helpers ------------------------------------------------------------
+
+    def _close(self):
+        # under the write lock so a write never sees a half-closed port
+        with self._write_lock:
+            port, self._port = self._port, None
+        if port is not None:
+            try:
+                port.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _set_status(self, connected, message):
+        if connected != self._connected:
+            self._connected = connected
+            self.on_status(connected, message)
+
+===== src/serial_control/serial_control/argus_protocol.py (212 lines)
+"""ARGUS DRIVE serial command encoder (firmware v4.1.3).
+
+The console speaks mnemonic tokens on /cmd ("GEAR:D", "ACCEL:40"); the
+firmware speaks one line per command at 115200 8N1: the command byte and
+0-2 argument bytes written as hex TEXT, then LF - "0x05 01\n". This module
+is the only place that knows the mapping. Source: ARGUS DRIVE Serial
+Command Interface Specification, firmware v4.1.3, doc rev 1.0.
+
+The spec says "binary/hex"; on the vehicle (2026-10-04) raw bytes were
+answered "0x00;ERR;BAD_FORMAT" while the text "0x01" got
+"0x01;OK;040103". Replies are text too: "0x<cmd>;<OK|ERR>;<data>".
+Arguments follow a space, as in the spec's examples: "0x07 02" was
+answered "0x07;OK;02" on the vehicle.
+
+Only the operator vocabulary is reachable. Admin actuator control
+(0x12/0x13), reset (0x0C), Wi-Fi (0x0D/0x0E), limit writes (0x0F/0x10 with
+arguments) and limit enable (0x11) are deliberately absent, so no browser
+client can bypass the steering limits or reconfigure the module.
+
+  Token            Frame (text) Meaning
+  INFO             01           firmware version
+  ACCEL:<0-100>    02 nn        throttle %, firmware clamps duty to 20-90%
+  READ:BRAKE       03           brake feedback, 0.1% units
+  READ:STEER       04           steering angle, 0.1 deg units
+  STEER:L|R|STOP   05 01|02|00  steering actuator (limits + stall enforced)
+  BRAKE:APPLY|RELEASE|STOP
+                   06 01|02|00  brake actuator fwd / rev / stop
+  SPEED:1|2|3      07 0n        speed mode
+  GEAR:D|N|R       08 01|02|03
+  LIGHT:OFF|RING|HIGH|LOW
+                   09 00-03     one light at a time
+  IND:OFF|L|R|PARK 0A 00-03     indicators share one channel with parking
+  HORN             0B 01        0.5 s pulse (longer pulses are locked)
+  READ:BRKLIM      0F           read brake limits
+  READ:STRLIM      10           read steering limits
+  STEER:C          14           auto-centre, reply arrives asynchronously
+  STATUS           16           all switch states
+  ESTOP            02 00, 06 01, 05 00
+
+MODE:*, NAV:* and AUTO:* belong to the console's autonomy layer and have
+no firmware equivalent; they encode to no frames.
+"""
+
+TERMINATOR = b'\n'
+
+# console-only namespaces: accepted, nothing goes on the wire
+_CONSOLE_ONLY = ('MODE:', 'NAV:', 'AUTO:')
+
+_FIXED = {
+    'INFO': (0x01,),
+    'READ:BRAKE': (0x03,),
+    'READ:STEER': (0x04,),
+    'STEER:STOP': (0x05, 0x00),
+    'STEER:L': (0x05, 0x01),
+    'STEER:R': (0x05, 0x02),
+    'BRAKE:STOP': (0x06, 0x00),
+    'BRAKE:APPLY': (0x06, 0x01),
+    'BRAKE:RELEASE': (0x06, 0x02),
+    'SPEED:1': (0x07, 0x01),
+    'SPEED:2': (0x07, 0x02),
+    'SPEED:3': (0x07, 0x03),
+    'GEAR:D': (0x08, 0x01),
+    'GEAR:N': (0x08, 0x02),
+    'GEAR:R': (0x08, 0x03),
+    'LIGHT:OFF': (0x09, 0x00),
+    'LIGHT:RING': (0x09, 0x01),
+    'LIGHT:HIGH': (0x09, 0x02),
+    'LIGHT:LOW': (0x09, 0x03),
+    'IND:OFF': (0x0A, 0x00),
+    'IND:L': (0x0A, 0x01),
+    'IND:R': (0x0A, 0x02),
+    'IND:PARK': (0x0A, 0x03),
+    'HORN': (0x0B, 0x01),
+    'READ:BRKLIM': (0x0F,),
+    'READ:STRLIM': (0x10,),
+    'STEER:C': (0x14,),
+    'STATUS': (0x16,),
+}
+
+# Throttle to zero first (harmless if braking already), then brake (which
+# also locks throttle at 0%), then stop the steering actuator mid-move.
+_ESTOP = ((0x02, 0x00), (0x06, 0x01), (0x05, 0x00))
+
+
+class UnknownCommand(ValueError):
+    """The token is not in the operator vocabulary."""
+
+
+def _frame(cmd, *args):
+    text = '0x%02X' % cmd + ''.join(' %02X' % a for a in args)
+    return text.encode('ascii') + TERMINATOR
+
+
+def _accel(arg):
+    # isascii: '²'.isdigit() is True but int('²') raises
+    if not (arg.isascii() and arg.isdigit()) or not 0 <= int(arg) <= 100:
+        raise UnknownCommand('ACCEL takes an integer 0-100, got %r' % arg)
+    return [_frame(0x02, int(arg))]
+
+
+def encode(token):
+    """Translate one console token into a list of firmware frames.
+
+    Returns [] for console-only tokens. Raises UnknownCommand for
+    anything outside the vocabulary.
+    """
+    key = str(token).strip().upper()
+    if key in _FIXED:
+        return [_frame(*_FIXED[key])]
+    if key == 'ESTOP':
+        return [_frame(*body) for body in _ESTOP]
+    if key.startswith('ACCEL:'):
+        return _accel(key[len('ACCEL:'):])
+    if key.startswith(_CONSOLE_ONLY):
+        return []
+    raise UnknownCommand('not an ARGUS DRIVE command: %r' % token)
+
+
+def describe(frames):
+    """Frames for logs, terminators omitted: '0x05 01 | 0x05 00'."""
+    return ' | '.join(f.rstrip(TERMINATOR).decode('ascii') for f in frames)
+
+
+def parse_reply(line):
+    """'0x01;OK;040103' -> ('0x01', 'OK', '040103'); None if not a reply."""
+    parts = line.split(';', 2)
+    if len(parts) < 2 or not parts[0].lower().startswith('0x'):
+        return None
+    return (parts[0], parts[1], parts[2] if len(parts) > 2 else '')
+
+
+def firmware_version(data):
+    """INFO reply data '040103' -> '4.1.3'; None if it isn't 6 digits."""
+    if len(data) != 6 or not data.isdigit():
+        return None
+    return '.'.join(str(int(data[i:i + 2])) for i in (0, 2, 4))
+
+
+def format_reply(raw):
+    """One line read from the firmware, as text if printable, else hex."""
+    body = raw.rstrip(b'\r\n')
+    try:
+        text = body.decode('ascii')
+    except UnicodeDecodeError:
+        text = None
+    if text is not None and text.isprintable():
+        return text.strip()
+    return 'hex: ' + body.hex(' ')
+
+
+# -- steering feedback --------------------------------------------------------
+# READ:STEER replies "0x04;OK;05D9": one hex word in 0.1 deg (149.7).
+# READ:STRLIM replies "0x10;OK;029E097E": min then max, same units.
+
+def _hex_word(text):
+    if not isinstance(text, str) or len(text) != 4:
+        return None
+    try:
+        return int(text, 16)
+    except ValueError:
+        return None
+
+
+def steer_angle_deg(data):
+    """READ:STEER reply data -> absolute angle in degrees, or None."""
+    raw = _hex_word(data)
+    return None if raw is None else raw / 10.0
+
+
+def steer_limits_deg(data):
+    """READ:STRLIM reply data -> (min, max) degrees, or None."""
+    if not isinstance(data, str) or len(data) != 8:
+        return None
+    lo, hi = _hex_word(data[:4]), _hex_word(data[4:])
+    if lo is None or hi is None or lo >= hi:
+        return None
+    return lo / 10.0, hi / 10.0
+
+
+def relative_steer(angle, limits, invert=False):
+    """Absolute angle -> degrees from centre, None without limits.
+
+    Centre is the middle of the configured limits - the same point the
+    firmware's own STEER:C (0x14) centres to. Positive is whichever way the
+    angle grows; invert flips it so positive means right.
+    """
+    if limits is None:
+        return None
+    offset = angle - (limits[0] + limits[1]) / 2.0
+    return -offset if invert else offset
+
+
+# -- brake feedback -----------------------------------------------------------
+# Since the 4.1.4 firmware READ:BRAKE replies like READ:STEER: "0x03;OK;0457",
+# one hex word in 0.1 deg. READ:BRKLIM replies min then max, like 0x10.
+
+brake_angle_deg = steer_angle_deg
+brake_limits_deg = steer_limits_deg
+
+
+def brake_percent(angle, limits, invert=False):
+    """Brake angle -> 0-100 % of travel between the limits, None without.
+
+    0 % is at the min limit and 100 % at the max; invert flips that if the
+    actuator's angle shrinks as the brake applies. Clamped to 0-100.
+    """
+    if limits is None:
+        return None
+    pct = (angle - limits[0]) / (limits[1] - limits[0]) * 100.0
+    if invert:
+        pct = 100.0 - pct
+    return max(0.0, min(100.0, pct))
+
+===== src/serial_control/serial_control/accel_protocol.py (121 lines)
+"""Accelerator board encoder, and the router that splits /cmd tokens
+between the two serial links.
+
+Throttle moved off the ARGUS DRIVE controller onto its own board: a
+separate serial device that drives the accelerator PWM on GPIO9. Its
+protocol is ARGUS-shaped hex text, but arguments follow a semicolon, not a
+space:
+
+  CMD   NAME   ARGS                      REPLY
+  0x01  INFO   none                      0x01;OK;AC0102
+  0x02  ACCEL  duty % as hex byte 00-64  0x02;OK;<duty hex>
+                                         0x02;ERR;INVALID_DUTY
+  other                                  ERR;UNKNOWN_COMMAND
+
+Frames: "0x01\\n", "0x02;32\\n" (50%). The board also accepts "01" and
+"02;32"; we always send the 0x form.
+
+The ARGUS firmware used to zero the throttle when braking and to reject
+ACCEL while the brake was on. The accel board cannot see the brake, so
+route() now enforces that rule on the host:
+
+  ACCEL:n        accel board only; refused while braking or while the
+                 drive link is down (unless n == 0)
+  BRAKE:APPLY    duty 0 to the accel board first, then brake; locks throttle
+  BRAKE:RELEASE  release brake; unlocks throttle
+  ESTOP          duty 0 to the accel board first, then the ARGUS ESTOP
+  anything else  ARGUS drive link, unchanged (argus_protocol.encode)
+"""
+
+from collections import namedtuple
+
+from serial_control import argus_protocol
+from serial_control.argus_protocol import TERMINATOR, UnknownCommand
+
+INFO = b'0x01' + TERMINATOR
+
+# The ARGUS firmware clamped duty to 90%; keep that ceiling by default.
+DEFAULT_MAX_PCT = 90
+
+Route = namedtuple('Route', 'main accel brake_on')
+
+
+class ThrottleLocked(ValueError):
+    """ACCEL above 0 was requested while the brake is applied."""
+
+
+def duty_frame(pct):
+    """Throttle percent 0-100 -> '0x02;<hex>\\n'."""
+    pct = int(pct)
+    if not 0 <= pct <= 100:
+        raise ValueError('duty must be 0-100, got %d' % pct)
+    return ('0x02;%02X' % pct).encode('ascii') + TERMINATOR
+
+
+ZERO = duty_frame(0)
+
+
+def firmware_version(data):
+    """INFO reply data 'AC0102' -> '1.2'; None for any other shape."""
+    if len(data) != 6 or data[:2].upper() != 'AC' or not data[2:].isdigit():
+        return None
+    return '%d.%d' % (int(data[2:4]), int(data[4:6]))
+
+
+def route(token, brake_on, max_pct=DEFAULT_MAX_PCT, drive_up=True):
+    """Split one console token into frames for each link.
+
+    Returns Route(main, accel, brake_on): frames for the ARGUS drive link,
+    frames for the accel board (send these first), and the brake state
+    after this command. drive_up False means the brake is unreachable.
+    Raises UnknownCommand or ThrottleLocked.
+    """
+    key = str(token).strip().upper()
+    if key.startswith('ACCEL:'):
+        # argus_protocol validates the range and the integer form
+        argus_protocol.encode(key)
+        pct = int(key[len('ACCEL:'):])
+        if brake_on and pct > 0:
+            raise ThrottleLocked('ACCEL:%d refused: brake is applied' % pct)
+        if not drive_up and pct > 0:
+            raise ThrottleLocked('ACCEL:%d refused: drive link is down' % pct)
+        return Route([], [duty_frame(min(pct, max_pct))], brake_on)
+
+    main = argus_protocol.encode(key)
+    if key in ('ESTOP', 'BRAKE:APPLY'):
+        return Route(main, [ZERO], True)
+    if key == 'BRAKE:RELEASE':
+        return Route(main, [], False)
+    return Route(main, [], brake_on)
+
+
+class AckWatch:
+    """Detects a silent accel board.
+
+    The board answers every frame ("0x02;OK;..", "0x01;OK;.."). A USB-serial
+    link can stall (kernel "urb stopped: -32") while host writes still
+    succeed into the tty buffer, so a write returning True proves nothing;
+    only a reply does. dead() is True once the oldest unanswered write is
+    older than timeout_s.
+    """
+
+    def __init__(self, timeout_s=1.0):
+        self.timeout_s = timeout_s
+        self._oldest = None
+
+    def sent(self, now):
+        if self._oldest is None:
+            self._oldest = now
+
+    def replied(self, now):
+        self._oldest = None
+
+    def reset(self):
+        self._oldest = None
+
+    def dead(self, now):
+        return self._oldest is not None and now - self._oldest > self.timeout_s
+
+
+__all__ = ['AckWatch', 'INFO', 'ZERO', 'DEFAULT_MAX_PCT', 'Route', 'ThrottleLocked',
+           'UnknownCommand', 'duty_frame', 'firmware_version', 'route']
+
+===== README
+# ros2_new
+
+ROS 2 Humble workspace for the Remo vehicle: a browser operator console backed
+by a BLE battery monitor, a serial drive-by-wire bridge, a live log feed and an
+on-request node health check.
+
+Target platform is a **Jetson AGX Orin on JetPack 6.x (Ubuntu 22.04)**, running
+Humble **natively** — Ubuntu 22.04 is Humble's tier-1 platform, so no container
+is required. `run_container.sh` remains for a throwaway or reproducible
+environment.
+
+## Packages
+
+| Package | Node(s) | What it does |
+|---|---|---|
+| `web_server` | `web_server` | Serves the console and one authenticated WebSocket. Frames are namespace-multiplexed (`/bms` `/cmd` `/api` `/alert` `/terminal`) and bridged to ROS: browser → `~/<ns>/out`, `~/<ns>/in` → browser. |
+| `bms_monitor` | `bms`, `bms_listener` | Polls a Xiaoxiang/JBD pack over BLE, publishes snapshots, and runs an edge-triggered alert engine. |
+| `serial_control` | `cmd` | Translates `/cmd` console tokens into ARGUS DRIVE firmware v4.1.3 hex-text frames (`0x05 01`) (`argus_protocol.py`) on the CH340 serial link, with link/write/device alerts. Throttle (`ACCEL:n`) goes to a separate accelerator board on its own serial link (`accel_device`, default the FT232R `A5069RR4`; frames `0x02;<duty hex>`, `accel_protocol.py`), capped at `accel_max_pct` (90). The node enforces the brake interlock: `BRAKE:APPLY`, `ESTOP`, drive-link loss and every accel-board (re)connect send duty 0, and `ACCEL` is refused while braking. Polls the steering angle (`0x04`, 5 Hz) and publishes it on `/cmd/steer_angle` (absolute) and `/cmd/steer` (degrees from centre), and to the console. Brake feedback is read the same way (`0x03` polled, limits `0x0F` on connect) and published on `/cmd/brake_angle` (deg) and `/cmd/brake` (0–100 % between the limits; `brake_invert` flips it). Admin, reset, Wi-Fi and limit commands are not reachable from the console. |
+| `system_terminal` | `system_terminal` | Forwards `/rosout` to the `/terminal` namespace. |
+| `status_check` | `status_server`, `status_bridge` | On-request node liveness/health via a ROS action, exposed on `/api`. |
+| `status_interfaces` | — | The `CheckStatus` action definition. |
+| `zed_bringup` | `detection_bridge`, `depth_colorizer` | Runs the ZED wrapper against the two live ZED X cameras on the GMSL link (or recorded SVOs), with neural depth and object detection, and bridges detections to the `/camera` namespace. |
+| `phone_gps` | `gps` | Turns the `/gps` namespace's browser geolocation frames into `sensor_msgs/NavSatFix` on `/gps/fix`. |
+| `mobile_remote` | `mobile_remote` | Phone remote served on its own port, **8770**. The live RGB camera (web_video_server on 8080, front by default, switchable to rear) fills the background behind the controls; no detections or other perception. A static React app in `frontend/` that opens the same authenticated WebSocket as the console on 8765, so it uses the same `/cmd` path and safety rules. Throttle is hold-to-drive (lifting the finger sends 0); brake is hold-to-apply (lifting holds the actuator, so the brake stays on and throttle stays locked until Release brake); steering is hold-to-move; there is no E-STOP button; two per-phone switches (off by default): Auto centre sends STEER:C when a steering pad is let go, Auto release sends BRAKE:RELEASE instead of holding when the brake pedal is lifted; hiding, leaving or blurring the page sends throttle 0 and steering stop. Full screen: the in-app button (Android), or Add to Home Screen (iPhone). It reuses the console's auth, command tokens and gauges via the `@console` alias. `npm test` covers the throttle logic. |
+
+## Setup
+
+### 1. ROS 2 Humble
+
+Install `ros-humble-desktop` from `packages.ros.org` following the [official
+Humble instructions](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html),
+plus the build tooling:
+
+```bash
+sudo apt install ros-humble-desktop python3-colcon-common-extensions python3-rosdep
+sudo rosdep init && rosdep update
+```
+
+Substitute `ros-humble-ros-base` if you do not want `rviz2`/`rqt` on the board.
+
+### 2. Dependencies
+
+```bash
+cd ~/Desktop/ros2_new
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+That covers `python3-serial`. **Two dependencies rosdep cannot satisfy on
+jammy must then come from pip:**
+
+```bash
+pip3 install --user -r requirements.txt
+```
+
+This step is not optional, and skipping it fails in a way that looks like a
+bug in this code rather than a missing dependency:
+
+- **`websockets`** — jammy ships 9.1, three majors behind. On 9.1 the node
+  starts, logs `serving UI + WebSocket`, accepts the TCP connection, and then
+  never answers plain HTTP. The browser hangs with nothing in the log.
+  Pinned to 12.0.
+- **`bleak`** — no jammy package exists at all, so rosdep resolves it to
+  nothing and installs silently. Pinned to 3.0.2.
+
+If these nodes will ever run as a systemd service or as root, `--user` installs
+where that account cannot see them; use a venv or a system-wide install
+instead.
+
+BLE access goes through the host BlueZ stack over D-Bus, which needs no setup
+natively. Serial access needs the account in the group owning the CH340 device —
+on L4T that is `gpio`, not `dialout`.
+
+### 3. ZED camera (optional)
+
+Needs the ZED SDK (5.4.x) already installed under `/usr/local/zed`. The ROS 2
+wrapper is not an apt package, so it is cloned into `src/` at the tag matching
+the SDK — `.gitignore` excludes it rather than nesting a second git repo:
+
+```bash
+cd src
+git clone --recursive --branch v5.4.1 --depth 1 \
+    https://github.com/stereolabs/zed-ros2-wrapper.git
+cd ..
+rosdep install --from-paths src --ignore-src -r -y
+sudo apt install -y ros-humble-web-video-server
+```
+
+If the build stops at `Specify CUDA_TOOLKIT_ROOT_DIR`, install
+`nvidia-jetpack nvidia-jetpack-dev`, or pass
+`--cmake-args -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda`.
+
+The SDK's AI models download on first use and are then TensorRT-optimized for
+the specific board and resolution, which takes minutes per model. Sticking to
+`NEURAL_LIGHT`/`NEURAL` depth and the `MULTI_CLASS_BOX_*` detectors reuses what
+is already optimized; `NEURAL_PLUS` pays that cost again.
+
+### 4. Build
+
+```bash
+source /opt/ros/humble/setup.bash
+colcon build
+source install/setup.bash
+```
+
+### 5. Console (optional)
+
+The React console needs Node 20+. Without it, `web_server` falls back to the
+legacy diagnostics UI at `/` — a designed fallback, not a failure.
+
+Node 20 is installed under `~/.local/lib/nodejs` with symlinks in
+`~/.local/bin`, so it needs no root. Ubuntu's default `~/.profile` puts
+`~/.local/bin` on `PATH` at login; in an existing shell, export it first:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+cd src/web_server/frontend
+cp .env.example .env   # then set VITE_MAPTILER_KEY (see below)
+npm ci                 # npm install if you are changing dependencies
+npm run build          # -> frontend/dist, picked up by colcon build
+```
+
+===== docs
+total 16
+drwxr-xr-x  4 tessy_01 tessy_01 4096 Oct  4 14:27 .
+drwxr-xr-x 12 tessy_01 tessy_01 4096 Oct  4 16:44 ..
+drwxrwxr-x  2 tessy_01 tessy_01 4096 Oct  4 14:26 secret
+drwxr-xr-x  4 tessy_01 tessy_01 4096 Aug  3 17:43 superpowers
+
+===== work_doc
+# Steering-sensor mechanism & Orin enclosure — work documentation
+
+Compiled 2026-09-19 from the project sources and the session transcripts in
+`~/.claude/projects/-home-tessy-01-Desktop/`.
+
+---
+
+## 1. Brief
+
+Two printable hardware designs were built on this machine, both parametric
+OpenSCAD, both verified by scripted 3D interference checks rather than by eye.
+
+**A. `~/Desktop/steer_mech` — a 6:1 absolute steering-angle sensor.**
+A gear clamps onto the vehicle's existing ~20 mm steering pipe. Six turns of the
+pipe give one turn of a planetary output, and a magnet in that output is read by
+an encoder board held on the one member that never rotates. Reading *after* the
+reduction is the point: one output revolution is one absolute cycle, so the
+steering angle is unambiguous across the full range. Built today: a **stand**
+that carries the whole head off the vehicle's existing 3-bore mounting face, a
+snap-on **cover** with an integrated ESP32-S3 bay, and a full assembly preview set.
+
+**B. `~/Desktop/orin_case` — a two-part case for the Jetson AGX Orin devkit.**
+Reworked today to fit a 177 mm print bed (was 187 mm, unsliceable) and to open a
+12 mm accessory bay under the devkit for a GMSL card and its ZED coax connector.
+
+**Status.** Both are rendered, manifold, checked and exported to STL/STEP. Two
+things are open and stated in §6: the Orin case is **93.65 mm**, above the 90 mm
+ceiling that was set, and `steer_mech` has **no git commit yet**.
+
+| Deliverable | File | Size |
+|---|---|---|
+| Sensor stand | `steer_mech/out/stand.stl` | 157.1 × 105.6 × 33.0 mm, 89.6 cm³ |
+| Cover | `steer_mech/out/case.stl` | 158.3 × 109.4 × 98.2 mm, 85.0 cm³ |
+| Cover lid | `steer_mech/out/case_lid.stl` | 65.0 × 40.2 × 7.0 mm, 5.4 cm³ |
+| Orin lower | `orin_case/lower.stl` / `.step` | 173.0 × 146.0 × 50.0 mm, 176 cm³ |
+| Orin upper | `orin_case/upper.stl` / `.step` | 146.0 × 146.0 × 51.7 mm, 96 cm³ |
+
+---
+
+## 2. Project A — steer_mech
+
+### 2.1 The drive
+
+```
+pipe (Ø20, offset 50 mm from the output axis)
+  -> split clamp gear, 40T        two glued halves around the pipe
+  -> 1:1 external mesh            no ratio, only reach
+  -> 60T input gear + 18T sun     one compound part (split in two to assemble)
+  -> planetary, ring FIXED        4:1
+  -> carrier output at the centre
+       |- Ø10 magnet in the rotating output boss
+       '- encoder board on a bracket bolted to the fixed ring
+```
+
+Module 1.0, 20° pressure angle, 10 mm face. Sun 17T, planets 4 × 17T, ring 51T,
+pair 40T → 60T. Ratio is exact: `(1 + 51/17) × (60/40) = 4.000 × 1.500 = 6.000`.
+
+Three design conclusions are forced by geometry, not preference, and each is
+asserted in `src/params.scad`:
+
+- **The pipe cannot pass through the centre.** A Ø20 pipe wants ~26 mm of hub;
+  the planets reach in to Ø24 at the gear plane. Boring the sun to 20 mm leaves
+  a 1.62 mm wall in a part that is itself split. Offsetting keeps the verified
+  planetary untouched.
+- **The ring must be fixed, not driven.** Ring-driven with a centre output gives
+  `1 + S/R` (always between 1 and 2) or `S/R` (the centre spins *faster*).
+  6:1 inward in one concentric stage is impossible.
+- **The 6:1 is split 4:1 × 1.5:1.** All-planetary made the first version 212 mm
+  wide; the split brought the ring from Ø150.8 to Ø69.5 and the overall width to
+  106 mm. The cost is tooth bending strength (~0.44× from module 1.5 → 1.0);
+  widen `face_width` before touching the module.
+
+Everything is pinned with glued Ø4 / Ø2 smooth dowel — no threads anywhere in
+the gearbox. Holes are Ø4.25 / Ø2.2, a ~0.12 mm radial glue gap, asserted to
+stay between 0.1 and 0.5 mm.
+
+### 2.2 The stand — `src/stand.scad` → `out/stand.stl`
+
+Carries the whole head off the mounting face already on the vehicle.
+
+| Host feature | Value |
+|---|---|
+| Bore spacing | 66.5 mm centre-to-centre (measured 6.6–6.7 cm) |
+| Bolt circle | r 38.39 mm (circumradius of that triangle) |
+| Central cut | **Ø57.30 mm** — from an 18 cm *circumference*, 180/π |
+| Screws | M6 assumed, Ø6.6 clearance |
+
+The 18 cm reading matters: as a circumference it leaves 9.7 mm of flange out to
+each bore, which is a normal flange. As a *diameter* it would swallow the bolt
+circle entirely and the bores could not exist. All five host numbers sit under
+`MEASURED` at the top of the file and every one is asserted.
+
+**Shape, and why:**
+
+- **Flat face.** Everything glued to the rod sweeps Ø47.7 — the clamp-hub
+  corners, which stick out further than the teeth. The hub is glued at whatever
+  clock angle the fitter leaves it, so the stand treats it as round and stops
+  dead 3 mm short at one vertical plane.
+- **1.8 mm shell, straight-walled.** 1.8 rather than 2.0 because at a 0.4 mm
+  nozzle that is exactly 4 perimeters — solid walls, no infill, lightest and
+  stiffest per gram. Straight follows from that: at the original 30° splay the
+  screw gussets needed 44 mm of height inside a 25 mm pedestal.
+- **Four gussets, no collar.** A ring reaching a screw at r 38 would be 13 mm of
+  solid all the way round. Four 14 mm gussets do the same for four holes. The
+  top 12.2 mm of each is square before the 45° fall-away — sloped from the top,
+  the line crosses the screw hole ~5 mm down and the screw ends in fresh air.
+- **The plate keeps an 11 mm web.** It is a cantilever from three bolts to the
+  pedestal; the bending moment peaks exactly where the lightening opening and
+  the rod bore want to meet. Left alone they merge and the arm hangs on two
+  thin necks.
+- **A 1.2 mm locating pocket** shaped to the gearbox base plate. It locates in
+  x, y *and* rotation, and the arms at 90/150/210/270° are not 4-fold
+  symmetric, so it cannot go on a quarter-turn out.
+
+**Fixing — 4 × M4 from the top** (`fix_mode = "screw" | "insert" | "dowel"`).
+Each screw replaces that ring hole's glued dowel and clamps ring + base leg +
+base plate + stand in one go, through holes that already exist. Nothing is
+re-drilled. M4 × 45 at 90/210°, M4 × 60 at 150/270°, into Ø3.4 × 8 mm
+self-tapping blind holes.
+
+**Before printing:** the rod must project **65 mm** above the mounting face —
+that is where the pipe gear's top face has to sit. There is no adjustment in
+the part. Pedestal 25 mm (`ped_h_set`), 33 mm overall, plate down, no support.
+
+### 2.3 The cover — `src/case.scad` → `out/case.stl` + `out/case_lid.stl`
+
+A shroud, not a housing: nothing is located by it and nothing bears on it.
+
+- **Wall 1.5 mm** — read from "0.15 cm". 0.15 mm was flagged as unprintable
+  (one extrusion is ~0.4 mm). Note 1.5 is 3.75 perimeters at 0.4; print at a
+  0.5 mm extrusion width, or set `case_wall = 1.6`.
+- **Roof opening r 28 mm is not a clearance hole.** It is sized against the
+  Ø47.7 sweep of the glued clamp hub. Anything smaller and the cover could
+  never be lifted off the rod once the gear is fitted — it would have to be cut
+  off. This was a real defect in the first version, caught by the r 25–30
+  requirement.
+- **Snap lock.** Three posts on the plate rim cam aside as the wall passes, then
+  spring into three windows. The barbs' undersides are flat, so pulling up only
+  tightens them. To open: press a barb flush, lift that corner, three corners
+  one at a time. Plus a Ø9 cable gland at 210° (not 180° — that is the USB end)
+  and three 9 × 2.5 mm drain notches, because a sealed box on a vehicle collects
+  condensation.
+- **ESP32-S3 bay**, in the 6 mm of dead air that already existed between the
+  encoder board and the roof — the footprint does not grow. Built to the actual
+  board in `out/robu.avif`: bare PCB, 55 × 28 × 1.6 mm, 3.6 mm module can,
+  1.2 mm solder tails, twin USB-C on one end behind a 26 × 7.5 mm letterbox.
+  Two clips hold it, four standoffs carry it, and the encoder tail comes up
+  through a 14 × 5 mm slot in the bay floor. Lid finishes flush with the roof —
+  from outside there is nothing but a panel line. Lift the lid, lift the board
+  out; no fasteners.
+
+===== steer_mech
+/home/tessy_01/Desktop/orin_case:
+total 4472
+drwxrwxr-x 3 tessy_01 tessy_01    4096 Sep 19 19:52 .
+drwxr-xr-x 9 tessy_01 tessy_01    4096 Sep 19 19:44 ..
+drwxrwxr-x 2 tessy_01 tessy_01    4096 Sep 19 19:52 docs
+-rw-rw-r-- 1 tessy_01 tessy_01  997768 Sep 19 19:04 lower.step
+-rw-rw-r-- 1 tessy_01 tessy_01  690932 Sep 19 19:12 lower.stl
+-rw-rw-r-- 1 tessy_01 tessy_01   28680 Sep 19 19:03 orin_case.scad
+-rw-rw-r-- 1 tessy_01 tessy_01 1678717 Sep 19 19:04 orin_case.step
+-rw-rw-r-- 1 tessy_01 tessy_01   17516 Sep 19 18:53 orin_case_step.py
+-rw-rw-r-- 1 tessy_01 tessy_01   19990 Sep 19 19:53 README.md
+-rw-rw-r-- 1 tessy_01 tessy_01  656995 Sep 19 19:04 upper.step
+-rw-rw-r-- 1 tessy_01 tessy_01  462503 Sep 19 19:12 upper.stl
+
+/home/tessy_01/Desktop/steer_mech:
+total 60
+drwxrwxr-x 7 tessy_01 tessy_01  4096 Sep 29 20:38 .
+drwxr-xr-x 9 tessy_01 tessy_01  4096 Sep 19 19:44 ..
+-rwxrwxr-x 1 tessy_01 tessy_01  3545 Sep 29 20:38 build.sh
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 19 19:51 docs
+drwxrwxr-x 7 tessy_01 tessy_01  4096 Sep 19 19:43 .git
+-rw-rw-r-- 1 tessy_01 tessy_01   138 Sep 14 13:48 .gitignore
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 29 20:38 out
+-rw-rw-r-- 1 tessy_01 tessy_01 22517 Sep 19 19:53 README.md
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 29 20:38 src
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 19 16:20 tools
+
+/home/tessy_01/Desktop/steer_mech60:
+total 52
+drwxrwxr-x 6 tessy_01 tessy_01  4096 Sep 29 19:54 .
+drwxr-xr-x 9 tessy_01 tessy_01  4096 Sep 19 19:44 ..
+-rwxrwxr-x 1 tessy_01 tessy_01  2533 Sep 19 20:26 build.sh
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 19 19:43 docs
+-rw-rw-r-- 1 tessy_01 tessy_01    26 Sep 19 19:58 .gitignore
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 29 20:20 out
+-rw-rw-r-- 1 tessy_01 tessy_01 19004 Sep 29 19:54 README.md
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 29 19:54 src
+drwxrwxr-x 2 tessy_01 tessy_01  4096 Sep 29 20:01 tools
+/home/tessy_01/Desktop/steer_mech/README.md
+/home/tessy_01/Desktop/steer_mech/docs/DRIFT.md
+/home/tessy_01/Desktop/steer_mech/docs/PARTS.md
+/home/tessy_01/Desktop/steer_mech/docs/INDEX.md
+/home/tessy_01/Desktop/steer_mech/docs/ASSEMBLY.md
+/home/tessy_01/Desktop/steer_mech/docs/CASE.md
+/home/tessy_01/Desktop/steer_mech/docs/STAND.md
+/home/tessy_01/Desktop/steer_mech/docs/VERIFICATION.md
+/home/tessy_01/Desktop/steer_mech/docs/PARAMETERS.md
+/home/tessy_01/Desktop/steer_mech/docs/DESIGN.md
+-- /home/tessy_01/Desktop/steer_mech/README.md
+# steer_mech
+
+Parametric 6:1 reduction drive, written in OpenSCAD.
+
+A gear clamps onto an existing ~20 mm pipe. Turn the pipe 6 times, the centre
+output turns once.
+
+> **Full documentation is in [docs/INDEX.md](docs/INDEX.md)** — design, per-file
+> parts reference, every parameter and assertion, assembly order and BOM, the
+> test harnesses, the stand and the cover. Where this README and those documents
+> disagree, `src/params.scad` is the source of truth and
+> [docs/DRIFT.md](docs/DRIFT.md) lists every known difference.
+
+![assembly](docs/assembly.png)
+
+![layout](docs/layout_top.png)
+
+![encoder bracket](docs/encoder.png)
+
+## How the drive is laid out
+
+```
+pipe (20 mm, offset)
+  -> split clamp gear, 60T          two halves, bolted around the pipe
+  -> 1:1 external mesh              no ratio, just reach
+  -> 60T input gear + 18T sun       one compound part
+  -> planetary, ring FIXED          6:1
+  -> carrier output at the centre   1 turn
+       |- magnet in the boss end face     rotates
+       '- encoder board on a bracket      stationary, bolted to the ring
+
+sun_input is carried from below by the base, also bolted to the ring
+```
+
+**All of the 6:1 comes from the planetary.** The external pair is 1:1 and exists
+only to move the pipe off the centre axis.
+
+## Why the pipe is offset, not through the middle
+
+It cannot go through the middle. A 20 mm pipe needs about 26 mm of hub around
+it, but the planets reach in to 24 mm diameter at the gear plane. Boring the
+sun out to 20 mm leaves a 1.62 mm wall, and the sun is split in half, so that
+wall is really two thin shells. Forcing it would mean module 2.0 and a 192 mm
+ring gear.
+
+Offsetting the pipe keeps the verified 147 mm planetary untouched.
+
+## Why the ring is fixed, not driven
+
+Driving the outer ring and taking output at the centre **cannot** give 6:1.
+This is a kinematic limit, not a design choice:
+
+| fixed | input | output | input turns per 1 output |
+|---|---|---|---|
+| ring | sun | carrier | **6.000** ← used here |
+| sun | ring | carrier | 1.200 |
+| carrier | ring | sun | 0.200 (centre spins *faster*) |
+
+With the ring driving and a centre output there are only two options. Sun fixed
+gives `1 + S/R`; since `R = S + 2P`, the ring is always larger than the sun, so
+-- /home/tessy_01/Desktop/steer_mech/docs/DRIFT.md
+# Documentation drift register
+
+Comments and README passages that no longer match the code, found while
+compiling this documentation on 2026-09-19. **`src/params.scad` is the source of
+truth** — where anything disagrees with it, params wins.
+
+None of these affect a rendered part. They are all stale prose, mostly left over
+from the pre-split design (module 1.5, 60T pipe gear, bolted clamp) and from the
+bolts-to-glued-dowels change. Verify before trusting any of the passages below.
+
+## In the sources
+
+| File:line | Says | Actually |
+|---|---|---|
+| `src/params.scad:10` | `ratio = 1 + teeth_ring/teeth_sun = 1 + 90/18 = 6.000` | teeth are 17/17/51 → the **planetary is 4.000**; the 6.000 overall comes from the 1.5:1 pair |
+| `src/planet.scad:1` | "Planet gear — **3 off**" | `n_planets = 4` — print four |
+| `src/assembly.scad:5–7` | "split clamp gear, **60T**", "**1:1** external mesh", "60T input gear" | pipe gear is **40T**, the pair is **1.5:1**, the input gear is 60T |
+| `src/pipe_gear.scad:6` | "the halves **bolt** together and pinch the pipe; drive is by **friction**, so tighten them properly" | two glued Ø4 cross dowels; drive is by the **adhesive bond**. There is nothing to tighten |
+| `src/pipe_gear.scad:12` | "miss the **147 mm** ring gear" | ring OD is **69.5 mm** |
+| `src/pipe_gear.scad:13` | "90 mm centre distance… both gears **60T at module 1.5**" | centre distance **50 mm**, 40T:60T at **module 1.0** |
+
+## In README.md
+
+| Line | Says | Actually |
+|---|---|---|
+| 40, 321, 491 | "the **147 mm** ring gear / planetary" | ring OD **69.5 mm** |
+| 156 | "`enc_hole_inset` is **1.25 mm**, as specified" | `enc_hole_inset = 1.4` |
+| 170, 180 | journal post "**Ø5.8 × 14** into the Ø6 bore" | `base_post_d = 4.8`, `base_post_h = 25` (raised from 14, which left the sun end cantilevered 13 mm), into the Ø5 `sun_bore` |
+| 177 | base legs "4 off, **doglegged**" | straight. The same README says later that outboard lugs removed the dogleg — the table was not updated |
+| 179 | leg radius "38 mm at the bottom, **stepping to 30.75** above z = −4" | straight at **r 38** throughout |
+| 253 | ring hole 330° "**left free** for chassis mounting" | the BOM emits a **Ø4 × 10 mm** pin for it |
+| 254 | pipe clamp pins "Ø4 × **30.0 mm**" | `clamp_pin_len = hub_y` = **26 mm** |
+| 280 | "`split_gap` **dropped from 0.6 mm to 0.2 mm**" | `split_gap = 0.6` in the tree. Either the change was reverted or it was never made |
+| 375 | section "Why the input is **two parts, not one**" | `sun_input.scad` builds it as **one part**, and its own header explains why splitting it does not help. What makes it assemblable is the build **order**, not the part count — see [ASSEMBLY.md](ASSEMBLY.md) |
+
+## In docs/STAND.md
+
+| Line | Says | Actually |
+|---|---|---|
+| 88–92 | "The pedestal is a truncated **cone**, wide at the bottom (r 52.8) and narrowing to r 43 at the top… a **30 deg wall**" | `ped_slope = 0` — the wall is **straight**. The paragraph immediately below it ("Straight is a consequence of that") is the current one; this one is left from before the gussets |
+
+## Corrected here
+
+`docs/STAND.md` stated 145.9 × 96.0 mm and 72 cm³. The part grew when the
+cover's snap posts were added to the plate rim; it now measures **157.1 × 105.6
+× 33.0 mm, 89.6 cm³ (~111 g PLA)**. Corrected in place on 2026-09-19.
+
+## How to re-check
+
+The BOM and the derived geometry both come out of `params.scad` itself, so they
+cannot drift:
+
+```
+openscad -o /tmp/x.stl src/params.scad 2>&1 | grep '^ECHO' | sed 's/ECHO: //; s/"//g'
+```
+
+Measured STL extents, which is what the tables in these docs quote:
+
+```
+awk '/vertex/{x=$2+0;y=$3+0;z=$4+0; if(n++==0){ax=bx=x;ay=by=y;az=bz=z}
+
+===== argus_remote
+refs/heads/main
+refs/heads/survey/ugv-01
+f2c68f8 2026-08-18 Finish the localization migration and stop tolerating a hammered door

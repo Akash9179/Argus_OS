@@ -27,3 +27,6 @@ piper-tts>=1.2
 #
 # On a bench, install it explicitly:
 #     pip install -r requirements-bench.txt
+
+# ugv-01 vehicle boards (drive/pilot/hal/drivers/ugv01). Imported only when a real port is opened.
+pyserial>=3.5

@@ -10,24 +10,38 @@
  * The map and the voice bar are stubbed out: this file is about orders
  * and wording, and Leaflet has no business in a unit test.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Asset, Task, Track } from '../sdk/types'
+import type { Asset, Task, Track, WorldEvent } from '../sdk/types'
 import type { World } from '../state/world'
 
+/** The props Operate last gave the assistant, so its wiring can be driven. */
+const assistant = vi.hoisted(() => ({
+  props: null as null | { collapsed: boolean; onToggle: () => void; onReach?: (reached: boolean) => void },
+}))
+
 vi.mock('./MapView', () => ({ MapView: () => null }))
-vi.mock('./VoiceBar', () => ({ VoiceBar: () => null }))
+vi.mock('./Assistant', () => ({
+  Assistant: (props: typeof assistant.props) => {
+    assistant.props = props
+    return null
+  },
+}))
 vi.mock('../sdk/client', () => ({
   Refused: class Refused extends Error {},
   track: {
     issueTask: vi.fn(),
     cancelTask: vi.fn(),
     setAutonomy: vi.fn(),
+    tiles: vi.fn(async () => ({ layers: [] })),
+    systems: vi.fn(async () => ({ asset_id: 'M1', reported_at: null, rows: [], cameras: [], position_source: null, note: '' })),
+    previewTask: vi.fn(),
   },
 }))
 
 import { track as api } from '../sdk/client'
 import { Operate } from './Operate'
+import { agoInWords, say } from './wording'
 
 const issueTask = api.issueTask as ReturnType<typeof vi.fn>
 const cancelTask = api.cancelTask as ReturnType<typeof vi.fn>
@@ -60,6 +74,7 @@ function aWorld({
   assets = [machine()],
   tracks = [] as Track[],
   tasks = [] as Task[],
+  events = [] as WorldEvent[],
 } = {}): World {
   return {
     assets: new Map(assets.map((a) => [a.asset_id, a])),
@@ -68,7 +83,7 @@ function aWorld({
     zones: new Map(),
     tasks: new Map(tasks.map((t) => [t.task_id, t])),
     progress: new Map(),
-    events: [],
+    events,
   }
 }
 
@@ -283,5 +298,127 @@ describe('a server that sends no mode at all', () => {
     expect(screen.queryByText(/The machines are waiting for you/)).toBeNull()
     // Tasking stays available: the map still invites the click.
     expect(screen.getByText(/Click the map to send/)).toBeTruthy()
+  })
+})
+
+describe('a machine class', () => {
+  // Law 5: the letters an operator reads are data in wording.ts. A class
+  // this build does not know still reads as itself.
+  it('reads in the letters wording.ts gives it', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'ugv' })] }))
+    const vtype = container.querySelector('.vtype')!
+    expect(vtype.textContent).toBe(say.operate.classes.ugv)
+  })
+
+  it('reads an unknown class as itself', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'tracked_crawler' })] }))
+    expect(container.querySelector('.vtype')!.textContent).toBe('Tracked crawler')
+  })
+
+  it('reads a class named like an object built-in as itself', () => {
+    const { container } = renderOperate(aWorld({ assets: [machine({ asset_class: 'constructor' })] }))
+    expect(container.querySelector('.vtype')!.textContent).toBe('Constructor')
+  })
+})
+
+describe('the link reading', () => {
+  // The world model carries no link latency, so the tile says only what it
+  // has: when the machine was last heard. "Good" was a verdict nothing
+  // measured.
+  it('says when the machine was last heard, and never "Good"', () => {
+    const { container } = renderOperate(aWorld())
+    const link = [...container.querySelectorAll('.stat')].find(
+      (s) => s.querySelector('.k')?.textContent === say.operate.readings.link,
+    )!
+    expect(link.querySelector('.v')!.textContent).toBe(say.operate.readings.heard(agoInWords(0)))
+    expect(screen.queryByText('Good')).toBeNull()
+  })
+})
+
+describe('a contact with no observation time', () => {
+  // The bug this pins: no timestamp read as zero seconds, so the screen
+  // said "a few seconds ago" with no evidence at all.
+  it('says no time was reported, in the row and in the detail', () => {
+    const { container } = renderOperate(
+      aWorld({ tracks: [contact({ history: [], contributing_asset_ids: ['M1'] })] }),
+    )
+    const row = screen.getByRole('button', { name: /Possible person/ })
+    expect(row.textContent).toContain(say.detail.noTimeReported)
+    expect(row.textContent).not.toMatch(/seconds ago/)
+    fireEvent.click(row)
+    const detail = container.querySelector('.detail')!
+    expect(detail.textContent).toContain(say.detail.noTimeReported)
+    expect(detail.textContent).not.toMatch(/seconds ago/)
+  })
+
+  it('still gives the age when a time was reported', () => {
+    const seen = new Date(Date.now() - 120_000).toISOString()
+    renderOperate(aWorld({ tracks: [contact({ history: [{ timestamp: seen }] })] }))
+    const row = screen.getByRole('button', { name: /Possible person/ })
+    expect(row.textContent).toContain('2 minutes ago')
+  })
+})
+
+describe('the layout', () => {
+  // Founder decision, 12 Oct 2026: the map gets the room. Camera and
+  // readings are one strip under it; systems and activity are tabs on the
+  // fleet rail; the second cameras card is gone.
+  const event: WorldEvent = {
+    event_id: 'E1',
+    ts: Date.now() / 1000,
+    text: 'Scout 1 arrived at the gate.',
+    severity: 'info',
+    source: 'track',
+  }
+
+  it('puts the camera and the readings in one strip under the map', () => {
+    const { container } = renderOperate(aWorld())
+    const centre = container.querySelector('.col-centre')!
+    const strip = centre.querySelector(':scope > .strip')!
+    expect(strip).toBeTruthy()
+    expect(strip.querySelector('.strip-camera')).toBeTruthy()
+    expect(strip.querySelector('.strip-readings')).toBeTruthy()
+    // The map and the strip, and nothing else, in the centre column.
+    expect(centre.children.length).toBe(2)
+  })
+
+  it('has no second cameras card', () => {
+    const { container } = renderOperate(aWorld())
+    expect(container.querySelector('.cameras-card')).toBeNull()
+  })
+
+  it('keeps vehicle systems and recent activity as two tabs on the fleet rail', () => {
+    const { container } = renderOperate(aWorld({ events: [event] }))
+    const rail = container.querySelector('.col-left') as HTMLElement
+    const tabs = within(rail).getAllByRole('tab')
+    expect(tabs.map((t) => t.textContent)).toEqual([say.operate.systems, say.operate.activity])
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByText(event.text)).toBeNull()
+    fireEvent.click(tabs[1])
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true')
+    expect(within(rail).getByText(event.text)).toBeTruthy()
+  })
+})
+
+describe('the assistant rail', () => {
+  it('collapses when the voice service is unreachable and expands when it answers', () => {
+    const { container } = renderOperate(aWorld())
+    const operate = container.querySelector('.operate')!
+    expect(assistant.props!.collapsed).toBe(false)
+
+    act(() => assistant.props!.onReach!(false))
+    expect(assistant.props!.collapsed).toBe(true)
+    expect(operate.classList.contains('is-assistant-away')).toBe(true)
+
+    act(() => assistant.props!.onReach!(true))
+    expect(assistant.props!.collapsed).toBe(false)
+    expect(operate.classList.contains('is-assistant-away')).toBe(false)
+  })
+
+  it('can still be opened by hand while the service is unreachable', () => {
+    renderOperate(aWorld())
+    act(() => assistant.props!.onReach!(false))
+    act(() => assistant.props!.onToggle())
+    expect(assistant.props!.collapsed).toBe(false)
   })
 })

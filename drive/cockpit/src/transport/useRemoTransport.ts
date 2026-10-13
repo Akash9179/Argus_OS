@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVehicleStore } from '../state/store'
 import { RemoTransport, type LinkStatus } from './remoTransport'
+import type { SessionFacts } from '../contract'
+import { driveActiveNow, subscribeDriveActive, subscribeSignOut } from '../embed/driveActive'
 
 /**
  * Opt-in live transport. Activated by a URL param so the deployed/mock app is
@@ -22,6 +24,12 @@ export interface RemoLink {
   status: LinkStatus
   role: DriveRole
   authFailed: boolean
+  /** The bridge's session facts; a Remo link has none. */
+  session?: SessionFacts | null
+  /** Command frames per second this link sends while open. */
+  hz?: number
+  /** True once this link has been open at least once. */
+  everOpen?: boolean
 }
 
 interface DriveTarget {
@@ -44,11 +52,27 @@ function parseDriveParam(): DriveTarget | null {
   return { url: `${scheme}://${hostport}/ws`, label: hostport }
 }
 
-export function useRemoTransport(password: string | null, live: boolean, hz = 20): RemoLink {
+export interface RemoOptions {
+  /** Drive frames per second while Drive is active. */
+  hz?: number
+}
+
+/**
+ * Same rule as the bridge link: whether Drive is the active screen is read
+ * from the embed module, and leaving it sends neutral in the same turn as
+ * C2's message, then stops drive updates; heartbeats continue. Coming back
+ * needs a fresh arm by the operator.
+ */
+export function useRemoTransport(
+  password: string | null,
+  live: boolean,
+  { hz = 20 }: RemoOptions = {},
+): RemoLink {
   const target = useMemo(() => parseDriveParam(), [])
   const [status, setStatus] = useState<LinkStatus>('connecting')
   const [role, setRole] = useState<DriveRole>(null)
   const [authFailed, setAuthFailed] = useState(false)
+  const [everOpen, setEverOpen] = useState(false)
 
   // `live` gates actuation without re-creating the connection: until the operator
   // has passed the connect modal, the vehicle is held at neutral even if a gamepad
@@ -60,9 +84,25 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
 
   useEffect(() => {
     if (!target || !password) return
+    const store = useVehicleStore
     const t = new RemoTransport(target.url, password)
+
+    // True from giving up control (Drive left, or the link lost) until the
+    // operator arms again while active on an open link. Same rule as the
+    // bridge link: the local sim's DRIVING alone never drives.
+    let relinquished = true
+    let linkOpen = false
+    let signedOut = false
+
     t.onStatus = (s) => {
       setStatus(s)
+      const wasOpen = linkOpen
+      linkOpen = s === 'open' && !signedOut
+      if (linkOpen) setEverOpen(true)
+      else {
+        if (wasOpen) store.getState().relinquish()
+        relinquished = true
+      }
       // each (re)connection attempt starts with a clean role/auth slate
       if (s === 'connecting') {
         setRole(null)
@@ -71,24 +111,58 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
     }
     t.onRole = (r) => setRole(r === 'DRIVER' || r === 'SPECTATOR' ? r : null)
     t.onAuthFail = () => setAuthFailed(true)
+
+    const neutral = () => {
+      relinquished = true
+      store.getState().relinquish()
+      const { gear } = store.getState().command
+      t.update({ steer: 0, throttle: 0, gear, driving: false })
+    }
+
+    let wasActive = driveActiveNow()
+    const unsubActive = subscribeDriveActive(() => {
+      const nowActive = driveActiveNow()
+      if (nowActive === wasActive) return
+      wasActive = nowActive
+      if (!nowActive) neutral()
+    })
+
+    const unsubSignOut = subscribeSignOut(() => {
+      if (signedOut) return
+      neutral()
+      signedOut = true
+      linkOpen = false
+      t.close()
+    })
+
     t.connect()
 
     let beat = 0
     const id = setInterval(() => {
-      const s = useVehicleStore.getState()
-      t.update({
-        steer: s.command.steer,
-        throttle: s.command.throttle,
-        gear: s.command.gear,
-        driving: liveRef.current && s.telemetry.safetyState === 'DRIVING',
-      })
+      if (signedOut) return
+      store.getState().settleArm()
+      const s = store.getState()
+      if (driveActiveNow())
+        t.update({
+          steer: s.command.steer,
+          throttle: s.command.throttle,
+          gear: s.command.gear,
+          driving:
+            liveRef.current &&
+            linkOpen &&
+            !relinquished &&
+            s.command.safety.arm &&
+            s.telemetry.safetyState === 'DRIVING',
+        })
       // heartbeat ~5x/s so the relay dead-man can distinguish steady-state from a
       // stalled link (drive tokens only fire on change, so silence != alive)
       if (++beat % Math.max(1, Math.round(hz / 5)) === 0) t.heartbeat()
     }, 1000 / hz)
 
-    const unsub = useVehicleStore.subscribe((state, prev) => {
+    const unsub = store.subscribe((state, prev) => {
       if (state.command.safety.estop && !prev.command.safety.estop) t.estop()
+      else if (state.armPresses !== prev.armPresses && driveActiveNow() && liveRef.current && linkOpen)
+        relinquished = false
     })
 
     const onHide = () => t.close()
@@ -98,11 +172,13 @@ export function useRemoTransport(password: string | null, live: boolean, hz = 20
     return () => {
       clearInterval(id)
       unsub()
+      unsubActive()
+      unsubSignOut()
       window.removeEventListener('pagehide', onHide)
       window.removeEventListener('beforeunload', onHide)
       t.close()
     }
   }, [target, password, hz])
 
-  return { active: !!target, label: target?.label ?? '', status, role, authFailed }
+  return { active: !!target, label: target?.label ?? '', status, role, authFailed, everOpen }
 }

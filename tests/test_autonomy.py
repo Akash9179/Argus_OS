@@ -29,7 +29,7 @@ from link.v1.ontology_pb2 import (
 
 from track.ids import new_id, now_ts
 
-from tests.conftest import OPERATOR_TOKEN, SITE_LAT, SITE_LON
+from tests.conftest import OPERATOR_TOKEN, SITE_LAT, SITE_LON, heard_from
 
 
 def an_asset(store, name: str, north_m: float = 0.0, **changes) -> Asset:
@@ -294,7 +294,7 @@ async def test_a_real_sighting_sends_a_machine_without_anyone_clicking(
         ]
     )
     watcher.start()
-    await wait_until(lambda: world.store.get_asset(watcher.asset_id) is not None)
+    await wait_until(lambda: heard_from(world, watcher.asset_id))
     await client.put(
         f"/v1/assets/{watcher.asset_id}/autonomy", json={"mode": "automatic"}
     )

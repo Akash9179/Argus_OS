@@ -220,6 +220,33 @@ class Language:
             return self._d["sources"]["ordered_by_channel"].format(who=who, channel=channel_phrase)
         return self._d["sources"]["ordered_by"].format(who=who)
 
+    # -- before an order is sent -------------------------------------------
+
+    def preview_check(self, name: str, **kwargs) -> str:
+        """One line of the proposal an operator reads before approving."""
+        return self._d["preview_checks"][name].format(**kwargs)
+
+    def preview_source(self, name: str, **kwargs) -> str:
+        """Where a proposal line's fact came from. Every line carries one."""
+        return self._d["preview_checks"]["sources"][name].format(**kwargs)
+
+    # -- what a machine says about its own systems --------------------------
+
+    def systems(self, name: str, **kwargs) -> str:
+        return self._d["systems"][name].format(**kwargs)
+
+    def systems_kind_label(self, kind: str) -> str:
+        """What to call a family of driver on an operator's screen.
+
+        A kind this build has not heard of is shown as sent, underscores
+        turned into spaces, the same as an unfamiliar entity class: a newer
+        runtime's vocabulary is information, not an error.
+        """
+        labels = self._d["systems"]["kind_labels"]
+        if kind in labels:
+            return labels[kind]
+        return (kind or "").replace("_", " ").strip()
+
     def channel_phrase(self, channel: str) -> str:
         """How an order arrived, in words.
 

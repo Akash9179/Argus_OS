@@ -1,0 +1,479 @@
+
+===== argus_checkout
+origin	https://github.com/Akash9179/Argus_OS.git (fetch)
+origin	https://github.com/Akash9179/Argus_OS.git (push)
+survey/ugv-01
+4386535 2026-08-11 Merge remote-tracking branch 'origin/main' into survey/ugv-01
+8d32707 2026-08-11 Leave the next session a brief instead of a finished one
+63ce74d 2026-08-11 Stop the watchdog being fed by the noise it exists to catch
+bodies
+drive
+link
+
+===== ros2_new_tree
+build
+docs
+install
+log
+README.md
+requirements.txt
+run_all.sh
+run_container.sh
+setup_ch340.sh
+setup_humble.sh
+src
+start.sh
+testingcodes
+-- src
+bms_monitor
+mobile_remote
+phone_gps
+serial_control
+status_check
+system_terminal
+web_server
+zed_bringup
+zed-ros2-wrapper
+-- git
+fa07128 2026-08-03 Akash Suryavanshi console: raise the compass rate to 20 Hz
+8f228f6 2026-08-03 Akash Suryavanshi phone_gps: stream compass heading for real-time rotation
+377f262 2026-08-03 Akash Suryavanshi console: set the autonomy A pin from the vehicle's position
+6e1a0d9 2026-08-03 Akash Suryavanshi web_server: don't let a failed ROS publish kill namespace fan-out
+88e23f2 2026-08-03 Akash Suryavanshi phone_gps: drive the console map from /gps/fix
+ M .gitignore
+ M README.md
+ M src/serial_control/launch/serial.launch.py
+ M src/serial_control/serial_control/cmd_node.py
+ M src/serial_control/serial_control/serial_link.py
+ M src/serial_control/test/test_serial_link.py
+ M src/web_server/frontend/gps/index.html
+ M src/web_server/frontend/index.html
+ M src/web_server/frontend/package.json
+ M src/web_server/frontend/src/App.jsx
+ M src/web_server/frontend/src/App.module.css
+ M src/web_server/frontend/src/components/AlertRail.module.css
+ M src/web_server/frontend/src/components/AutonomyTab.jsx
+ M src/web_server/frontend/src/components/AutonomyTab.module.css
+ M src/web_server/frontend/src/components/ConnectGate.module.css
+README.md
+
+===== ros2_new_claude_md
+
+===== serial_control_files
+/home/tessy_01/Desktop/ros2_new/src/serial_control/setup.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/launch/serial.launch.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/package.xml
+/home/tessy_01/Desktop/ros2_new/src/serial_control/serial_control/argus_protocol.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/serial_control/__init__.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/serial_control/serial_link.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/serial_control/cmd_node.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/serial_control/accel_protocol.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/test/test_accel_protocol.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/test/test_argus_protocol.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/test/test_serial_link.py
+
+===== serial_control_cmd
+FILE=
+
+===== cmd_launch_params
+/**:
+  ros__parameters:
+    accel_baud: 115200
+    accel_device: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0
+    baud: 115200
+    device: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+
+===== cmd_env
+ROS_VERSION=2
+ROS_PYTHON_VERSION=3
+ROS_LOCALHOST_ONLY=0
+ROS_DISTRO=humble
+
+===== launch_files
+/home/tessy_01/Desktop/ros2_new/src/zed_bringup/launch/zed_live.launch.py
+/home/tessy_01/Desktop/ros2_new/src/zed_bringup/launch/dual_camera.launch.py
+/home/tessy_01/Desktop/ros2_new/src/zed_bringup/launch/zed_svo.launch.py
+/home/tessy_01/Desktop/ros2_new/src/zed_bringup/launch/camera.launch.py
+/home/tessy_01/Desktop/ros2_new/src/system_terminal/launch/system_terminal.launch.py
+/home/tessy_01/Desktop/ros2_new/src/web_server/launch/web_server.launch.py
+/home/tessy_01/Desktop/ros2_new/src/zed-ros2-wrapper/zed_wrapper/launch/zed_camera.launch.py
+/home/tessy_01/Desktop/ros2_new/src/zed-ros2-wrapper/zed_debug/launch/zed_camera_debug.launch.py
+/home/tessy_01/Desktop/ros2_new/src/bms_monitor/launch/bringup.launch.py
+/home/tessy_01/Desktop/ros2_new/src/bms_monitor/launch/bms.launch.py
+/home/tessy_01/Desktop/ros2_new/src/phone_gps/launch/gps.launch.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/launch/serial.launch.py
+/home/tessy_01/Desktop/ros2_new/src/mobile_remote/launch/mobile_remote.launch.py
+/home/tessy_01/Desktop/ros2_new/src/status_check/status_check/launch/status.launch.py
+-- bringup launch that started everything?
+/home/tessy_01/Desktop/ros2_new/src/zed_bringup/launch/dual_camera.launch.py
+/home/tessy_01/Desktop/ros2_new/src/bms_monitor/launch/bringup.launch.py
+/home/tessy_01/Desktop/ros2_new/src/bms_monitor/launch/bms.launch.py
+/home/tessy_01/Desktop/ros2_new/src/serial_control/launch/serial.launch.py
+
+===== mobile_remote
+wc: invalid zero-length file name
+cat: '': No such file or directory
+-- /home/tessy_01/Desktop/ros2_new/src/mobile_remote/launch/mobile_remote.launch.py
+25 /home/tessy_01/Desktop/ros2_new/src/mobile_remote/launch/mobile_remote.launch.py
+-- /home/tessy_01/Desktop/ros2_new/src/mobile_remote/mobile_remote/__init__.py
+0 /home/tessy_01/Desktop/ros2_new/src/mobile_remote/mobile_remote/__init__.py
+-- /home/tessy_01/Desktop/ros2_new/src/mobile_remote/mobile_remote/server.py
+105 /home/tessy_01/Desktop/ros2_new/src/mobile_remote/mobile_remote/server.py
+
+===== mobile_remote_src
+-- /home/tessy_01/Desktop/ros2_new/src/mobile_remote/launch/mobile_remote.launch.py
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'port', default_value='8770',
+            description='HTTP port the phone remote is served on.'),
+        DeclareLaunchArgument(
+            'ws_port', default_value='8765',
+            description="web_server's WebSocket port the remote talks to."),
+        Node(
+            package='mobile_remote',
+            executable='mobile_remote',
+            name='mobile_remote',
+            output='screen',
+            parameters=[{
+                'port': LaunchConfiguration('port'),
+                'ws_port': LaunchConfiguration('ws_port'),
+            }],
+        ),
+    ])
+-- /home/tessy_01/Desktop/ros2_new/src/mobile_remote/mobile_remote/__init__.py
+
+===== remote_bridge_py
+151 /home/tessy_01/Desktop/Remote/bridge.py
+#!/usr/bin/env python3
+"""Serial <-> WebSocket bridge with a static file server, all on one port.
+
+Python port of the Go bridge: reads lines from a serial port and fans them out
+to every connected browser, writes anything a browser sends back to the serial
+port, and serves ./public over plain HTTP on the same listener.
+
+    python3 bridge.py --serial /dev/ttyUSB0 --baud 115200 --http 8080
+"""
+
+import argparse
+import asyncio
+import mimetypes
+import os
+import sys
+import threading
+from http import HTTPStatus
+
+import serial
+import websockets
+
+clients = set()
+loop = None
+port = None
+port_lock = threading.Lock()
+
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
+
+
+# SERIAL -> BROWSER
+def serial_reader():
+    """Blocking read loop, runs on its own thread."""
+    buf = bytearray()
+
+    while True:
+        try:
+            chunk = port.read(port.in_waiting or 1)
+        except serial.SerialException as err:
+            print("Serial read error:", err, flush=True)
+            return
+
+        if not chunk:
+            continue
+
+        buf.extend(chunk)
+
+        while b"\n" in buf:
+            line, _, rest = buf.partition(b"\n")
+            buf = bytearray(rest)
+
+            msg = line.decode("utf-8", "replace").rstrip("\r")
+            print("System:", msg, flush=True)
+
+            # Hop back onto the event loop thread to touch the sockets.
+            loop.call_soon_threadsafe(asyncio.create_task, broadcast(msg + "\n"))
+
+
+async def broadcast(msg):
+    for client in list(clients):
+        try:
+            await client.send(msg)
+        except Exception:
+            clients.discard(client)
+            await client.close()
+
+
+# BROWSER -> SERIAL
+def serial_write(data):
+    with port_lock:
+        port.write(data)
+
+
+async def ws_handler(websocket):
+    clients.add(websocket)
+    print("Browser connected:", websocket.remote_address, flush=True)
+
+    try:
+        async for msg in websocket:
+            if isinstance(msg, bytes):
+                msg = msg.decode("utf-8", "replace")
+
+            msg = msg.rstrip("\r\n")  # client may already terminate the line
+            print("Browser:", msg, flush=True)
+
+            try:
+                await asyncio.to_thread(serial_write, msg.encode() + b"\n")
+            except Exception as err:
+                print("Serial write error:", err, flush=True)
+    except websockets.ConnectionClosed:
+        pass
+    finally:
+        clients.discard(websocket)
+        print("Browser disconnected", flush=True)
+
+
+# Static files, served off the same port for anything that isn't the WS upgrade
+def serve_static(path, request_headers):
+    if "Upgrade" in request_headers:
+        return None  # let the WebSocket handshake through
+
+    url_path = path.split("?", 1)[0].split("#", 1)[0]
+    if url_path.endswith("/"):
+        url_path += "index.html"
+
+    target = os.path.normpath(os.path.join(STATIC_DIR, url_path.lstrip("/")))
+    if not target.startswith(STATIC_DIR) or not os.path.isfile(target):
+        return HTTPStatus.NOT_FOUND, [], b"404 not found\n"
+
+    with open(target, "rb") as fh:
+        body = fh.read()
+
+    ctype = mimetypes.guess_type(target)[0] or "application/octet-stream"
+    headers = [("Content-Type", ctype), ("Content-Length", str(len(body)))]
+    return HTTPStatus.OK, headers, body
+
+
+async def main():
+    global loop, port
+
+    parser = argparse.ArgumentParser(description=__doc__)
+
+===== desktop
+total 180
+drwxr-xr-x  9 tessy_01 tessy_01  4096 Sep 19 19:44 .
+drwxr-x--- 32 tessy_01 tessy_01  4096 Oct 13 19:13 ..
+drwxr-xr-x  5 root     root      4096 Jul 31 17:34 all-folders
+-rwxr-xr-x  1 tessy_01 tessy_01  1304 Aug 26  2025 gnome-terminal.desktop
+-rwxr-xr-x  1 tessy_01 tessy_01  1790 Aug 26  2025 nv_devzone.desktop
+-rwxr-xr-x  1 tessy_01 tessy_01  1809 Aug 26  2025 nv_forums.desktop
+-rwxr-xr-x  1 tessy_01 tessy_01  1386 Aug 26  2025 nv_jetson_projects.desktop
+-rwxr-xr-x  1 tessy_01 tessy_01  1758 Aug 26  2025 nv_jetson_zoo.desktop
+-rwxr-xr-x  1 tessy_01 tessy_01  1289 Aug 26  2025 nv_l4t_readme.desktop
+drwxrwxr-x  3 tessy_01 tessy_01  4096 Sep 19 19:52 orin_case
+-rw-rw-r--  1 tessy_01 tessy_01 35579 Sep 19 19:38 prompt_history.md
+drwxrwxr-x  4 tessy_01 tessy_01  4096 Aug 12 10:39 Remote
+drwxr-xr-x 12 tessy_01 tessy_01  4096 Oct  4 16:44 ros2_new
+drwxr-xr-x  2 root     root      4096 Jul 31 16:48 ssh
+drwxrwxr-x  7 tessy_01 tessy_01  4096 Sep 29 20:38 steer_mech
+drwxrwxr-x  6 tessy_01 tessy_01  4096 Sep 29 19:54 steer_mech60
+-rw-rw-r--  1 tessy_01 tessy_01 62640 Sep 19 19:40 today_session_log.txt
+-rw-rw-r--  1 tessy_01 tessy_01 16875 Sep 19 19:53 WORK_DOCUMENTATION.md
+
+===== ch341
+5.15.185-tegra
+ch341.c
+ch341.ko
+ch341.mod
+ch341.mod.c
+ch341.mod.o
+ch341.o
+Makefile
+modules.order
+Module.symvers
+
+===== bash_history_tail
+cd secret
+ls
+cd ..
+clr
+clear
+cd ..
+cd docs
+ls
+rm ARGUS_DRIVE_Serial_Protocol_v4.1.3.pdf 
+LS
+ks
+ls
+sudo systemctl restart zed_x_daemon
+cd ..
+./setup_ch340.sh
+cd Desktop/ros2_new/
+claude
+cd Desktop/ros2_new/
+claude 
+sudo systemctl restart zed_x_daemon
+ls
+cd argus
+ls
+cd ..
+cd Desktop
+ls
+cd ros2_new
+ls
+cat README.md
+clear
+ls
+cd Desktop/ros2_new/
+claude
+cd ~/Desktop/ros2_new/src/web_server/frontend && npm run build
+cd ../../..
+ls
+cd Desktop/ros2_new/
+claude
+cd Desktop/ros2_new/
+claude
+
+===== claude_projects
+-home-tessy-01
+-home-tessy-01-argus
+-home-tessy-01-Desktop
+-home-tessy-01-Desktop-orin-case
+-home-tessy-01-Desktop-ros2-new
+-home-tessy-01-Desktop-steer-mech
+-home-tessy-01-Desktop-steer-mech60
+-home-tessy-01-Desktop-steer-mech-src
+/home/tessy_01/.claude/projects/-home-tessy-01-Desktop-ros2-new/:
+28bb02cc-6cb7-4737-8606-4a24a5d0b8f6.jsonl
+f69f581f-e295-4dc7-8fe3-934344c09ef1.jsonl
+2447a497-2128-4e5a-b884-a26663b79e66.jsonl
+7df3619b-b949-4277-8c57-f2d792b8d542.jsonl
+
+===== ros_graph
+declare -x AMENT_PREFIX_PATH="/home/tessy_01/Desktop/ros2_new/install/zed_ros2:/home/tessy_01/Desktop/ros2_new/install/zed_bringup:/home/tessy_01/Desktop/ros2_new/install/zed_wrapper:/home/tessy_01/Desktop/ros2_new/install/zed_components:/home/tessy_01/Desktop/ros2_new/install/system_terminal:/home/tessy_01/Desktop/ros2_new/install/status_check:/home/tessy_01/Desktop/ros2_new/install/serial_control:/home/tessy_01/Desktop/ros2_new/install/phone_gps:/home/tessy_01/Desktop/ros2_new/install/mobile_remote:/home/tessy_01/Desktop/ros2_new/install/bms_monitor:/home/tessy_01/Desktop/ros2_new/install/web_server:/home/tessy_01/Desktop/ros2_new/install/status_interfaces:/opt/ros/humble"
+declare -x CMAKE_PREFIX_PATH="/home/tessy_01/Desktop/ros2_new/install/zed_ros2:/home/tessy_01/Desktop/ros2_new/install/zed_wrapper:/home/tessy_01/Desktop/ros2_new/install/zed_components:/home/tessy_01/Desktop/ros2_new/install/status_interfaces"
+declare -x COLCON_PREFIX_PATH="/home/tessy_01/Desktop/ros2_new/install"
+declare -x DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/1000/bus"
+declare -x HOME="/home/tessy_01"
+declare -x LANG="en_IN"
+declare -x LD_LIBRARY_PATH="/home/tessy_01/Desktop/ros2_new/install/zed_components/lib:/home/tessy_01/Desktop/ros2_new/install/status_interfaces/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib"
+declare -x LOGNAME="tessy_01"
+declare -x MOTD_SHOWN="pam"
+declare -x OLDPWD="/home/tessy_01/argus"
+declare -x PATH="/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+declare -x PWD="/home/tessy_01/Desktop/ros2_new"
+declare -x PYTHONPATH="/home/tessy_01/Desktop/ros2_new/build/zed_bringup:/home/tessy_01/Desktop/ros2_new/install/zed_bringup/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/system_terminal/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/status_check/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/build/serial_control:/home/tessy_01/Desktop/ros2_new/install/serial_control/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/phone_gps/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/mobile_remote/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/bms_monitor/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/web_server/lib/python3.10/site-packages:/home/tessy_01/Desktop/ros2_new/install/status_interfaces/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages"
+declare -x ROS_DISTRO="humble"
+declare -x ROS_LOCALHOST_ONLY="0"
+declare -x ROS_PYTHON_VERSION="3"
+declare -x ROS_VERSION="2"
+declare -x SHELL="/bin/bash"
+declare -x SHLVL="1"
+declare -x SSH_CLIENT="100.113.68.39 62821 22"
+declare -x SSH_CONNECTION="100.113.68.39 62821 100.116.120.118 22"
+declare -x USER="tessy_01"
+declare -x XDG_RUNTIME_DIR="/run/user/1000"
+declare -x XDG_SESSION_CLASS="user"
+declare -x XDG_SESSION_ID="12"
+declare -x XDG_SESSION_TYPE="tty"
+ROS_DOMAIN_ID=unset RMW=default
+/bms
+/bms_listener
+/cmd
+/depth_colorizer_zed_front
+/depth_colorizer_zed_rear
+/detection_bridge_front
+/detection_bridge_rear
+/gps
+/launch_ros_53723
+/mobile_remote
+/safe_area_front
+/safe_area_rear
+/status_bridge
+/status_server
+/system_terminal
+/web_server
+/web_video_server
+/zed_front/transform_listener_impl_ffff481036b0
+/zed_front/zed_container
+/zed_front/zed_front_state_publisher
+/zed_front/zed_node
+/zed_rear/zed_rear_state_publisher
+-- topics
+/bms/alerts
+/bms/data
+/bms/status
+/clicked_point
+/cmd/accel_status
+/cmd/alerts
+/cmd/brake
+/cmd/brake_angle
+/cmd/rx
+/cmd/status
+/cmd/steer
+/cmd/steer_angle
+/diagnostics
+/gps/fix
+/gps/heading
+/parameter_events
+/rosout
+/tf
+/tf_static
+/web_server/alert/in
+/web_server/alert/out
+/web_server/api/in
+/web_server/api/out
+/web_server/bms/in
+/web_server/bms/out
+/web_server/camera/in
+/web_server/camera/out
+/web_server/cmd/in
+/web_server/cmd/out
+/web_server/gps/in
+/web_server/gps/out
+/web_server/terminal/in
+/web_server/terminal/out
+/zed_front/joint_states
+/zed_front/perception/safe_area
+/zed_front/perception/safe_area/status
+/zed_front/zed_front_description
+/zed_front/zed_node/depth/camera_info
+/zed_front/zed_node/depth/depth_color
+/zed_front/zed_node/depth/depth_registered
+/zed_front/zed_node/depth/depth_registered/camera_info
+/zed_front/zed_node/depth/depth_registered/compressedDepth
+/zed_front/zed_node/imu/data
+/zed_front/zed_node/obj_det/objects
+/zed_front/zed_node/odom
+/zed_front/zed_node/pose
+/zed_front/zed_node/pose/status
+/zed_front/zed_node/rgb/color/rect/camera_info
+/zed_front/zed_node/rgb/color/rect/image
+/zed_front/zed_node/rgb/color/rect/image/camera_info
+/zed_front/zed_node/rgb/color/rect/image/compressed
+/zed_front/zed_node/rgb/color/rect/image/theora
+/zed_front/zed_node/status/health
+/zed_front/zed_node/status/heartbeat
+/zed_rear/joint_states
+/zed_rear/perception/safe_area
+/zed_rear/perception/safe_area/status
+/zed_rear/zed_node/depth/camera_info
+/zed_rear/zed_node/depth/depth_color
+/zed_rear/zed_node/imu/data
+/zed_rear/zed_node/obj_det/objects
+/zed_rear/zed_node/odom
+/zed_rear/zed_node/rgb/color/rect/camera_info
+/zed_rear/zed_rear_description

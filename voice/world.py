@@ -65,6 +65,16 @@ class WorldUnavailable(RuntimeError):
     """
 
 
+class OrderRefused(RuntimeError):
+    """The world model looked at an order and would not send it.
+
+    Its own type because the reason is worth hearing. The world model words
+    every refusal for an operator from its own language file, so the
+    sentence can be spoken as it arrives. Any other failure stays a
+    failure and is never read aloud.
+    """
+
+
 @lru_cache(maxsize=2)
 def _words(path: str = str(LANGUAGE)) -> dict[str, Any]:
     return yaml.safe_load(Path(path).read_text()) or {}
@@ -278,8 +288,19 @@ class WorldModel:
                 response = await client.post(
                     f"{self._base}/v1/tasks", json=body, headers=self._headers()
                 )
+        if response.status_code == 409:
+            raise OrderRefused(_refusal(response))
         response.raise_for_status()
         return response.json()
+
+
+def _refusal(response: httpx.Response) -> str:
+    """The world model's sentence for a refused order, or nothing."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return ""
+    return detail if isinstance(detail, str) else ""
 
 
 # -- turning schema into words ---------------------------------------------

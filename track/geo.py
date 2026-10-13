@@ -75,3 +75,86 @@ def point_in_polygon(point: Position, polygon: Polygon) -> bool:
                 inside = not inside
         j = i
     return inside
+
+
+# -- does a route cross a place ---------------------------------------------
+#
+# Planar, like point_in_polygon: at the scale of a site, treating degrees
+# as a flat grid is accurate enough, and a route is checked before it is
+# sent, where a false "crosses" costs an operator one look at the map and a
+# false "clear" costs a machine driving somewhere it should not.
+
+
+def _orientation(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+    """Sign of the turn a-b-c: positive anticlockwise, negative clockwise, zero collinear."""
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+
+def _within(p: float, a: float, b: float) -> bool:
+    return min(a, b) <= p <= max(a, b)
+
+
+def segments_intersect(p1: Position, p2: Position, q1: Position, q2: Position) -> bool:
+    """Whether segment p1-p2 meets segment q1-q2, touching included.
+
+    Touching counts. A route that grazes the edge of a place it must stay
+    out of is worth an operator's look, and a planner that treats the
+    boundary as free space is one rounding error from being inside it.
+    """
+    ax, ay = p1.longitude_deg, p1.latitude_deg
+    bx, by = p2.longitude_deg, p2.latitude_deg
+    cx, cy = q1.longitude_deg, q1.latitude_deg
+    dx, dy = q2.longitude_deg, q2.latitude_deg
+
+    o1 = _orientation(ax, ay, bx, by, cx, cy)
+    o2 = _orientation(ax, ay, bx, by, dx, dy)
+    o3 = _orientation(cx, cy, dx, dy, ax, ay)
+    o4 = _orientation(cx, cy, dx, dy, bx, by)
+
+    if ((o1 > 0) != (o2 > 0)) and ((o3 > 0) != (o4 > 0)) and o1 != 0 and o2 != 0 and o3 != 0 and o4 != 0:
+        return True
+
+    # Collinear or touching cases: an endpoint of one lies on the other.
+    if o1 == 0 and _within(cx, ax, bx) and _within(cy, ay, by):
+        return True
+    if o2 == 0 and _within(dx, ax, bx) and _within(dy, ay, by):
+        return True
+    if o3 == 0 and _within(ax, cx, dx) and _within(ay, cy, dy):
+        return True
+    if o4 == 0 and _within(bx, cx, dx) and _within(by, cy, dy):
+        return True
+    return False
+
+
+def segment_crosses_polygon(a: Position, b: Position, polygon: Polygon) -> bool:
+    """Whether the straight leg from a to b passes through a polygon.
+
+    True if either end is inside, or the leg meets any edge. A polygon with
+    fewer than three vertices encloses nothing and is never crossed.
+    """
+    verts = list(polygon.exterior)
+    if len(verts) < 3:
+        return False
+    if point_in_polygon(a, polygon) or point_in_polygon(b, polygon):
+        return True
+    for i, v in enumerate(verts):
+        w = verts[(i + 1) % len(verts)]
+        if segments_intersect(a, b, v, w):
+            return True
+    return False
+
+
+def path_crosses_polygon(path: Iterable[Position], polygon: Polygon) -> bool:
+    """Whether any leg of a route passes through a polygon.
+
+    A route with a single point is a place, not a leg, and counts as
+    crossing only if that point is inside.
+    """
+    points = list(path)
+    if not points:
+        return False
+    if len(points) == 1:
+        return len(polygon.exterior) >= 3 and point_in_polygon(points[0], polygon)
+    return any(
+        segment_crosses_polygon(points[i], points[i + 1], polygon) for i in range(len(points) - 1)
+    )

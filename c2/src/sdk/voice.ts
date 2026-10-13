@@ -27,7 +27,17 @@ export interface Exchange {
   kind: ExchangeKind
   /** True only for an order, and an order always needs one. */
   needs_confirmation: boolean
-  action: { machine: string; task_type: string; place: string } | null
+  /**
+   * The order as the service resolved it, so the map can draw it and the
+   * world model can check it before the operator says yes.
+   */
+  action: {
+    machine: string
+    task_type: string
+    place: string
+    asset_id?: string
+    waypoints?: { latitude_deg: number; longitude_deg: number }[]
+  } | null
   audio: string | null
   audio_format: string
 }

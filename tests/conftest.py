@@ -14,7 +14,17 @@ import time
 import httpx
 import pytest
 import yaml
-from link.v1.ontology_pb2 import Polygon, Position, Zone, ZoneRule
+from link.v1.ontology_pb2 import (
+    Issuer,
+    Polygon,
+    Position,
+    Task,
+    TaskParameters,
+    TaskState,
+    TaskStateChange,
+    Zone,
+    ZoneRule,
+)
 
 from sim.link_client import LinkClient
 from sim.scenario import load_language
@@ -23,7 +33,7 @@ from sim.vehicle import ScriptedObservation, SimulatedVehicle, VehicleConfig
 from track.app import create_app
 from track.config import Settings
 from track.identity import ROLE_ADMIN, ROLE_OPERATOR, Principal, TokenDirectory
-from track.ids import new_id
+from track.ids import new_id, now_ts
 from track.live import MemoryLiveBus
 from track.store import Store
 from track.transport import MemoryTransport
@@ -45,6 +55,42 @@ async def wait_until(predicate, timeout: float = 8.0, interval: float = 0.05):
             return last
         await asyncio.sleep(interval)
     raise AssertionError(f"condition never became true within {timeout}s (last value: {last!r})")
+
+
+def heard_from(world, asset_id: str) -> bool:
+    """The station has the machine and has had a heartbeat from it.
+
+    A machine can appear from its first telemetry before its first
+    heartbeat, and an order to a machine never heard from is refused. A
+    test that orders a machine waits for this, not for the record alone.
+    """
+    asset = world.store.get_asset(asset_id)
+    return asset is not None and asset.HasField("last_heartbeat")
+
+
+def deliver_anyway(world, asset_id: str, task_type: str, waypoints=()) -> str:
+    """Put an order on the wire the way TRACK sends one, past its checks.
+
+    TRACK refuses up front an order a machine has said it cannot carry out,
+    so such an order reaches a machine only when the station's knowledge is
+    behind the machine's. The machine must still refuse it, in words. This
+    is how a test gets that order to the machine: stored and published by
+    the same calls `issue_task` makes once its checks pass.
+    """
+    task = Task(
+        task_id=new_id(),
+        asset_id=asset_id,
+        task_type=task_type,
+        parameters=TaskParameters(waypoints=[Position(**point) for point in waypoints]),
+        status=TaskState.TASK_STATE_PENDING,
+        issued_by=Issuer(principal_id="operator-1", channel="map"),
+    )
+    task.status_history.append(
+        TaskStateChange(state=TaskState.TASK_STATE_PENDING, timestamp=now_ts())
+    )
+    world.store.put_task(task)
+    world._send_task(task)
+    return task.task_id
 
 
 @pytest.fixture

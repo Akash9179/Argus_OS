@@ -23,6 +23,8 @@ whether direct or not.
 
 | Component | Version | Licence | Where | Verdict |
 |---|---|---|---|---|
+| IBM Plex Sans (via @fontsource/ibm-plex-sans) | 5.3.0 | SIL Open Font License 1.1 | c2/, drive/cockpit/ (bundled, self-hosted) | Permissive; embedding and redistribution allowed; no CDN at runtime (law 8). |
+| JetBrains Mono (via @fontsource/jetbrains-mono) | 5.3.0 | SIL Open Font License 1.1 | c2/, drive/cockpit/ (bundled, self-hosted) | Permissive; same terms as above. |
 | ROS2 Humble core (`rclpy`, `tf2_ros`, message packages) | Humble Hawksbill | Apache 2.0 | PILOT container | Clear. Permissive, no field-of-use restriction. |
 | Navigation2 (`navigation2`, `nav2_bringup`, `nav2_simple_commander`, MPPI controller) | Humble | Apache 2.0 | PILOT container | Clear. Permissive, no field-of-use restriction. |
 | `tf_transformations` | Humble packaging | BSD 3-Clause | PILOT container | Clear. |
@@ -38,6 +40,19 @@ whether direct or not.
 | SQLite | bundled | Public domain | TRACK | Clear. |
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
+| pyserial | 3.5 or later | BSD-3-Clause | drive/pilot/hal/drivers/ugv01/ (the two vehicle boards' serial ports; imported only when a real port is opened, 13 Oct 2026) | Clear. Permissive. |
+| Arduino AVR core (compiles the Nano sketch; not shipped in this repo) | 1.8.x | LGPL-2.1 | bodies/ugv-01/firmware/nano_throttle_watchdog/, built in Gulshan Shah's Arduino IDE | Clear for firmware that links it; nothing of it is copied here. |
+| Arduino core for ESP32 (compiles the drive module; not shipped) | espressif32 via PlatformIO | LGPL-2.1 | bodies/ugv-01/firmware/esp32_drive_watchdog/, built with PlatformIO | Clear, same terms. |
+| PlatformIO Core (build tool only) | 6.x | Apache-2.0 | developer machines | Clear. Not deployed. |
+| Vehicle firmware (ESP32-S3 4.1.4, Nano AC 1.2, written by Gulshan Shah) | 13 Oct 2026 | Company-owned (founder, 14 Oct 2026, decision D-24) | bodies/ugv-01/firmware/vendor-2026-10-13/ | Clear. Ours. |
+
+C2's dev-only tooling never ships: `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals` and `vitest`. All are MIT, checked with `npm view <pkg> license` on 12 Oct 2026. They stay outside the shipped-software tables by decision, not by omission.
+
+## Map imagery (D-22 local cache)
+
+| Dataset | Licence | Where | Verdict |
+|---|---|---|---|
+| Copernicus Sentinel-2 L2A true colour, scene `S2B_44QLL_20260211_0_L2A` (11 Feb 2026), read once from the AWS open-data bucket via the Element84 earth-search STAC and rendered to `var/tiles/jabalpur.mbtiles` (Jabalpur demo site, z10 to 16) | Copernicus free, full and open data policy (Commission Delegated Regulation (EU) No 1159/2013); any use including commercial and military, attribution required | TRACK tile cache, shown by C2 | Clear. Attribution string carried in the file's metadata and shown on the map: "Contains modified Copernicus Sentinel data 2026". 10 m native resolution, so anything sharper needs a separately licensed source. No tile service is contacted at runtime. |
 
 ## Speech (Stage 4)
 

@@ -36,3 +36,10 @@ health:
   # A driver that cannot answer when asked is not healthy, and says so
   # rather than staying silent.
   no_answer: "The driver did not answer when asked: {reason}"
+  # ugv-01's own locomotion driver (drive/pilot/hal/drivers/ugv01/locomotion.py)
+  ugv01_not_started: "The vehicle's two boards are not open."
+  ugv01_ready_inhibited: "Both boards answer; movement is held until a measured calibration is in the manifest."
+  ugv01_ready: "Both boards answer and the vehicle can be driven."
+  ugv01_stopped: "The vehicle is stopped and held: {reason}."
+  ugv01_faulted: "The vehicle is stopped on a fault: {reason}."
+  localization_static: "Position is not measured; this is the configured site position and nothing more."

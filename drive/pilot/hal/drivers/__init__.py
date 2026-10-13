@@ -11,3 +11,4 @@ actual machine here, next to these, changing nothing above.
 
 from pilot.hal.drivers import mqtt as _mqtt  # noqa: F401
 from pilot.hal.drivers import simulated as _simulated  # noqa: F401
+from pilot.hal.drivers.ugv01 import locomotion as _ugv01  # noqa: F401  (opens no port on import)

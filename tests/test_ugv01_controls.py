@@ -250,10 +250,11 @@ def test_throttle_is_refused_when_the_accel_board_stops_answering(rig):
 def test_heartbeat_silence_with_motion_commanded_safe_stops_in_order(rig):
     c, drive, accel, clock = rig
     c.start()
-    c.brake("release")
-    wait_until(lambda: not c.snapshot()["brake"]["applied"])
     poll_once(c, clock)
     c.heartbeat()
+    c.brake("release")           # a brake move is motion: the heartbeat must be live
+    wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.brake("stop")
     c.set_throttle(40)
     c.steer("left")
     accel.writes.clear(); drive.writes.clear()
@@ -672,15 +673,19 @@ def test_other_brake_errors_do_not_release(rig):
 
 # ---------------------------------------------- Codex, before the first brake pulse
 
-def test_a_brake_move_counts_as_motion_for_the_heartbeat(rig):
-    c, drive, accel, clock = rig
+def test_a_brake_move_counts_as_motion_for_the_heartbeat():
+    clock = FakeClock()
+    drive = FakePort(drive_board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=0, brake_on_stop=False)
     c.start()
     c.heartbeat()
-    c.brake("apply")           # the actuator is now moving
+    c.brake("release")          # the actuator is now moving
     drive.writes.clear()
     clock.advance(0.71)
     c.tick()
     assert p.brake("stop") in drive.writes, "silence while the brake moves must stop the actuator"
+    c.close()
 
 
 def test_safe_stop_without_brake_on_stop_still_halts_the_brake_actuator():

@@ -131,6 +131,16 @@ def wait_until(pred, tries=200):
     return False
 
 
+
+def poll_once(c, clock):
+    """One angle poll through the controls, for rigs built with poll_hz=0:
+    a steering move needs a fresh reading (Phase A rule)."""
+    import time
+    c._poll_period = 0.2
+    clock.advance(0.21); c.tick(); time.sleep(0.04)
+    c._poll_period = None
+
+
 # ------------------------------------------------------------------ start
 
 def test_start_asks_before_it_touches_anything(rig):
@@ -242,6 +252,7 @@ def test_heartbeat_silence_with_motion_commanded_safe_stops_in_order(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    poll_once(c, clock)
     c.heartbeat()
     c.set_throttle(40)
     c.steer("left")
@@ -288,6 +299,7 @@ def test_safe_stop_is_idempotent_and_survives_a_dead_drive_link(rig):
 def test_steer_moves_are_momentary_and_stop_is_a_real_frame(rig):
     c, drive, accel, clock = rig
     c.start()
+    poll_once(c, clock)
     c.steer("left")
     c.steer("stop")
     assert drive.writes[-2:] == [p.steer("left"), p.steer("stop")]
@@ -480,6 +492,7 @@ def test_a_failed_write_on_one_link_stops_through_the_other(rig):
     record a fault."""
     c, drive, accel, clock = rig
     c.start()
+    poll_once(c, clock)
     c.heartbeat()
     c.steer("left")
     accel.writes.clear()
@@ -559,3 +572,58 @@ def test_stop_report_is_requested_and_acked_separately(rig):
     assert c.snapshot()["stop"] == {"requested": True, "acked": True}
     c.clear_faults()
     assert c.snapshot()["stop"]["acked"] is False     # cleared, not manufactured
+
+
+# ------------------------------------------------ Phase A, 13 Oct: feedback integrity
+
+def test_a_no_signal_or_err_angle_reply_latches_a_fault():
+    """Seen on the vehicle: the horn pulse made the board answer
+    0x04;ERR;NO_SIGNAL and then angles outside its own limits. Feedback
+    that fails must stop everything and latch."""
+    import time
+    clock = FakeClock()
+    state = {"mode": "ok"}
+    def board(frame):
+        if frame == p.read_steer() and state["mode"] == "err":
+            return [b"0x04;ERR;NO_SIGNAL\n"]
+        return drive_board(frame)
+    drive = FakePort(board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=5)
+    c.start()
+    state["mode"] = "err"
+    clock.advance(0.25); c.tick(); time.sleep(0.05)
+    snap = c.snapshot()
+    assert any("NO_SIGNAL" in f for f in snap["faults"])
+    assert snap["safe_stopped"] is True
+    with pytest.raises(Refused):
+        c.steer("left")
+    c.close()
+
+
+def test_an_implausible_angle_jump_or_out_of_range_reading_latches_a_fault():
+    import time
+    clock = FakeClock()
+    state = {"angle": 0x0601}
+    def board(frame):
+        if frame == p.read_steer():
+            return [("0x04;OK;%04X\n" % state["angle"]).encode()]
+        return drive_board(frame)
+    drive = FakePort(board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=5, max_angle_step_deg=30.0)
+    c.start()
+    state["angle"] = 0x0DC6        # 352.6: a 199 deg jump, and above the 243 limit
+    clock.advance(0.25); c.tick(); time.sleep(0.05)
+    snap = c.snapshot()
+    assert snap["faults"] and snap["safe_stopped"] is True
+    assert snap["steer"]["angle_deg"] == 153.7, "the bad reading does not replace the last good one"
+    c.close()
+
+
+def test_stop_frames_go_out_even_when_the_accel_write_fails(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    accel.write = lambda d: (_ for _ in ()).throw(OSError("gone"))
+    c.safe_stop()
+    assert drive.writes[-1] == p.steer("stop")

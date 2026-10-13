@@ -99,6 +99,7 @@ class Ugv01Controls:
         heartbeat_timeout_s: float = 0.7,
         accel_probe_s: float = 0.5,
         feedback_max_age_s: float = 0.5,
+        max_angle_step_deg: float = 30.0,
         max_duty: int = 90,
         poll_hz: float = 5.0,
         steer_sense: str | None = None,
@@ -124,6 +125,7 @@ class Ugv01Controls:
         self._hb_timeout = heartbeat_timeout_s
         self._accel_probe_s = accel_probe_s
         self._feedback_max_age = feedback_max_age_s
+        self._max_angle_step = max_angle_step_deg
         self._max_duty = max_duty
         self._poll_period = (1.0 / poll_hz) if poll_hz > 0 else None
         self._steer_sense = steer_sense
@@ -350,6 +352,11 @@ class Ugv01Controls:
 
     def _on_drive_reply(self, txn: _Txn, r: p.Reply) -> None:
         if not r.ok:
+            if r.cmd in (p.READ_STEER, p.READ_BRAKE):
+                # Seen on the vehicle on 13 Oct: 0x04;ERR;NO_SIGNAL after a
+                # horn pulse. Feedback that fails is a fault, not a skip.
+                self._fault("%s feedback failed: %s" % (
+                    "steering" if r.cmd == p.READ_STEER else "brake", r.data or "ERR"))
             return
         if r.cmd == p.INFO:
             v = p.firmware_version(r.data)
@@ -359,11 +366,19 @@ class Ugv01Controls:
             self._status_raw = r.data
         elif r.cmd == p.READ_STEER:
             a = p.angle_deg(r.data)
-            if a is not None:
+            if a is None:
+                self._fault("steering feedback unreadable: %r" % r.data)
+            elif not self._plausible(a, self._steer_angle, self._steer_limits, "steering"):
+                return      # faulted; the last good reading stays
+            else:
                 self._steer_angle, self._steer_angle_at = a, self._now()
         elif r.cmd == p.READ_BRAKE:
             a = p.angle_deg(r.data)
-            if a is not None:
+            if a is None:
+                self._fault("brake feedback unreadable: %r" % r.data)
+            elif not self._plausible(a, self._brake_angle, None, "brake"):
+                return
+            else:
                 self._brake_angle = a
         elif r.cmd == p.STR_LIM:
             self._steer_limits = p.limits_deg(r.data) or self._steer_limits
@@ -374,6 +389,18 @@ class Ugv01Controls:
             # physically released; the brake angle is in the snapshot for that.
             self._brake_applied = False
             self._brake_release_seq = None
+
+    def _plausible(self, a: float, last: float | None, limits, what: str) -> bool:
+        """A reading that jumps more than max_angle_step from the last good
+        one, or (for steering) sits outside the board's own limits by more
+        than 5 deg, is a sensor or supply fault, not a position."""
+        if last is not None and abs(a - last) > self._max_angle_step:
+            self._fault("%s feedback jumped %.1f to %.1f deg" % (what, last, a))
+            return False
+        if limits is not None and (a < limits[0] - 5.0 or a > limits[1] + 5.0):
+            self._fault("%s feedback %.1f deg outside limits %s" % (what, a, limits))
+            return False
+        return True
 
     # -------------------------------------------------------------- writing
 
@@ -488,6 +515,9 @@ class Ugv01Controls:
         with self._lock:
             if direction != "stop":
                 self._check_open("steer")
+                at = self._steer_angle_at
+                if at is None or self._now() - at > self._feedback_max_age:
+                    raise Refused("steer refused: no fresh steering reading")
             self._steer_target = None
             self._steer_moving = direction
             self._write(self._drive, frame, p.STR_SW, arg=p._STEER[direction])

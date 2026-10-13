@@ -101,11 +101,14 @@ components:
     path: drive/pilot/
     plane: edge
     role: The machine edge runtime; boots from a manifest, loads drivers, runs the autonomy loop, speaks LINK
-    status: simulated
+    status: hardware_integrated
+    evidence:
+      hardware_runs:
+        - "2026-10-13: first boot on the Jetson AGX Orin in the vehicle, in the argus-pilot:dev container built on the Jetson (arm64, 173 s): simulated locomotion, dead-reckoning localization, simulated camera, MQTT comms to the laptop's broker over an SSH tunnel on Tailscale; registry served on the Jetson and read from the Mac; registered in TRACK as 01PILOT00000000000000UGV1 (STANDBY) with --prefix argus. No ROS2 in the path, no real driver. Logs: bodies/ugv-01/reference/2026-10-13/pilot_*.log."
     disposition: keep
     tests: [tests/test_pilot_loop.py]
     known_gaps:
-      - Has never run on the Jetson; all evidence is Mac and CI containers
+      - Ran on the Jetson once (13 Oct 2026) with simulated drivers only; Nav2 in the container on the Jetson untested; no real locomotion or sensor driver behind the HAL yet (edge.hal.ugv01 is the control layer, not yet a LocomotionDriver); PILOT's default --prefix site does not match TRACK's argus
     blockers:
       - First boot on the actual Jetson (phase 3)
 

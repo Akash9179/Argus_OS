@@ -159,6 +159,7 @@ class Ugv01Controls:
         self._duty_acked_seq: int | None = None
         self._steer_moving: str = "stop"
         self._steer_target: float | None = None
+        self._brake_moving: bool = False      # apply or release in progress
         self._commanded = {"gear": None, "light": None, "indicator": None, "speed_mode": None}
         # supervision
         self._last_heartbeat: float | None = None
@@ -510,12 +511,15 @@ class Ugv01Controls:
                 seq = self._write(self._accel, p.ACCEL_ZERO, p.ACCEL_DUTY_CMD, arg=0)
                 if seq is not None:
                     self._duty_last_seq = seq
+                self._brake_moving = True
                 self._write(self._drive, frame, p.BRK_SW, arg=0x01)
             elif action == "release":
                 self._check_open("brake release")
+                self._brake_moving = True
                 seq = self._write(self._drive, frame, p.BRK_SW, arg=0x02)
                 self._brake_release_seq = seq
             else:
+                self._brake_moving = False
                 self._write(self._drive, frame, p.BRK_SW, arg=0x00)
 
     def steer(self, direction: str) -> None:
@@ -618,7 +622,13 @@ class Ugv01Controls:
                     self._duty_last_seq = seqs[0]
                 if self._brake_on_stop:
                     self._brake_applied = True
+                    self._brake_moving = True
                     seqs.append(self._write(self._drive, p.brake("apply"), p.BRK_SW, arg=0x01))
+                else:
+                    # the brake stroke is not characterised: halt the actuator
+                    # where it is rather than drive it to an unknown end
+                    self._brake_moving = False
+                    seqs.append(self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00))
                 seqs.append(self._write(self._drive, p.steer("stop"), p.STR_SW, arg=0x00))
                 self._stop_seqs = {s for s in seqs if s is not None}
                 self._stop_incomplete = any(s is None for s in seqs)
@@ -672,7 +682,7 @@ class Ugv01Controls:
                     self._fault("%s board not answering" % link.name, link)
             # 2. host heartbeat while motion is commanded
             motion = (self._duty_commanded > 0 or self._steer_moving != "stop"
-                      or self._steer_target is not None)
+                      or self._steer_target is not None or self._brake_moving)
             if motion and not self._safe_stopped:
                 hb = self._last_heartbeat
                 if hb is None or now - hb > self._hb_timeout:

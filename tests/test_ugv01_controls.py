@@ -668,3 +668,41 @@ def test_other_brake_errors_do_not_release(rig):
     assert c.snapshot()["brake"]["applied"] is True
     with pytest.raises(Refused, match="brake"):
         c.set_throttle(20)
+
+
+# ---------------------------------------------- Codex, before the first brake pulse
+
+def test_a_brake_move_counts_as_motion_for_the_heartbeat(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    c.heartbeat()
+    c.brake("apply")           # the actuator is now moving
+    drive.writes.clear()
+    clock.advance(0.71)
+    c.tick()
+    assert p.brake("stop") in drive.writes, "silence while the brake moves must stop the actuator"
+
+
+def test_safe_stop_without_brake_on_stop_still_halts_the_brake_actuator():
+    clock = FakeClock()
+    drive = FakePort(drive_board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=0, brake_on_stop=False)
+    c.start()
+    c.brake("release")
+    drive.writes.clear(); accel.writes.clear()
+    c.safe_stop()
+    assert accel.writes[0] == p.ACCEL_ZERO
+    assert drive.writes == [p.brake("stop"), p.steer("stop")]
+    c.close()
+
+
+def test_brake_stop_clears_the_moving_state(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    c.heartbeat()
+    c.brake("apply"); c.brake("stop")
+    drive.writes.clear()
+    clock.advance(0.71)
+    c.tick()
+    assert drive.writes == []

@@ -120,6 +120,24 @@ components:
     tests: [tests/test_pilot_loop.py]
     notes: The most rigorously executed part of the codebase per the as-built audit. The seam grows two new provider kinds (perception streams, localization) rather than being replaced.
 
+  - id: edge.hal.ugv01
+    name: ugv-01 vehicle driver (two boards)
+    type: Adapter
+    path: drive/pilot/hal/drivers/ugv01/
+    plane: edge
+    role: The single owner of ugv-01's ARGUS DRIVE module and accelerator board; pure protocol, serial link, controls with the safety rules, and the bench tool. The teleop bridge's ugv01 adapter is a shim over it (ADR-0009)
+    status: simulated
+    disposition: keep
+    tests: [tests/test_ugv01_protocol.py, tests/test_ugv01_controls.py, tests/test_ugv01_bridge_adapter.py]
+    known_gaps:
+      - Has never opened a real port; every rule is proven against a fake serial pair only
+      - Steering sense (which direction raises the angle reading) unknown until the bench; closed-loop steer_to() refuses until it is set
+      - A host cannot stop a board through a link that has failed; stop_confirmed is false after any fault, and stop on link loss is not proven on either board
+      - Not yet a LocomotionDriver (set_velocity, goto, pose); that mapping needs vehicle geometry and a speed source that do not exist yet
+    blockers:
+      - Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first)
+      - Codex Astra checkpoint 2 review resolved (13 Oct 2026)
+
   - id: edge.hal.sensor_interface
     name: SensorDriver interface (Detection-only)
     type: Interface
@@ -227,12 +245,14 @@ components:
     type: Service
     path: drive/bridge/
     plane: edge
-    role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock only), optional LINK reporter
+    role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock, and the ugv01 shim over edge.hal.ugv01), optional LINK reporter
     status: software_verified
     disposition: refactor
-    tests: [tests/test_bridge_daemon.py]
+    tests: [tests/test_bridge_daemon.py, tests/test_ugv01_bridge_adapter.py, tests/test_contract_brake.py]
     known_gaps:
       - Own JSON wire contract and own vehicle abstraction, parallel to the HAL
+      - The ugv01 adapter's self-test keeps stop_on_link_loss false, so the daemon cannot arm on the real vehicle until the section 6 gate is proven (13 Oct 2026)
+      - Telemetry the boards cannot supply (speed, battery, heading, temperature) is sent as zero because the contract has no unknown; the cockpit must learn an unknown before this drives a real HUD
     notes: Convergence direction (ADR-0009) makes its VehicleAdapter a shim over the HAL locomotion driver so exactly one process owns the hardware. Do not build the real MCU adapter twice. 18 Aug 2026, the software half of ADR-0009 point 4 landed, per-operator tokens (drive/bridge/identity.py) and an append-only session log (drive/bridge/session_log.py) from which a session is reconstructed in CI; the old relay (argus_relay.py) still runs on the shared password and retires at convergence.
 
   - id: teleop.relay
@@ -388,9 +408,10 @@ components:
     role: Stereolabs ZED X behind the perception interface; depth, tracking, detections as capability streams
     status: planned
     disposition: new
+    known_gaps:
+      - On 13 Oct 2026 the front ZED X was observed working on the Jetson under the team's own ROS 2 wrapper (zedlink-duo 1.4.3 for L4T 36.5, zed_x_daemon active, odometry publishing, colour at 9 Hz); the rear camera reports CAMERA NOT DETECTED. ARGUS has no ZED provider of its own yet (bodies/ugv-01/FINDINGS-2026-10-13.md)
     blockers:
-      - Installed ZED SDK 5.4.1 bundles ZED X GMSL drivers for L4T 35.x; flashed kernel is L4T 36.5; the matching SDK must be installed when the camera arrives
-      - Camera ORDERED 18 Aug 2026, delivery expected within days, WITH the ZED Link GMSL2 capture card and cable (founder-confirmed); hardware connection path complete on arrival, driver bring-up remains
+      - An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
       - Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
 
   - id: perception.detector
@@ -439,27 +460,30 @@ components:
     type: Hardware
     path: bodies/ugv-01/
     plane: hardware
-    role: The first steel; survey findings, MCU protocol notes, wiring, firmware
+    role: The first steel; findings, protocol notes, wiring, firmware. Since 13 Oct 2026 the serial path is an ARGUS DRIVE v4.1.4 module (CH340) plus an accelerator board v1.2 (FTDI); the Arduino relay path the August pages describe is no longer on the wire
     status: scaffolded
     disposition: keep
     known_gaps:
-      - Relay map is verbal and unverified
-      - Deployed MCU firmware holds last throttle forever on link loss; steering feedback disconnected; brake relays disconnected; no ignition or e-stop relay
+      - Neither new board has a demonstrated firmware watchdog; the accelerator latches its last duty per the team's own code; link-loss behaviour of the drive module is undocumented
+      - The 4.1.3 spec contradicts itself on steer left/right (0x05 01) and brake stop/release (0x06 00); the bench must settle both
+      - Firmware sources for both boards are not in any checkout; STATUS (0x16) reply format and RESET defaults unknown
+      - MCU-PROTOCOL.md, BENCH.md and the August FINDINGS describe the superseded relay path; kept as history
     blockers:
-      - Bench verification of the relay map, wheels off the ground, one relay at a time
+      - Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
+      - A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
 
   - id: bodies.ugv01.firmware_v4
     name: v4 watchdog firmware
     type: Firmware
     path: bodies/ugv-01/firmware/
     plane: hardware
-    role: Replacement MCU firmware; opt-in latching watchdog, break-before-make on both reversing relay pairs
+    role: Replacement firmware for the Arduino relay board; opt-in latching watchdog, break-before-make on both reversing relay pairs. That board is no longer on the serial path (13 Oct 2026)
     status: scaffolded
-    disposition: keep
+    disposition: archive
     known_gaps:
-      - Written but never flashed and never bench-verified
+      - Written but never flashed; targets a 14-relay Nano pin map and PWM 42 that the vehicle no longer presents. Do not flash it onto the accelerator board
     blockers:
-      - Bench verification is the hard safety gate; no autonomous moving test happens before it passes (ARCHITECTURE.md section 6)
+      - The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
   # --------------------------------------------------------------------- sim
   - id: sim.vehicle

@@ -32,6 +32,7 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS PILOT (`edge.pilot`) | simulated | keep | BLOCKED (1); 1 known gap |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
+| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | simulated | keep | BLOCKED (2); 4 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
 | LocomotionDriver interface (`edge.hal.locomotion_interface`) | simulated | refactor | 1 known gap |
 | CommsDriver interface (`edge.hal.comms_interface`) | software_verified | keep | - |
@@ -41,11 +42,11 @@ verdict: keep / refactor / replace / archive / new.
 | Navigator (Direct and Nav2) (`edge.navigator`) | simulated | keep | 3 known gaps |
 | WorldSlice (`edge.worldslice`) | software_verified | keep | - |
 | Edge LINK client (`edge.link_client`) | software_verified | keep | - |
-| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 1 known gap |
+| Teleop bridge daemon (`teleop.bridge`) | software_verified | refactor | 3 known gaps |
 | Bridge relay (`teleop.relay`) | hardware_integrated | refactor | 1 known gap |
 | Teleop watchdog (`teleop.watchdog`) | software_verified | keep | 1 known gap |
 | Brain prototype (`drive.brain`) | scaffolded | archive | 1 known gap; succeeded by `core.cognitive_runtime` |
-| ZED provider (`perception.zed`) | planned | new | BLOCKED (3) |
+| ZED provider (`perception.zed`) | planned | new | BLOCKED (2); 1 known gap |
 | Object detector (RF-DETR) (`perception.detector`) | planned | new | - |
 
 ## Core (the cognitive architecture, target)
@@ -73,8 +74,8 @@ verdict: keep / refactor / replace / archive / new.
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (1); 2 known gaps |
-| v4 watchdog firmware (`bodies.ugv01.firmware_v4`) | scaffolded | keep | BLOCKED (1); 1 known gap |
+| ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 4 known gaps |
+| v4 watchdog firmware (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane
 
@@ -100,11 +101,13 @@ verdict: keep / refactor / replace / archive / new.
 ## Blockers
 
 - `edge.pilot`: First boot on the actual Jetson (phase 3)
-- `perception.zed`: Installed ZED SDK 5.4.1 bundles ZED X GMSL drivers for L4T 35.x; flashed kernel is L4T 36.5; the matching SDK must be installed when the camera arrives
-- `perception.zed`: Camera ORDERED 18 Aug 2026, delivery expected within days, WITH the ZED Link GMSL2 capture card and cable (founder-confirmed); hardware connection path complete on arrival, driver bring-up remains
+- `edge.hal.ugv01`: Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first)
+- `edge.hal.ugv01`: Codex Astra checkpoint 2 review resolved (13 Oct 2026)
+- `perception.zed`: An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
 - `perception.zed`: Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
-- `bodies.ugv01`: Bench verification of the relay map, wheels off the ground, one relay at a time
-- `bodies.ugv01.firmware_v4`: Bench verification is the hard safety gate; no autonomous moving test happens before it passes (ARCHITECTURE.md section 6)
+- `bodies.ugv01`: Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
+- `bodies.ugv01`: A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
+- `bodies.ugv01.firmware_v4`: The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
 ## Hardware evidence (everything else is Mac and CI containers)
 

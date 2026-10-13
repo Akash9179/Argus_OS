@@ -40,6 +40,9 @@ relationships:
   - {from: teleop.bridge, type: USES, to: teleop.watchdog}
   - {from: teleop.bridge, type: USES, to: teleop.relay}
   - {from: teleop.bridge, type: RUNS_ON, to: bodies.ugv01, note: "target; today only the relay has run there"}
+  - {from: teleop.bridge, type: USES, to: edge.hal.ugv01, note: "the ugv01 VehicleAdapter is a shim over the HAL driver (ADR-0009)"}
+  - {from: edge.hal.ugv01, type: PART_OF, to: edge.hal}
+  - {from: edge.hal.ugv01, type: RUNS_ON, to: bodies.ugv01, note: "target; never opened a real port as of 13 Oct 2026"}
 
   # Target core supersessions and dependencies
   - {from: core.perception_interface, type: SUPERSEDES, to: edge.hal.sensor_interface}
@@ -65,7 +68,7 @@ relationships:
   # Hardware and blockers
   - {from: edge.pilot, type: RUNS_ON, to: bodies.ugv01, note: "target; has never happened"}
   - {from: perception.zed, type: RUNS_ON, to: bodies.ugv01}
-  - {from: bodies.ugv01, type: BLOCKED_BY, to: bodies.ugv01.firmware_v4, note: "no autonomous motion until the firmware is bench-verified and flashed"}
+  - {from: bodies.ugv01, type: BLOCKED_BY, to: edge.hal.ugv01, note: "no autonomous motion until the two new boards are bench-verified through the one owner and the link-loss stop is proven (section 6)"}
 
   # Operations
   - {from: ops.fleet_deployment, type: PRODUCES, to: edge.pilot, note: "versioned releases onto machines"}

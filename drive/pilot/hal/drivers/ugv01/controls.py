@@ -352,6 +352,14 @@ class Ugv01Controls:
 
     def _on_drive_reply(self, txn: _Txn, r: p.Reply) -> None:
         if not r.ok:
+            if (r.cmd == p.BRK_SW and txn.seq == self._brake_release_seq
+                    and r.data.upper() == "AT_LIMIT"):
+                # Seen on the vehicle on 13 Oct: a release asked of a brake
+                # already at its released end is answered AT_LIMIT. That is
+                # the released state, so it counts as the release ack.
+                self._brake_applied = False
+                self._brake_release_seq = None
+                return
             if r.cmd in (p.READ_STEER, p.READ_BRAKE):
                 # Seen on the vehicle on 13 Oct: 0x04;ERR;NO_SIGNAL after a
                 # horn pulse. Feedback that fails is a fault, not a skip.

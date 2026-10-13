@@ -636,3 +636,35 @@ def test_read_status_refreshes_the_raw_status(rig):
         if frame == p.status() else drive_board(frame)
     c.read_status()
     assert wait_until(lambda: "GR=01" in (c.snapshot()["drive"]["status_raw"] or ""))
+
+
+def test_a_release_answered_at_limit_counts_as_released():
+    """Phase C2 on the vehicle: 0x06 02 answered 0x06;ERR;AT_LIMIT with the
+    brake already at its released end. That is released, not applied."""
+    import time
+    clock = FakeClock()
+    def board(frame):
+        if frame == p.brake("release"):
+            return [b"0x06;ERR;AT_LIMIT\n"]
+        return drive_board(frame)
+    drive = FakePort(board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=0)
+    c.start()
+    c.brake("release")
+    assert wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    assert c.snapshot()["faults"] == []
+    c.set_throttle(20)
+    assert accel.writes[-1] == p.accel_duty(20)
+    c.close()
+
+
+def test_other_brake_errors_do_not_release(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    drive.answer = lambda frame: [b"0x06;ERR;STALL\n"] if frame == p.brake("release") else drive_board(frame)
+    c.brake("release")
+    clock.advance(0.3)
+    assert c.snapshot()["brake"]["applied"] is True
+    with pytest.raises(Refused, match="brake"):
+        c.set_throttle(20)

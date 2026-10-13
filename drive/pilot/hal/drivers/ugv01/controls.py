@@ -97,7 +97,7 @@ class Ugv01Controls:
         drive_boot_s: float = 0.5,
         reply_timeout_s: float = 1.0,
         heartbeat_timeout_s: float = 0.7,
-        accel_probe_s: float = 0.5,
+        accel_probe_s: float = 0.25,     # AC 1.3 rests after 800 ms of silence; talk 3x faster
         feedback_max_age_s: float = 0.5,
         max_angle_step_deg: float = 30.0,
         max_duty: int = 90,
@@ -157,6 +157,9 @@ class Ugv01Controls:
         self._duty_acked: int | None = None
         self._duty_last_seq: int | None = None
         self._duty_acked_seq: int | None = None
+        self._duty_read: int | None = None      # AC 1.3 read-back
+        self._accel_timeouts: int | None = None
+        self._accel_read_back = False           # firmware 1.3 or later
         self._steer_moving: str = "stop"
         self._steer_target: float | None = None
         self._brake_moving: bool = False      # apply or release in progress
@@ -251,6 +254,10 @@ class Ugv01Controls:
             raise LinkError("accelerator firmware %s is not a supported version" % version)
         with self._lock:
             a.firmware = version
+            try:
+                self._accel_read_back = tuple(int(x) for x in version.split(".")) >= (1, 3)
+            except ValueError:
+                self._accel_read_back = False
 
     def close(self) -> None:
         """Stop first, wait for the boards to answer, then let go. Closing
@@ -312,6 +319,11 @@ class Ugv01Controls:
         with self._lock:
             link.last_reply_at = self._now()
             link.answering = True
+            if line.strip().upper() == "0X00;WD;TIMEOUT":
+                # 4.1.5: the drive module switched its actuators off after
+                # host silence. Unsolicited, and a fault on our side.
+                self._fault("drive module WD TIMEOUT: it stopped its actuators after host silence", brake=False)
+                return
             if reply is None:
                 return
             txn = None
@@ -335,10 +347,30 @@ class Ugv01Controls:
                 self._on_drive_reply(txn, reply)
 
     def _on_accel_reply(self, txn: _Txn, r: p.Reply) -> None:
+        if r.cmd == p.ACCEL_DUTY_CMD and not r.ok and r.data.upper() == "TIMEOUT":
+            # AC 1.3: the board rested itself after host silence and holds a
+            # latch until it sees an explicit zero. That silence is a fault
+            # on our side; clear_faults() sends the zero.
+            self._fault("accel board TIMEOUT: it rested itself after host silence", brake=False)
+            return
         if r.cmd == p.ACCEL_INFO_CMD and r.ok:
             v = p.accel_version(r.data)
             if v:
                 self._accel.firmware = v
+        elif r.cmd == p.ACCEL_READ_CMD and r.ok:
+            parts = r.data.split(";")
+            try:
+                duty = int(parts[0], 16); timeouts = int(parts[1], 16)
+            except (ValueError, IndexError):
+                return
+            if not (0 <= duty <= 100 and 0 <= timeouts <= 255):
+                return
+            previous = self._accel_timeouts
+            self._duty_read, self._accel_timeouts = duty, timeouts
+            if previous is not None and timeouts > previous:
+                self._fault("accel board took a timeout on its own (%d)" % timeouts, brake=False)
+            elif self._duty_acked is not None and duty != self._duty_acked and self._duty_acked == self._duty_commanded:
+                self._fault("accel board holds duty %d, host acknowledged %d" % (duty, self._duty_acked), brake=False)
         elif r.cmd == p.ACCEL_DUTY_CMD and r.ok:
             try:
                 echoed = int(r.data, 16)
@@ -591,6 +623,15 @@ class Ugv01Controls:
                 raise Refused("horn refused: closing")
             self._write(self._drive, p.horn(), p.HORN, arg=0x01)
 
+    def read_accel(self) -> None:
+        """AC 1.3 read-back (0x03): duty the board holds and its timeout
+        count, into snapshot()["accel"]["duty_read"/"timeouts"]. On AC 1.2
+        the board answers ERR;UNKNOWN_COMMAND, which is ignored."""
+        with self._lock:
+            if not self._accel_read_back:
+                return
+            self._write(self._accel, p.accel_read(), p.ACCEL_READ_CMD)
+
     def read_status(self) -> None:
         """Ask the drive board for its switch states (0x16). The reply
         lands in snapshot()["drive"]["status_raw"]. A read, not a move."""
@@ -599,7 +640,7 @@ class Ugv01Controls:
 
     # ----------------------------------------------------------- supervision
 
-    def safe_stop(self) -> None:
+    def safe_stop(self, *, brake: bool | None = None) -> None:
         """Propulsion off, then brake on (if brake_on_stop), then steering
         stopped. Each step is attempted whatever happened to the one
         before. Idempotent. Cannot act through a link that is down; the
@@ -620,7 +661,8 @@ class Ugv01Controls:
                 seqs = [self._write(self._accel, p.ACCEL_ZERO, p.ACCEL_DUTY_CMD, arg=0)]
                 if seqs[0] is not None:
                     self._duty_last_seq = seqs[0]
-                if self._brake_on_stop:
+                use_brake = self._brake_on_stop if brake is None else brake
+                if use_brake:
                     self._brake_applied = True
                     self._brake_moving = True
                     seqs.append(self._write(self._drive, p.brake("apply"), p.BRK_SW, arg=0x01))
@@ -653,7 +695,8 @@ class Ugv01Controls:
             if seq is not None:
                 self._duty_last_seq = seq
 
-    def _fault(self, reason: str, link: _Link | None = None, *, port_dead: bool = False) -> None:
+    def _fault(self, reason: str, link: _Link | None = None, *, port_dead: bool = False,
+               brake: bool | None = None) -> None:
         """Record a fault and stop. A silent board keeps its port open and
         still gets the stop frames; a port that raised is marked dead
         first so nothing blocks on it."""
@@ -664,7 +707,7 @@ class Ugv01Controls:
                     link.connected = False
             if reason not in self._faults:
                 self._faults.append(reason)
-            self.safe_stop()
+            self.safe_stop(brake=brake)
 
     def tick(self) -> None:
         """Call at rate (the owner's tick thread). Polls, checks reply
@@ -687,13 +730,19 @@ class Ugv01Controls:
                 hb = self._last_heartbeat
                 if hb is None or now - hb > self._hb_timeout:
                     self.safe_stop()
-            # 3. accelerator liveness: a quiet board gets asked
-            if self._accel.connected and not self._accel.pending:
+            # 3. accelerator liveness, and the keepalive AC 1.3 needs while
+            #    the throttle is on: a probe at least every accel_probe_s
+            if self._accel.connected:
                 last = self._accel.last_reply_at or 0.0
                 probe = self._last_accel_probe_at or 0.0
-                if now - last > self._accel_probe_s and now - probe > self._accel_probe_s:
+                due = now - probe >= self._accel_probe_s and (
+                    self._duty_commanded > 0 or (not self._accel.pending and now - last > self._accel_probe_s))
+                if due:
                     self._last_accel_probe_at = now
-                    self._write(self._accel, p.accel_info(), p.ACCEL_INFO_CMD)
+                    if self._accel_read_back:
+                        self._write(self._accel, p.accel_read(), p.ACCEL_READ_CMD)
+                    else:
+                        self._write(self._accel, p.accel_info(), p.ACCEL_INFO_CMD)
             # 4. drive polls
             if self._poll_period is not None and self._drive.connected:
                 if self._last_poll_at is None or now - self._last_poll_at >= self._poll_period:
@@ -754,6 +803,9 @@ class Ugv01Controls:
                     "alive": self._accel_alive,
                     "duty_commanded": self._duty_commanded,
                     "duty_acked": self._duty_acked,
+                    "duty_read": self._duty_read,
+                    "timeouts": self._accel_timeouts,
+                    "read_back": self._accel_read_back,
                     "last_reply_age_s": age(self._accel.last_reply_at),
                 },
                 "steer": {

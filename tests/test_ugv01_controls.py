@@ -711,3 +711,128 @@ def test_brake_stop_clears_the_moving_state(rig):
     clock.advance(0.71)
     c.tick()
     assert drive.writes == []
+
+
+# ----------------------------------------- the throttle board with a watchdog (AC 1.3)
+
+def accel_board_13(frame):
+    """AC 1.3: identity AC0103, 0x03 read-back, TIMEOUT latch after silence."""
+    text = frame.decode().strip()
+    if text == "0x01":
+        return [b"0x01;OK;AC0103\n"]
+    if text == "0x03":
+        return [b"0x03;OK;00;01\n"]
+    if text.startswith("0x02;"):
+        return [("0x02;OK;%s\n" % text.split(";")[1]).encode()]
+    return [b"ERR;UNKNOWN_COMMAND\n"]
+
+
+def test_keepalive_runs_faster_than_the_boards_timeout_while_throttle_is_on(rig):
+    """AC 1.3 drops to rest after 800 ms of silence. With throttle above
+    zero the host must talk at least every 250 ms."""
+    c, drive, accel, clock = rig
+    c.start()
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.heartbeat(); c.set_throttle(20)
+    wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 20)
+    accel.writes.clear()
+    import time
+    for _ in range(8):
+        clock.advance(0.1); c.heartbeat(); c.tick(); time.sleep(0.02)
+    probes = [w for w in accel.writes if w == p.accel_info()]
+    assert len(probes) >= 3, accel.writes
+
+
+def test_a_timeout_error_from_the_board_latches_a_fault():
+    import time
+    clock = FakeClock()
+    def board(frame):
+        text = frame.decode().strip()
+        if text.startswith("0x02;") and text != "0x02;00":
+            return [b"0x02;ERR;TIMEOUT\n"]
+        return accel_board_13(frame)
+    drive = FakePort(drive_board); accel = FakePort(board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now, sleep=clock.sleep, poll_hz=0)
+    c.start()
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.heartbeat(); c.set_throttle(20)
+    assert wait_until(lambda: any("TIMEOUT" in f for f in c.snapshot()["faults"]))
+    assert c.snapshot()["safe_stopped"] is True
+    c.close()
+
+
+def test_the_read_back_reply_updates_duty_and_timeouts():
+    import time
+    clock = FakeClock()
+    drive = FakePort(drive_board); accel = FakePort(accel_board_13)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now, sleep=clock.sleep, poll_hz=0)
+    c.start()
+    assert c.snapshot()["accel"]["firmware"] == "1.3"
+    c.read_accel()
+    assert wait_until(lambda: c.snapshot()["accel"]["timeouts"] == 1)
+    assert c.snapshot()["accel"]["duty_read"] == 0
+    c.close()
+
+
+def test_the_drive_modules_timeout_notice_latches_a_fault(rig):
+    """4.1.5 prints 0x00;WD;TIMEOUT once when it switched its actuators
+    off after host silence. Unsolicited, but it is a fault report."""
+    c, drive, accel, clock = rig
+    c.start()
+    drive.rx.put(b"0x00;WD;TIMEOUT\n")
+    assert wait_until(lambda: any("WD" in f or "silence" in f for f in c.snapshot()["faults"]))
+    assert c.snapshot()["safe_stopped"] is True
+
+
+def test_read_back_is_only_sent_to_a_board_that_supports_it(rig):
+    """AC 1.2 answers 0x03 with ERR;UNKNOWN_COMMAND, which has no command
+    byte and would leave the frame pending until a false 'not answering'
+    fault. So the read-back is gated on the firmware version."""
+    c, drive, accel, clock = rig          # the rig's board is AC 1.2
+    c.start()
+    before = list(accel.writes)
+    c.read_accel()
+    assert accel.writes == before
+    assert c.snapshot()["accel"]["read_back"] is False
+
+
+def test_on_ac13_the_keepalive_is_the_read_back_and_a_new_timeout_faults():
+    import time
+    clock = FakeClock()
+    state = {"timeouts": 0}
+    def board(frame):
+        text = frame.decode().strip()
+        if text == "0x03":
+            return [("0x03;OK;%02X;%02X\n" % (state.get("duty", 0), state["timeouts"])).encode()]
+        if text.startswith("0x02;"):
+            state["duty"] = int(text.split(";")[1], 16)
+        return accel_board_13(frame)
+    drive = FakePort(drive_board); accel = FakePort(board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now, sleep=clock.sleep, poll_hz=0)
+    c.start()
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.heartbeat(); c.set_throttle(20)
+    wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 20)
+    accel.writes.clear()
+    for _ in range(3):
+        clock.advance(0.3); c.heartbeat(); c.tick(); time.sleep(0.03)
+    assert p.accel_read() in accel.writes and p.accel_info() not in accel.writes
+    assert c.snapshot()["accel"]["duty_read"] == 20
+    # the board reports a timeout it took on its own: that is a fault here
+    state["timeouts"] = 1; state["duty"] = 0
+    clock.advance(0.3); c.heartbeat(); c.tick(); time.sleep(0.05)
+    assert any("timeout" in f.lower() for f in c.snapshot()["faults"])
+    c.close()
+
+
+def test_a_board_watchdog_report_stops_without_driving_the_brake(rig):
+    """The module already switched its actuators off; our stop must not
+    answer with a brake apply that re-energises the actuator it just
+    stopped, whatever brake_on_stop says."""
+    c, drive, accel, clock = rig
+    c.start()
+    drive.writes.clear()
+    drive.rx.put(b"0x00;WD;TIMEOUT\n")
+    assert wait_until(lambda: c.snapshot()["safe_stopped"])
+    assert p.brake("apply") not in drive.writes
+    assert p.steer("stop") in drive.writes

@@ -142,6 +142,13 @@ def horn() -> bytes:
 
 ACCEL_INFO_CMD = 0x01
 ACCEL_DUTY_CMD = 0x02
+ACCEL_READ_CMD = 0x03       # AC 1.3: read-back of duty and timeout count
+
+
+def accel_read() -> bytes:
+    """AC 1.3 only: '0x03;OK;<duty hex>;<timeouts hex>'. AC 1.2 answers
+    ERR;UNKNOWN_COMMAND, which the controls treat as 'not supported'."""
+    return _frame(ACCEL_READ_CMD)
 
 
 def accel_info() -> bytes:

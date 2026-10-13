@@ -579,6 +579,12 @@ class Ugv01Controls:
                 raise Refused("horn refused: closing")
             self._write(self._drive, p.horn(), p.HORN, arg=0x01)
 
+    def read_status(self) -> None:
+        """Ask the drive board for its switch states (0x16). The reply
+        lands in snapshot()["drive"]["status_raw"]. A read, not a move."""
+        with self._lock:
+            self._write(self._drive, p.status(), p.STATUS)
+
     # ----------------------------------------------------------- supervision
 
     def safe_stop(self) -> None:

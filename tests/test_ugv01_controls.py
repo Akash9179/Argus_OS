@@ -627,3 +627,12 @@ def test_stop_frames_go_out_even_when_the_accel_write_fails(rig):
     accel.write = lambda d: (_ for _ in ()).throw(OSError("gone"))
     c.safe_stop()
     assert drive.writes[-1] == p.steer("stop")
+
+
+def test_read_status_refreshes_the_raw_status(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    drive.answer = lambda frame: [b"0x16;OK;A=00,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00\n"] \
+        if frame == p.status() else drive_board(frame)
+    c.read_status()
+    assert wait_until(lambda: "GR=01" in (c.snapshot()["drive"]["status_raw"] or ""))

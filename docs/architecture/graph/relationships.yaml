@@ -68,6 +68,8 @@ relationships:
   # Hardware and blockers
   - {from: edge.pilot, type: RUNS_ON, to: bodies.ugv01, note: "target; has never happened"}
   - {from: perception.zed, type: RUNS_ON, to: bodies.ugv01}
+  - {from: bodies.ugv01.firmware_watchdog, type: SUPERSEDES, to: bodies.ugv01.firmware_v4, note: "the relay board left the serial path; the watchdog moved to the two new boards"}
+  - {from: edge.hal.ugv01, type: USES, to: bodies.ugv01.firmware_watchdog, note: "the keepalive, TIMEOUT and WD notices the controls speak"}
   - {from: bodies.ugv01, type: BLOCKED_BY, to: edge.hal.ugv01, note: "no autonomous motion until the two new boards are bench-verified through the one owner and the link-loss stop is proven (section 6)"}
 
   # Operations

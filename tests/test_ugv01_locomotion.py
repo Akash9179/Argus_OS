@@ -128,3 +128,13 @@ def test_the_manifest_builds_a_driver_set_with_injected_controls():
     drivers.locomotion.start()
     snap = drivers.registry.snapshot() if hasattr(drivers, "registry") else None
     drivers.locomotion.stop()
+
+
+def test_an_unmeasured_position_never_becomes_home(tmp_path):
+    """Law 15: home is where the machine woke up. static_localization's
+    configured position is not a measurement, so the core must not adopt
+    it as home; a healthy estimate later may."""
+    from pilot.autonomy.core import AutonomyCore
+    import inspect
+    src = inspect.getsource(AutonomyCore)
+    assert "if estimate.healthy:" in src and "self.world.home = (estimate.latitude_deg" in src

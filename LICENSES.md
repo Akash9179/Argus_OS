@@ -41,6 +41,10 @@ whether direct or not.
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
 | pyserial | 3.5 or later | BSD-3-Clause | drive/pilot/hal/drivers/ugv01/ (the two vehicle boards' serial ports; imported only when a real port is opened, 13 Oct 2026) | Clear. Permissive. |
+| Arduino AVR core (compiles the Nano sketch; not shipped in this repo) | 1.8.x | LGPL-2.1 | bodies/ugv-01/firmware/nano_throttle_watchdog/, built in Gulshan Shah's Arduino IDE | Clear for firmware that links it; nothing of it is copied here. |
+| Arduino core for ESP32 (compiles the drive module; not shipped) | espressif32 via PlatformIO | LGPL-2.1 | bodies/ugv-01/firmware/esp32_drive_watchdog/, built with PlatformIO | Clear, same terms. |
+| PlatformIO Core (build tool only) | 6.x | Apache-2.0 | developer machines | Clear. Not deployed. |
+| Team vehicle firmware (ESP32-S3 4.1.4, Nano AC 1.2, by Gulshan Shah) | 13 Oct 2026 | UNKNOWN | kept outside git at ~/Projects/Argus/_reference/ugv-01-team-2026-10-13/firmware/; our patch and sketch modify it | OPEN, decision OD-24: ownership not yet stated. Sources stay out of the repo until it is. |
 
 C2's dev-only tooling never ships: `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals` and `vitest`. All are MIT, checked with `npm view <pkg> license` on 12 Oct 2026. They stay outside the shipped-software tables by decision, not by omission.
 

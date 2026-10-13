@@ -108,7 +108,8 @@ components:
     disposition: keep
     tests: [tests/test_pilot_loop.py]
     known_gaps:
-      - Ran on the Jetson once (13 Oct 2026) with simulated drivers only; Nav2 in the container on the Jetson untested; no real locomotion or sensor driver behind the HAL yet (edge.hal.ugv01 is the control layer, not yet a LocomotionDriver); PILOT's default --prefix site does not match TRACK's argus
+      - Ran on the Jetson once (13 Oct 2026) with simulated drivers only; Nav2 in the container on the Jetson untested; the real locomotion driver (edge.hal.ugv01) is registered but inhibited until calibrated, and no real sensor driver exists yet; PILOT's default --prefix site does not match TRACK's argus
+      - With drive/pilot/manifests/ugv-01.yaml the configured site position goes out in every heartbeat and telemetry as a bare Position (the LINK proto carries no source); TRACK labels the position source from the registry's localization driver name, C2 does not yet show that label, so an operator can read an unmeasured position as a reading (law 7). The core no longer adopts an unhealthy estimate as home (14 Oct 2026)
     blockers:
       - First boot on the actual Jetson (phase 3)
 
@@ -131,7 +132,7 @@ components:
     role: The single owner of ugv-01's ARGUS DRIVE module and accelerator board; pure protocol, serial link, controls with the safety rules, and the bench tool. The teleop bridge's ugv01 adapter is a shim over it (ADR-0009)
     status: hardware_integrated
     disposition: keep
-    tests: [tests/test_ugv01_protocol.py, tests/test_ugv01_controls.py, tests/test_ugv01_bridge_adapter.py]
+    tests: [tests/test_ugv01_protocol.py, tests/test_ugv01_controls.py, tests/test_ugv01_bridge_adapter.py, tests/test_ugv01_locomotion.py]
     evidence:
       hardware_runs:
         - "2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/."
@@ -144,7 +145,7 @@ components:
       - Open from Codex checkpoint 2 (13 Oct 2026), not yet built: an explicit OPENING/READY/FAULTED/CLOSING lifecycle; bounded brake and steering moves with progress checks inside the controls (the bench bounds them from outside); a daemon-to-real-controls integration test with fake ports; a check that the previous owner of the ports has let go before opening
     blockers:
       - Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
-      - Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run
+      - "Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run"
 
   - id: edge.hal.sensor_interface
     name: SensorDriver interface (Detection-only)
@@ -475,16 +476,31 @@ components:
       - The accelerator board HOLDS its last duty with no watchdog, measured 13 Oct 2026 (19 s of wheel motion through 15 s of host silence); the drive module on silence is untested
       - Settled on the bench 13 Oct: 0x05 01 is left and the steering reading increases to the left; 0x06 01 applies (reading rises from the 61.7 released end stop), 0x06 02 releases (stopping at the released end on its own is not proven; our stop frame coincided); STATUS reply is A,ST,BR,SP,GR,LI,IN,HO,WI,CT fields
       - The horn disturbs both angle sensors while it sounds; the brake's configured 70 to 170 limits do not include its 61.7 released end
-      - Firmware sources for both boards are not in any checkout (Gulshan Shah has them); RESET defaults unknown
+      - Firmware sources for both boards arrived 13 Oct 2026 and are kept outside git on the founder's Mac (~/Projects/Argus/_reference/ugv-01-team-2026-10-13/firmware/); RESET defaults unknown
       - MCU-PROTOCOL.md, BENCH.md and the August FINDINGS describe the superseded relay path; kept as history
     blockers:
       - Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
       - A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
 
-  - id: bodies.ugv01.firmware_v4
-    name: v4 watchdog firmware
+  - id: bodies.ugv01.firmware_watchdog
+    name: Silence watchdogs for the two boards (AC 1.3, 4.1.5)
     type: Firmware
     path: bodies/ugv-01/firmware/
+    plane: hardware
+    role: ARGUS additions to the team's firmware so each board stops by itself on host silence; Nano throttle logic in a tested header plus sketch, ESP32-S3 watchdog as two files and a patch (nano_throttle_watchdog/, esp32_drive_watchdog/, README-WATCHDOG.md)
+    status: scaffolded
+    disposition: keep
+    tests: [bodies/ugv-01/firmware/nano_throttle_watchdog/test/test_throttle_logic.cpp]
+    known_gaps:
+      - Never flashed, never bench-run; the Nano sketch is not compiled on the Mac (x86-only AVR toolchain), the ESP32 tree compiles with PlatformIO; Codex reviewed three times
+      - Keepalive is any accepted command, so a host that polls angles keeps a stuck actuator alive on the drive module; the host-side heartbeat in the controls covers that case
+    blockers:
+      - Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
+
+  - id: bodies.ugv01.firmware_v4
+    name: v4 watchdog firmware (relay board, superseded)
+    type: Firmware
+    path: bodies/ugv-01/firmware/ugv01_mcu_watchdog.ino
     plane: hardware
     role: Replacement firmware for the Arduino relay board; opt-in latching watchdog, break-before-make on both reversing relay pairs. That board is no longer on the serial path (13 Oct 2026)
     status: scaffolded

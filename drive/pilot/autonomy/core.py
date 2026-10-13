@@ -104,7 +104,12 @@ class AutonomyCore:
         # not wherever the last power cut happened (law 15).
         if self.world.home is None:
             estimate = self.drivers.localization.estimate()
-            self.world.home = (estimate.latitude_deg, estimate.longitude_deg)
+            # An unhealthy estimate (for example static_localization's
+            # configured site position) is not where the machine woke up;
+            # "return home" must never target a position nobody measured
+            # (laws 7 and 15). Home stays unset until a healthy fix.
+            if estimate.healthy:
+                self.world.home = (estimate.latitude_deg, estimate.longitude_deg)
 
         recovered = self.world.current_task
         if recovered is not None:

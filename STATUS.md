@@ -30,7 +30,7 @@ verdict: keep / refactor / replace / archive / new.
 
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
-| ARGUS PILOT (`edge.pilot`) | hardware_integrated | keep | BLOCKED (1); 1 known gap |
+| ARGUS PILOT (`edge.pilot`) | hardware_integrated | keep | BLOCKED (1); 2 known gaps |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
 | ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | hardware_integrated | keep | BLOCKED (2); 5 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
@@ -75,7 +75,8 @@ verdict: keep / refactor / replace / archive / new.
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
 | ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 5 known gaps |
-| v4 watchdog firmware (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
+| Silence watchdogs for the two boards (AC 1.3, 4.1.5) (`bodies.ugv01.firmware_watchdog`) | scaffolded | keep | BLOCKED (1); 2 known gaps |
+| v4 watchdog firmware (relay board, superseded) (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane
 
@@ -102,11 +103,12 @@ verdict: keep / refactor / replace / archive / new.
 
 - `edge.pilot`: First boot on the actual Jetson (phase 3)
 - `edge.hal.ugv01`: Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
-- `edge.hal.ugv01`: {'Codex Astra checkpoint 2 (13 Oct 2026)': 'the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run'}
+- `edge.hal.ugv01`: Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run
 - `perception.zed`: An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
 - `perception.zed`: Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
 - `bodies.ugv01`: Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
 - `bodies.ugv01`: A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
+- `bodies.ugv01.firmware_watchdog`: Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
 - `bodies.ugv01.firmware_v4`: The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
 ## Hardware evidence (everything else is Mac and CI containers)
@@ -131,5 +133,6 @@ verdict: keep / refactor / replace / archive / new.
 - OD-19: Local reasoning model selection
 - OD-21: Provisional identity on the wire
 - OD-23: Approvals that go stale between preview and issuance
+- OD-24: Ownership and licence of the team's vehicle firmware
 
 Roadmap and critical path: NEXT-STEPS.md. Target architecture: ARCHITECTURE.md.

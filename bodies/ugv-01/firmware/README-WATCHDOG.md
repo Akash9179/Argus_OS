@@ -3,8 +3,23 @@
 Why: on 13 Oct, with the throttle at 20 percent and the computer silent
 for 15 s, the wheels kept turning (BENCH-RESULTS-2026-10-13.md, Phase E).
 A vehicle that drives itself must stop by itself when its computer goes
-quiet. These two changes make both boards do that. Reviewed twice by
-Codex Astra; the second review's blockers are fixed in this revision.
+quiet. These two changes are meant to make both boards do that; until
+they are flashed and the silence test passes on the vehicle, that is a
+design, not a fact. Reviewed three times by Codex Astra; the blockers
+from each review are fixed in this revision.
+
+Two things worth knowing before the test. First, the boards take their
+power from the Jetson's USB, so pulling the cable or powering the
+Jetson off stops the throttle by cutting power (Gulshan, 14 Oct). The
+watchdog covers the other case, the one measured on 13 Oct: Jetson on,
+cable in, program silent. Second, on the drive module any accepted
+command refreshes the silence timer, including angle polls, so a host
+that keeps polling while its command logic is stuck would keep a
+steering move alive; the ARGUS controls' own heartbeat rule covers
+that case on the host side. The drive module's `allOff()` does not
+touch its own throttle output (pin 4), which the 13 Oct inventory
+believes is unwired since throttle moved to the Nano; confirm on the
+wiring photos before relying on it.
 
 ## Throttle board (Arduino Nano), firmware AC 1.2 to AC 1.3
 

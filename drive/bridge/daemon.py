@@ -274,7 +274,7 @@ class BridgeDaemon:
                 steer=0.0, throttle=0.0, gear=cmd.gear, mode=cmd.mode,
                 ignition=cmd.ignition, headlights=cmd.headlights,
                 blinker=cmd.blinker, horn=cmd.horn, record=cmd.record,
-                arm=cmd.arm, estop=cmd.estop,
+                arm=cmd.arm, estop=cmd.estop, brake=cmd.brake,
             )
         self.vehicle.apply(cmd)
 
@@ -371,6 +371,13 @@ class BridgeDaemon:
         "throttle": ("Throttle is at rest", "Throttle is not at rest"),
         "estop_circuit": ("Stop circuit closed", "Stop circuit is open"),
         "watchdog": ("Watchdog armed", "Watchdog is not armed"),
+        # ugv-01, two boards (drive/bridge/ugv01.py)
+        "drive_board": ("Steering and brake controller answers", "Steering and brake controller did not answer"),
+        "accel_board": ("Throttle board answers, throttle at zero", "Throttle board has not confirmed zero throttle"),
+        "steer_feedback": ("Steering angle is being read", "Steering angle is not being read"),
+        "brake_feedback": ("Brake position is being read", "Brake position is not being read"),
+        "faults": ("No faults", "A fault is latched"),
+        "stop_on_link_loss": ("Stops when the link is lost", "Not proven to stop when the link is lost"),
     }
 
     def _check_in_words(self, check: dict) -> dict:

@@ -68,7 +68,8 @@ def rig():
     fc = FakeControls()
     v = Ugv01Vehicle(fc)
     v.apply(cmd())
-    assert fc.names() == [("gear", "N"), ("set_throttle", 0), ("light", "off"), ("indicator", "off")]
+    assert fc.names() == [("gear", "N"), ("set_throttle", 0), ("steer", "stop"),
+                          ("light", "off"), ("indicator", "off")]
     fc.calls.clear()
     return v, fc
 
@@ -193,3 +194,11 @@ def test_self_test_fails_when_a_board_is_silent(rig):
     fc.snap["accel"]["alive"] = False
     checks = {c["name"]: c for c in v.self_test()}
     assert checks["accel_board"]["ok"] is False
+
+
+def test_measured_map_says_what_is_not_a_reading(rig):
+    v, fc = rig
+    t = v.read()
+    assert t.measured["speedKmh"] is False and t.measured["battery"] is False
+    assert t.measured["steerAngleDeg"] is True
+    assert "measured" in t.to_wire()

@@ -16,8 +16,9 @@ is gone (ADR-0009): a shared password could never say who was driving.
 
 Every session is logged to var/bridge_sessions.jsonl (--log to move it).
 
-The real ugv-01 adapter is selected with --vehicle once it exists (after the
-hardware survey). Until then, mock is the only choice and the default.
+--vehicle ugv01 selects the real adapter (drive/bridge/ugv01.py, a shim over
+the HAL driver). Mock is the default. The real one cannot arm until the
+section 6 gate is proven; it is for the bench and the inventory of state.
 """
 from __future__ import annotations
 
@@ -38,12 +39,11 @@ def main() -> int:
     ap.add_argument("--vehicle", choices=["mock", "ugv01"], default="mock",
                     help="ugv01 opens two real serial ports. Rule zero: never on a "
                          "vehicle without wheels up and a human at the key.")
-    ap.add_argument("--drive-port",
-                    default="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
-                    help="ugv01: the ARGUS DRIVE module (CH340)")
-    ap.add_argument("--accel-port",
-                    default="/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0",
-                    help="ugv01: the accelerator board (FTDI FT232R A5069RR4)")
+    ap.add_argument("--drive-port", default=None,
+                    help="ugv01: the steering and brake controller's port, by-id path "
+                         "(bodies/ugv-01/FINDINGS-2026-10-13.md); required with --vehicle ugv01")
+    ap.add_argument("--accel-port", default=None,
+                    help="ugv01: the throttle board's port, by-id path; required with --vehicle ugv01")
     ap.add_argument("--steer-sense", choices=["right_increases", "left_increases"],
                     default=None, help="ugv01: which way raises the angle reading; from the bench")
     ap.add_argument("--watchdog-ms", type=int, default=700)
@@ -73,6 +73,8 @@ def main() -> int:
     operators = OperatorDirectory.from_file(args.operators)
     controls = None
     if args.vehicle == "ugv01":
+        if not args.drive_port or not args.accel_port:
+            ap.error("--vehicle ugv01 needs --drive-port and --accel-port (no defaults above the HAL)")
         # Rule zero (CLAUDE.md): opening these ports may reset the boards.
         # Nothing here moves on its own, but the human must have wheels
         # up and the key in hand before this line runs.
@@ -135,7 +137,11 @@ def main() -> int:
     daemon.stop()
     if controls is not None:
         controls.close()      # stop first, then let go of the ports
-    print("bridge stopped; vehicle safe")
+        st = controls.snapshot()["stop"]
+        print("bridge stopped; stop requested=%s acknowledged=%s (acknowledged is not verified)"
+              % (st["requested"], st["acked"]))
+    else:
+        print("bridge stopped; mock vehicle at rest")
     return 0
 
 

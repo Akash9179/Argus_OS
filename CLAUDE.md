@@ -11,9 +11,10 @@ are on a machine that can move, and that outranks every command below.
 - Do NOT follow the install or dev commands in this file or in INSTALL.md by
   default. They assume a laptop. On a vehicle, read `bodies/<body-id>/SURVEY.md`
   first and do only what it says.
-- The mock bridge (`python3 -m drive.bridge`, mock is the only adapter that
-  exists) never touches a serial port and is safe. Anything else that reaches
-  hardware is not, yet.
+- The mock bridge (`python3 -m drive.bridge`, the default adapter) never
+  touches a serial port and is safe. `--vehicle ugv01` and
+  `pilot.hal.drivers.ugv01.bench` open the two real boards' ports, which
+  may reset them: human at the key, wheels up, typed go, nothing else.
 - The hardware safety gate in ARCHITECTURE.md section 6 is absolute: no
   autonomous moving test before the MCU fail-safe path is bench-proven.
 

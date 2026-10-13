@@ -110,6 +110,10 @@ class Telemetry:
     linkRttMs: float = 0.0
     tempC: float = 0.0
     headingDeg: float = 0.0
+    # Which fields are measurements. Absent or True means measured; False
+    # means the value is a placeholder and the HUD must say "no reading".
+    # Old cockpits ignore the field.
+    measured: dict = field(default_factory=dict)
 
     def to_wire(self) -> dict[str, Any]:
         d = asdict(self)

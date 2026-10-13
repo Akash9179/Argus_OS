@@ -1107,3 +1107,13 @@ def test_preflight_checks_carry_a_sentence(daemon):
     # the firmware's own fields survive beside the sentence
     assert all({"name", "ok", "detail", "label"} <= set(chk) for chk in pf["checks"])
     c.close()
+
+
+def test_a_frame_that_may_not_drive_still_carries_the_brake():
+    """The rebuilt not-armed Command must keep aux.brake: dropping it would
+    send the vehicle a brake release the operator never asked for."""
+    from bridge.daemon import BridgeDaemon
+    from bridge.identity import OperatorDirectory
+    import inspect
+    src = inspect.getsource(BridgeDaemon._handle)
+    assert "brake=cmd.brake" in src

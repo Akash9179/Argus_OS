@@ -40,6 +40,7 @@ whether direct or not.
 | SQLite | bundled | Public domain | TRACK | Clear. |
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
+| pyserial | 3.5 or later | BSD-3-Clause | drive/pilot/hal/drivers/ugv01/ (the two vehicle boards' serial ports; imported only when a real port is opened, 13 Oct 2026) | Clear. Permissive. |
 
 C2's dev-only tooling never ships: `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals` and `vitest`. All are MIT, checked with `npm view <pkg> license` on 12 Oct 2026. They stay outside the shipped-software tables by decision, not by omission.
 

@@ -19,10 +19,11 @@ Mapping, and what the cockpit's contract cannot yet say:
   aux.horn         one 0.5 s pulse per rising edge.
   safety.estop     safe_stop() on every frame it is held.
 
-Telemetry it cannot earn is reported as zero and listed here so nobody
-reads it as a measurement: speed (no speed feedback on either board),
-heading, temperature, battery (the pack is on BLE in the team's stack,
-not on these boards).
+Telemetry it cannot earn is reported as zero and flagged false in the
+`measured` map so the cockpit can show "no reading" instead of a number:
+speed (no speed feedback on either board), heading, temperature, battery
+(the pack is on BLE in the team's stack, not on these boards), and gear
+and ignition, which are commanded state, not measured.
 """
 from __future__ import annotations
 
@@ -44,7 +45,7 @@ class Ugv01Vehicle(VehicleAdapter):
         self._last = Command.neutral()
         self._gear_sent: str | None = None
         self._duty_sent: int | None = None
-        self._steer_sent = "stop"
+        self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
         self._light_sent: str | None = None
         self._ind_sent: str | None = None
         self._brake_held = False
@@ -60,7 +61,7 @@ class Ugv01Vehicle(VehicleAdapter):
             if cmd.estop:
                 self._c.safe_stop()
                 self._duty_sent = 0
-                self._steer_sent = "stop"
+                self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
                 self._brake_held = True
                 return
             self._try("gear", self._gear, cmd)
@@ -130,7 +131,7 @@ class Ugv01Vehicle(VehicleAdapter):
         with self._lock:
             self._c.safe_stop()
             self._duty_sent = 0
-            self._steer_sent = "stop"
+            self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
             self._brake_held = True
 
     def tick(self, dt: float) -> None:
@@ -144,18 +145,19 @@ class Ugv01Vehicle(VehicleAdapter):
         steer, brake = s["steer"], s["brake"]
         return [
             check("drive_board", d["connected"] and d["answering"] and d["firmware"],
-                  "ARGUS DRIVE v%s answering" % d["firmware"] if d["firmware"] else "no answer"),
+                  "steering and brake controller answering, software %s" % d["firmware"]
+                  if d["firmware"] else "steering and brake controller not answering"),
             check("accel_board", a["connected"] and a["answering"] and a["alive"],
-                  "accelerator v%s, duty zero acknowledged" % a["firmware"]
-                  if a["alive"] else "duty zero not acknowledged"),
+                  "throttle board answering, software %s, throttle confirmed at zero" % a["firmware"]
+                  if a["alive"] else "throttle board has not confirmed zero throttle"),
             check("steer_feedback", steer["angle_deg"] is not None and steer["limits_deg"],
-                  "%s deg, limits %s" % (steer["angle_deg"], steer["limits_deg"])),
+                  "steering reads %s degrees, travel %s to %s" % (
+                      steer["angle_deg"], *(steer["limits_deg"] or ("?", "?")))),
             check("brake_feedback", brake["angle_deg"] is not None,
-                  "%s deg, limits %s" % (brake["angle_deg"], brake["limits_deg"])),
-            check("faults", not s["faults"], "; ".join(s["faults"]) or "none"),
+                  "brake reads %s degrees" % brake["angle_deg"]),
+            check("faults", not s["faults"], "; ".join(s["faults"]) or "no faults"),
             check("stop_on_link_loss", False,
-                  "not proven: no firmware watchdog known on either board "
-                  "(ARCHITECTURE.md section 6)"),
+                  "not proven: the vehicle has not shown it stops when the link is lost"),
         ]
 
     def read(self) -> Telemetry:
@@ -172,6 +174,9 @@ class Ugv01Vehicle(VehicleAdapter):
             steer_deg = round(angle, 1)
         board_gear = s["commanded"]["gear"]
         return Telemetry(
+            measured={"speedKmh": False, "steerAngleDeg": angle is not None,
+                      "battery": False, "tempC": False, "headingDeg": False,
+                      "gear": False, "ignition": False},
             speedKmh=0.0,
             gear=_GEAR_FROM_BOARD.get(board_gear, "N"),
             steerAngleDeg=steer_deg,

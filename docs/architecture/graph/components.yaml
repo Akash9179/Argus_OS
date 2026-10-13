@@ -133,10 +133,11 @@ components:
       - Has never opened a real port; every rule is proven against a fake serial pair only
       - Steering sense (which direction raises the angle reading) unknown until the bench; closed-loop steer_to() refuses until it is set
       - A host cannot stop a board through a link that has failed; stop_confirmed is false after any fault, and stop on link loss is not proven on either board
-      - Not yet a LocomotionDriver (set_velocity, goto, pose); that mapping needs vehicle geometry and a speed source that do not exist yet
+      - Not yet a LocomotionDriver (set_velocity, goto, pose) and registers nothing with the HAL registry, so firmware versions, limits and faults are not queryable through /registry; that mapping needs vehicle geometry and a speed source that do not exist yet
+      - Open from Codex checkpoint 2 (13 Oct 2026), not yet built: an explicit OPENING/READY/FAULTED/CLOSING lifecycle; bounded brake and steering moves with progress checks inside the controls (the bench bounds them from outside); a daemon-to-real-controls integration test with fake ports; a check that the previous owner of the ports has let go before opening
     blockers:
-      - Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first)
-      - Codex Astra checkpoint 2 review resolved (13 Oct 2026)
+      - Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
+      - Codex Astra checkpoint 2 (13 Oct 2026): the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run
 
   - id: edge.hal.sensor_interface
     name: SensorDriver interface (Detection-only)

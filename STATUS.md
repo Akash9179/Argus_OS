@@ -32,7 +32,7 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS PILOT (`edge.pilot`) | simulated | keep | BLOCKED (1); 1 known gap |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
-| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | simulated | keep | BLOCKED (2); 4 known gaps |
+| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | simulated | keep | BLOCKED (2); 5 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
 | LocomotionDriver interface (`edge.hal.locomotion_interface`) | simulated | refactor | 1 known gap |
 | CommsDriver interface (`edge.hal.comms_interface`) | software_verified | keep | - |
@@ -101,8 +101,8 @@ verdict: keep / refactor / replace / archive / new.
 ## Blockers
 
 - `edge.pilot`: First boot on the actual Jetson (phase 3)
-- `edge.hal.ugv01`: Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first)
-- `edge.hal.ugv01`: Codex Astra checkpoint 2 review resolved (13 Oct 2026)
+- `edge.hal.ugv01`: Bench run with the human at the key (bodies/ugv-01/FINDINGS-2026-10-13.md section 7 questions answered first); first power-up with propulsion inhibited and bounded brake pulses, per Codex checkpoint 2
+- `edge.hal.ugv01`: {'Codex Astra checkpoint 2 (13 Oct 2026)': 'the reproduced interlock bugs are fixed and regression-tested; the items listed under known_gaps stay open and are reviewed again before the first powered run'}
 - `perception.zed`: An ARGUS perception provider over the ZED SDK, in the container, which has no CUDA today
 - `perception.zed`: Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
 - `bodies.ugv01`: Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py

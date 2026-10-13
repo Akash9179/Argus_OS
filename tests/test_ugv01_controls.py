@@ -321,15 +321,17 @@ def test_steer_to_angle_closes_the_loop_and_stops_inside_the_deadband():
     drive = FakePort(board)
     accel = FakePort(accel_board)
     c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
-                      sleep=clock.sleep, poll_hz=0, steer_sense="right_increases",
-                      steer_deadband_deg=1.0)
+                      sleep=clock.sleep, poll_hz=5, steer_sense="right_increases",
+                      steer_deadband_deg=1.0, feedback_max_age_s=0.5)
     c.start()
+    clock.advance(0.2); c.tick(); time.sleep(0.03)     # a fresh reading first
     c.steer_to(160.0)
     for _ in range(12):
+        clock.advance(0.2)
         c.heartbeat()
-        drive.write(p.read_steer())   # poll, as tick would with poll_hz > 0
+        c.tick()                      # polls the angle through the controls
         time.sleep(0.03)              # let the reader thread take the reply
-        c.tick()
+        c.tick()                      # acts on the fresh reading
     steer_frames = [w for w in drive.writes if w.startswith(b"0x05")]
     assert steer_frames[0] == p.steer("right")
     assert steer_frames[-1] == p.steer("stop")
@@ -375,3 +377,185 @@ def test_the_other_controls_pass_straight_through(rig):
     assert snap["commanded"]["gear"] == "N"
     assert snap["commanded"]["light"] == "low"
     assert snap["commanded"]["indicator"] == "left"
+
+
+# ------------------------------------------- Codex checkpoint 2 regressions
+
+class DelayedBoard:
+    """A drive board whose brake acknowledgements can be held back and
+    released later, in order."""
+
+    def __init__(self):
+        self.held: list[bytes] = []
+        self.hold = False
+
+    def __call__(self, frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        if text.startswith("0x06") and self.hold:
+            self.held.append(("0x06;OK\n").encode())
+            return []
+        return drive_board(frame)
+
+
+def test_a_late_apply_ack_does_not_count_as_the_release_ack():
+    """Codex finding 1: APPLY, RELEASE, then the APPLY's ack arrives. The
+    brake must still count as applied until the RELEASE itself is acked."""
+    import time
+    clock = FakeClock()
+    board = DelayedBoard()
+    drive = FakePort(board)
+    accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=0)
+    c.start()
+    board.hold = True
+    c.brake("apply")
+    c.brake("release")
+    # the APPLY ack arrives first
+    drive.rx.put(board.held.pop(0)); time.sleep(0.05)
+    assert c.snapshot()["brake"]["applied"] is True
+    with pytest.raises(Refused, match="brake"):
+        c.set_throttle(20)
+    drive.rx.put(board.held.pop(0)); time.sleep(0.05)
+    assert c.snapshot()["brake"]["applied"] is False
+    c.close()
+
+
+def test_gear_needs_the_latest_zero_acked_not_an_old_one(rig):
+    """Codex finding 1b: the startup zero was acked; a later 40 then 0 whose
+    0 is not yet acked must not let the gear change through."""
+    c, drive, accel, clock = rig
+    c.start()
+    c.brake("release")
+    wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.set_throttle(40)
+    wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 40)
+    accel.silent = True
+    c.set_throttle(0)            # written, not yet acked
+    with pytest.raises(Refused, match="zero"):
+        c.gear("R")
+    accel.silent = False
+    accel.rx.put(b"0x02;OK;00\n")
+    wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 0)
+    c.gear("R")
+    assert drive.writes[-1] == p.gear("R")
+
+
+def test_start_fails_when_the_drive_board_answers_err_or_withholds_state():
+    """Codex finding 2: INFO answered with ERR, or limits never answered,
+    is not a start."""
+    def bad_info(frame):
+        if frame == p.info():
+            return [b"0x01;ERR;NOPE\n"]
+        return drive_board(frame)
+    def no_limits(frame):
+        if frame == p.read_steer_limits():
+            return []
+        return drive_board(frame)
+    for board in (bad_info, no_limits):
+        clock = FakeClock()
+        drive = FakePort(board); accel = FakePort(accel_board)
+        c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                          sleep=clock.sleep, poll_hz=0)
+        with pytest.raises(LinkError):
+            c.start()
+        assert not drive.is_open
+
+
+def test_unsupported_firmware_is_refused_at_start():
+    def v5(frame):
+        if frame == p.info():
+            return [b"0x01;OK;050000\n"]
+        return drive_board(frame)
+    clock = FakeClock()
+    drive = FakePort(v5); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=0)
+    with pytest.raises(LinkError, match="firmware"):
+        c.start()
+
+
+def test_a_failed_write_on_one_link_stops_through_the_other(rig):
+    """Codex finding 3: a write exception must latch and stop, not just
+    record a fault."""
+    c, drive, accel, clock = rig
+    c.start()
+    c.heartbeat()
+    c.steer("left")
+    accel.writes.clear()
+    drive.write = lambda d: (_ for _ in ()).throw(OSError("gone"))
+    c.light("low")               # the failing write
+    snap = c.snapshot()
+    assert snap["faults"] and snap["safe_stopped"] is True
+    assert accel.writes and accel.writes[0] == p.ACCEL_ZERO
+    assert snap["stop"]["requested"] is True and snap["stop"]["acked"] is False
+
+
+def test_invalid_input_changes_no_state(rig):
+    """Codex finding 6."""
+    c, drive, accel, clock = rig
+    c.start()
+    c.brake("release")
+    wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.set_throttle(30)
+    with pytest.raises(ValueError):
+        c.set_throttle(-1)
+    assert c.snapshot()["accel"]["duty_commanded"] == 30
+    c2 = Ugv01Controls(drive_port=FakePort(drive_board), accel_port=FakePort(accel_board),
+                       now=clock.now, sleep=clock.sleep, poll_hz=0, steer_sense="right_increases")
+    c2.start()
+    with pytest.raises(ValueError):
+        c2.steer_to(float("nan"))
+    assert c2.snapshot()["steer"]["target_deg"] is None
+    c2.close()
+
+
+def test_stale_steering_feedback_stops_the_loop():
+    """Codex finding 4: no fresh angle, no steering move."""
+    import time
+    clock = FakeClock()
+    drive = FakePort(drive_board); accel = FakePort(accel_board)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=5, steer_sense="right_increases",
+                      feedback_max_age_s=0.1)
+    c.start()
+    clock.advance(0.2); c.tick(); time.sleep(0.03)     # one poll, fresh angle
+    c.heartbeat()
+    c.steer_to(200.0)
+    c.tick()
+    steer_frames = [w for w in drive.writes if w.startswith(b"0x05")]
+    assert steer_frames[-1] == p.steer("right")
+    clock.advance(0.15)           # past the freshness limit, before the next poll
+    c.heartbeat()
+    c.tick()
+    steer_frames = [w for w in drive.writes if w.startswith(b"0x05")]
+    assert steer_frames[-1] == p.steer("stop")
+    assert c.snapshot()["steer"]["target_deg"] is None
+    c.close()
+
+
+def test_fragmented_lines_are_assembled_before_parsing():
+    import time
+    clock = FakeClock()
+    drive = FakePort(drive_board); accel = FakePort(accel_board)
+    def fragments(frame):
+        if frame == p.read_steer():
+            return [b"0x04;OK;0", b"700\n"]      # one reply, two reads
+        return drive_board(frame)
+    drive = FakePort(fragments)
+    c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now,
+                      sleep=clock.sleep, poll_hz=5)
+    c.start()
+    clock.advance(0.2); c.tick(); time.sleep(0.08)
+    assert c.snapshot()["steer"]["angle_deg"] == 179.2
+
+
+def test_stop_report_is_requested_and_acked_separately(rig):
+    c, drive, accel, clock = rig
+    c.start()
+    assert c.snapshot()["stop"] == {"requested": False, "acked": False}
+    c.safe_stop()
+    wait_until(lambda: c.snapshot()["stop"]["acked"])
+    assert c.snapshot()["stop"] == {"requested": True, "acked": True}
+    c.clear_faults()
+    assert c.snapshot()["stop"]["acked"] is False     # cleared, not manufactured

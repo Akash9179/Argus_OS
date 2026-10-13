@@ -21,14 +21,18 @@ humans saw. A line in the "seen" column is the team's words, relayed.
   (FTDI, `/dev/ttyUSB0`). 115200 8N1 both.
 - The team's ROS 2 stack held both ports until Gulshan stopped it from
   the Jetson terminal. It was relaunched twice by an agent session on the
-  Jetson during the preparation; a start with a shared port fails closed
-  (replies split between two readers arrive garbled, the drive board
-  "did not identify itself", nothing sent but INFO). Logged in
-  `bench_ugv01_phaseA.jsonl` before the last `started` record.
+  Jetson during the preparation. One start attempted while their node
+  still held the ports failed closed: replies split between two readers
+  arrived garbled, the drive board "did not identify itself", nothing
+  was sent but INFO. One instance, not a proof that every shared-port
+  start fails this way. Logged in `bench_ugv01_phaseA.jsonl` before the
+  last `started` record. Reset-on-open was not instrumented.
 - Each run opens both ports (the accelerator board reboots on open),
   reads INFO, STATUS, both limit pairs and both angles, sends duty zero
-  then INFO to the accelerator, and only then runs its steps. Every run
-  closes with duty zero, brake actuator stop, steering stop, duty zero.
+  then INFO to the accelerator, and only then runs its steps. Runs from
+  Phase D on close with duty zero, brake actuator stop, steering stop,
+  duty zero; the earlier runs closed without the brake actuator stop
+  (that frame was added at commit `c980380`).
   Bench cap on duty: 30 percent. Brake was not part of the automatic
   stop (`brake_on_stop` off) because the stroke was uncharacterised.
 
@@ -64,16 +68,18 @@ REVERSE (GR=03) at the start of the session.
 steering reading went 153.7 to 352.6, then the board answered
 `0x04;ERR;NO_SIGNAL`, then 60.3 (below its 67 minimum); the brake reading
 went 61.7 to 183.2, 343.9, 252.3 (above its 170 maximum). The last
-samples fell inside the horn's 0.5 s pulse. A read-only re-open two
-minutes later read 153.7 and 61.7 again: the disturbance lasts while the
-horn sounds and the sensors recover. Hazard for the firmware: its
-steering limit enforcement reads the same sensor, so a horn during a
-steering move is unprotected. Hardware question for the team: horn
+samples fell inside the horn's 0.5 s pulse; no sample was taken after it
+in that run. A read-only re-open about six minutes later read 153.7 and
+61.7 again, so the sensors had recovered by then; whether they recovered
+on their own right after the horn, or only after the re-open (which may
+reset the boards), is not established. Hazard for the firmware: its
+steering limit enforcement reads the same sensor, so during a horn its
+protection cannot be trusted. Hardware question for the team: horn
 current path versus sensor supply or ground.
 
 Consequence in ARGUS (commit `b2c4fa8`): an ERR or unreadable angle
-reply, a jump over 30 deg between polls, or a steering reading outside
-the limits latches a fault and stops; a steering move is refused without
+reply, a jump over 30 deg between polls, or a steering reading more than
+5 deg outside the limits latches a fault and stops; a steering move is refused without
 a fresh reading.
 
 ## Phase B: steering pulses
@@ -84,9 +90,11 @@ a fresh reading.
 | `0x05 02` for 300 ms, then `0x05 00` | 173.9 | 152.9 | |
 
 Trajectory (5 Hz polls): 153.7, 159.8, 173.1, 173.9, hold. About 67
-sensor-degrees per second while moving; the reading settled within 100 ms
-of the stop acknowledgement; 1.8 deg between the last two moving samples
-on the return, which sampling cannot split into overrun versus latency.
+sensor-degrees per second while moving. Readings still changed 52 and
+253 ms after the stop acknowledgement on the left pulse (59 and 260 ms
+on the right); at 5 Hz that bounds the settling somewhere under 300 ms
+and says nothing finer. 1.8 deg between the last two moving samples on
+the return, which sampling cannot split into overrun versus latency.
 All four frames acknowledged OK.
 
 **Result: `0x05 01` is left, and the sensor reading increases to the
@@ -120,13 +128,19 @@ Gulshan's statement and the 61.7 end-stop reading.
 | release `0x06 02` 300 ms | 114.5 | 84.5 | "moved back" |
 | release again 300 ms | 84.5 | 61.7 | released |
 
-The brake reading rises as the brake applies: about 98 deg/s on the
-first stroke, 78 deg/s on the second (slower as it loads), about 100 deg/s
-releasing. After a stop acknowledgement the actuator keeps moving about
-150 ms before it settles. The second release reached 61.7 in under 300 ms
-and stayed: the released end stop ends a release by itself, with no
-AT_LIMIT message while moving. All frames acknowledged OK. Braking force
-and holding behaviour were not measured; the wheels were in the air.
+The brake reading rises as the brake applies: about 98 deg/s over the
+first stroke, 78 deg/s over the second, about 100 deg/s releasing, all
+from 5 Hz samples. Readings kept changing after each stop acknowledgement
+(for example 84.1 then 91.0 at 53 and 255 ms after the first apply's stop),
+so settling is bounded under 300 ms and not measured finer. On the second
+release the reading was 69.0 at the stop acknowledgement and 61.7 about
+220 ms after the stop was sent; it then held. That is consistent with
+the actuator reaching its released end, and also with our own stop
+frame ending the move; the log cannot tell them apart, so endpoint
+stopping on its own is NOT proven. All frames acknowledged OK. Braking
+force and holding behaviour were not measured; the wheels were in the
+air. "Released" below means the actuator reached the 61.7 position the
+human called released, not a measured clearance.
 
 ## Phase E: the computer goes silent with throttle held
 
@@ -135,14 +149,18 @@ host sent nothing at all, no heartbeat, no poll, no probe, ports open,
 for 15.0 s (`silence_begin` to `silence_end` in
 `bench_ugv01_phaseE2.jsonl`), then `0x02;00`.
 
-**Seen: the wheels turned for 19 seconds on a phone stopwatch,** from
-the throttle frame through the whole silence until the zero arrived and
-the wheels spun down. A first run with 5 s of silence gave "5 to 7
-seconds, maybe", consistent with the same conclusion.
+Logged: 15.617 s from the 20 percent frame to the zero frame, of which
+15.015 s was silence. **Seen: "19 seconds" on a phone stopwatch,** an
+unsynchronised human observation covering the throttle frame, the
+silence, the zero and the spin-down. A first run with 5 s of silence gave
+"5 to 7 seconds, maybe", consistent with the same conclusion.
 
-**Result: the accelerator board holds its last duty with no watchdog.
-A dead host leaves the vehicle driving.** This is the section 6 hazard,
-measured. The hardware safety gate stays shut until the accelerator
+**Result: no stop on silence occurred on the accelerator board during
+15.0 s with the ports open and the board powered. A dead host leaves the
+vehicle driving for at least that long.** This is the section 6 hazard,
+measured. Caveat that stays attached: this is a finite, powered,
+ports-open test; it does not show what a port close, a reset or a longer
+silence does. The hardware safety gate stays shut until the accelerator
 firmware stops on its own after a short silence, and that is proven the
 same way.
 

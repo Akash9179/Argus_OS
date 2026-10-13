@@ -47,6 +47,7 @@ class Command:
     record: bool = False
     arm: bool = False
     estop: bool = False
+    brake: bool = False           # service brake held (aux.brake); ugv-01 has a brake actuator
 
     @staticmethod
     def neutral() -> "Command":
@@ -71,6 +72,7 @@ class Command:
             blinker=blinker if blinker in BLINKERS else "off",
             horn=bool(aux.get("horn", False)),
             record=bool(aux.get("record", False)),
+            brake=bool(aux.get("brake", False)),
             arm=bool(safety.get("arm", False)),
             estop=bool(safety.get("estop", False)),
         )
@@ -87,6 +89,7 @@ class Command:
                 "blinker": self.blinker,
                 "horn": self.horn,
                 "record": self.record,
+                "brake": self.brake,
             },
             "safety": {"arm": self.arm, "estop": self.estop},
         }

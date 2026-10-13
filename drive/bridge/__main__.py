@@ -35,7 +35,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(prog="drive.bridge", description="ARGUS DRIVE vehicle daemon")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--vehicle", choices=["mock"], default="mock")
+    ap.add_argument("--vehicle", choices=["mock", "ugv01"], default="mock",
+                    help="ugv01 opens two real serial ports. Rule zero: never on a "
+                         "vehicle without wheels up and a human at the key.")
+    ap.add_argument("--drive-port",
+                    default="/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+                    help="ugv01: the ARGUS DRIVE module (CH340)")
+    ap.add_argument("--accel-port",
+                    default="/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0",
+                    help="ugv01: the accelerator board (FTDI FT232R A5069RR4)")
+    ap.add_argument("--steer-sense", choices=["right_increases", "left_increases"],
+                    default=None, help="ugv01: which way raises the angle reading; from the bench")
     ap.add_argument("--watchdog-ms", type=int, default=700)
     ap.add_argument("--operators", default=os.environ.get(
         "ARGUS_OPERATORS", "var/bridge_operators.json"),
@@ -61,7 +71,30 @@ def main() -> int:
               f"with their own token from {args.operators}", file=sys.stderr)
 
     operators = OperatorDirectory.from_file(args.operators)
-    vehicle = MockVehicle()
+    controls = None
+    if args.vehicle == "ugv01":
+        # Rule zero (CLAUDE.md): opening these ports may reset the boards.
+        # Nothing here moves on its own, but the human must have wheels
+        # up and the key in hand before this line runs.
+        from pilot.hal.drivers.ugv01.controls import Ugv01Controls
+        from pilot.hal.drivers.ugv01.link import PySerialPort
+        from .ugv01 import Ugv01Vehicle
+
+        controls = Ugv01Controls(
+            drive_port=PySerialPort(args.drive_port),
+            accel_port=PySerialPort(args.accel_port),
+            steer_sense=args.steer_sense,
+        )
+        print(f"ugv01: opening {args.drive_port} and {args.accel_port}; "
+              "the accelerator board reboots on open", file=sys.stderr)
+        controls.start()
+        snap = controls.snapshot()
+        print(f"ugv01: drive v{snap['drive']['firmware']} accel v{snap['accel']['firmware']} "
+              f"steer {snap['steer']['angle_deg']} deg limits {snap['steer']['limits_deg']} "
+              f"brake {snap['brake']['angle_deg']} deg", file=sys.stderr)
+        vehicle = Ugv01Vehicle(controls)
+    else:
+        vehicle = MockVehicle()
     daemon = BridgeDaemon(
         vehicle, operators, host=args.host, port=args.port,
         watchdog_timeout_s=args.watchdog_ms / 1000.0, log_path=args.log,
@@ -100,6 +133,8 @@ def main() -> int:
     if reporter:
         reporter.stop()
     daemon.stop()
+    if controls is not None:
+        controls.close()      # stop first, then let go of the ports
     print("bridge stopped; vehicle safe")
     return 0
 

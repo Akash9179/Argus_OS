@@ -160,6 +160,7 @@ class Ugv01Controls:
         self._duty_read: int | None = None      # AC 1.3 read-back
         self._accel_timeouts: int | None = None
         self._accel_read_back = False           # firmware 1.3 or later
+        self._board_tripped = False             # a board stopped itself: no brake apply until cleared
         self._steer_moving: str = "stop"
         self._steer_target: float | None = None
         self._brake_moving: bool = False      # apply or release in progress
@@ -319,10 +320,12 @@ class Ugv01Controls:
         with self._lock:
             link.last_reply_at = self._now()
             link.answering = True
-            if line.strip().upper() == "0X00;WD;TIMEOUT":
-                # 4.1.5: the drive module switched its actuators off after
-                # host silence. Unsolicited, and a fault on our side.
-                self._fault("drive module WD TIMEOUT: it stopped its actuators after host silence", brake=False)
+            if line.strip().upper().startswith("0X00;WD;"):
+                # 4.1.5: the drive module switched its actuators off on its
+                # own (TIMEOUT after host silence, NO_SIGNAL for a sensor).
+                # Unsolicited, and a fault on our side.
+                self._fault("drive module WD %s: it stopped its actuators itself" % line.split(";")[-1].strip(),
+                            brake=False)
                 return
             if reply is None:
                 return
@@ -661,7 +664,7 @@ class Ugv01Controls:
                 seqs = [self._write(self._accel, p.ACCEL_ZERO, p.ACCEL_DUTY_CMD, arg=0)]
                 if seqs[0] is not None:
                     self._duty_last_seq = seqs[0]
-                use_brake = self._brake_on_stop if brake is None else brake
+                use_brake = (self._brake_on_stop if brake is None else brake) and not self._board_tripped
                 if use_brake:
                     self._brake_applied = True
                     self._brake_moving = True
@@ -685,6 +688,7 @@ class Ugv01Controls:
         needs a fresh duty-zero acknowledgement."""
         with self._lock:
             self._faults.clear()
+            self._board_tripped = False
             self._safe_stopped = False
             self._stop_requested = False
             self._stop_seqs = set()
@@ -707,6 +711,8 @@ class Ugv01Controls:
                     link.connected = False
             if reason not in self._faults:
                 self._faults.append(reason)
+            if brake is False:
+                self._board_tripped = True
             self.safe_stop(brake=brake)
 
     def tick(self) -> None:

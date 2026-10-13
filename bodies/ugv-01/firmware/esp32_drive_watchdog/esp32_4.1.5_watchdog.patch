@@ -1,7 +1,7 @@
 diff -ruN a/src/config.h b/src/config.h
 --- a/src/config.h	2026-10-09 04:50:11
-+++ b/src/config.h	2026-10-13 14:20:56
-@@ -2,9 +2,12 @@
++++ b/src/config.h	2026-10-13 14:25:44
+@@ -2,9 +2,13 @@
  
  #define FW_VERSION_MAJOR    4
  #define FW_VERSION_MINOR    1
@@ -11,13 +11,14 @@ diff -ruN a/src/config.h b/src/config.h
  #define SERIAL_BAUD         115200
 +
 +#define WD_TIMEOUT_MS       800UL   // 4.1.5: actuators off after this much silence while moving
-+#define WD_NO_SIGNAL_MS     200UL   // 4.1.5: actuator off after this long without its sensor
++#define WD_NO_SIGNAL_MS     200UL   // 4.1.5: actuator off after this long without a trusted sensor
++#define WD_MAX_STEP         300     // 4.1.5: x10 deg; a bigger jump between samples is not trusted
  
  #define PWM_PIN             4
  #define LEDC_CH             0
 diff -ruN a/src/main.cpp b/src/main.cpp
 --- a/src/main.cpp	2026-10-03 08:35:24
-+++ b/src/main.cpp	2026-10-13 14:20:56
++++ b/src/main.cpp	2026-10-13 14:25:44
 @@ -11,6 +11,7 @@
  #include "wifi_setup.h"
  #include "angle_limits.h"
@@ -36,8 +37,8 @@ diff -ruN a/src/main.cpp b/src/main.cpp
      limitsUpdate();
 diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
 --- a/src/serial_protocol.cpp	2026-10-09 04:52:13
-+++ b/src/serial_protocol.cpp	2026-10-13 14:20:56
-@@ -10,6 +10,7 @@
++++ b/src/serial_protocol.cpp	2026-10-13 14:25:44
+@@ -10,13 +10,16 @@
  #include "wifi_setup.h"
  #include "angle_limits.h"
  #include "steer_center.h"
@@ -45,15 +46,25 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
  
  #define CMD_BUF_SIZE 128
  
-@@ -17,6 +18,7 @@
+ static char cmdBuf[CMD_BUF_SIZE];
  static uint8_t cmdLen = 0;
++static bool cmdDiscard = false;   // 4.1.5: an overlong line is dropped to its end
  
  void serialReply(uint8_t cmd, const char* status, const char* data) {
 +    if (strcmp(status, "OK") == 0) wdNoteAccepted();   // 4.1.5: only accepted commands keep actuators alive
      Serial.printf("0x%02X;%s;%s\n", cmd, status, data);
  }
  
-@@ -90,6 +92,8 @@
+@@ -74,6 +77,8 @@
+     char* end = nullptr;
+     unsigned long v = strtoul(args, &end, 16);
+     if (end == args || v > 0xFF) return false;
++    while (*end == ' ') end++;
++    if (*end != '\0') return false;   // 4.1.5: trailing text is not an argument
+     out = (uint8_t)v;
+     return true;
+ }
+@@ -90,6 +95,8 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -62,7 +73,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      ctrCancel();
      limitsSteerBypass(false);
      const char* why = limitsBlockReason(dir);
-@@ -108,6 +112,8 @@
+@@ -108,6 +115,8 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -71,7 +82,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      ctrCancel();
      limitsSteerBypass(true);
      actSetSteer(dir);
-@@ -120,6 +126,8 @@
+@@ -120,6 +129,8 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -80,7 +91,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      limitsBrakeBypass(true);
      actSetBrake(dir);
      if (dir != 0) pwmOff();
-@@ -133,6 +141,10 @@
+@@ -133,6 +144,10 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -91,7 +102,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      if (ctrActive()) {
          serialReply(cmd, "ERR", "BUSY");
          return;
-@@ -152,6 +164,8 @@
+@@ -152,6 +167,8 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -100,7 +111,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      limitsBrakeBypass(false);
      const char* why = limitsBrakeBlockReason(dir);
      if (why) {
-@@ -231,9 +245,9 @@
+@@ -231,9 +248,9 @@
          serialReply(cmd, "ERR", "BAD_ARG");
          return;
      }
@@ -112,7 +123,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
               (uint8_t)(pwmDuty() + 0.5f),
               actSteerState(),
               actBrakeState(),
-@@ -243,7 +257,8 @@
+@@ -243,7 +260,8 @@
               indMode(),
               hornActive() ? 1 : 0,
               wifiMode(),
@@ -122,18 +133,55 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      serialReply(cmd, "OK", d);
  }
  
-@@ -434,6 +449,7 @@
-                 cmdBuf[cmdLen] = '\0';
+@@ -416,26 +434,36 @@
+     char* end = nullptr;
+     if (line[0] == '0' && (line[1] == 'x' || line[1] == 'X')) line += 2;
+ 
+-    uint8_t cmd = (uint8_t)strtoul(line, &end, 16);
+-    if (end == line) {
+-        serialReply(0x00, "ERR", "BAD_FORMAT");
++    unsigned long op = strtoul(line, &end, 16);
++    if (end == line || op > 0xFF || (*end != '\0' && *end != ' ')) {
++        serialReply(0x00, "ERR", "BAD_FORMAT");   // 4.1.5: a whole opcode, nothing glued to it
+         return;
+     }
++    uint8_t cmd = (uint8_t)op;
+ 
+     dispatch(cmd, end);
+ }
+ 
+ void serialPoll() {
+-    while (Serial.available()) {
++    uint8_t budget = 32;                      // 4.1.5: bounded work per pass
++    while (budget-- && Serial.available()) {
+         char c = (char)Serial.read();
+ 
+         if (c == '\n' || c == '\r') {
+-            if (cmdLen > 0) {
+-                cmdBuf[cmdLen] = '\0';
++            bool ready = !cmdDiscard && cmdLen > 0;
++            cmdBuf[cmdLen] = '\0';
++            cmdLen = 0;
++            cmdDiscard = false;
++            if (ready) {
                  processLine(cmdBuf);
-                 cmdLen = 0;
-+                return;      // 4.1.5: one line per pass, the watchdog runs between lines
+-                cmdLen = 0;
++                return;                       // one line per pass; the watchdog runs between lines
              }
-         } else if (cmdLen < CMD_BUF_SIZE - 1) {
+-        } else if (cmdLen < CMD_BUF_SIZE - 1) {
++        } else if (cmdDiscard) {
++            continue;
++        } else if ((unsigned char)c < 0x20 || (unsigned char)c > 0x7E || cmdLen >= CMD_BUF_SIZE - 1) {
++            cmdDiscard = true;                // control byte or overlong: drop the whole line
++            cmdLen = 0;
++        } else {
              cmdBuf[cmdLen++] = c;
+         }
+     }
 diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 --- a/src/watchdog.cpp	1969-12-31 19:00:00
-+++ b/src/watchdog.cpp	2026-10-13 14:20:15
-@@ -0,0 +1,64 @@
++++ b/src/watchdog.cpp	2026-10-13 14:25:02
+@@ -0,0 +1,90 @@
 +#include "watchdog.h"
 +#include "config.h"
 +#include "actuators.h"
@@ -147,6 +195,10 @@ diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 +static uint32_t lastAcceptedMs = 0;
 +static uint32_t steerNoSignalSince = 0;
 +static uint32_t brakeNoSignalSince = 0;
++static uint16_t lastSteer = 0;
++static uint16_t lastBrake = 0;
++static bool haveLastSteer = false;
++static bool haveLastBrake = false;
 +static uint8_t timeouts = 0;
 +static bool tripped = false;
 +
@@ -164,6 +216,27 @@ diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 +    Serial.printf("0x00;WD;%s\n", why);
 +}
 +
++static uint16_t absDiff(uint16_t a, uint16_t b) { return a > b ? a - b : b - a; }
++
++// A sensor is trusted while an actuator is on only if it answers and its
++// reading moves plausibly. One valid-looking sample after a dropout does
++// not restore trust: a jump larger than WD_MAX_STEP between samples is
++// treated as no signal (the horn produces exactly that).
++static bool sensorBad(bool valid, uint16_t value, uint16_t& last, bool& haveLast, uint32_t& since, uint32_t now) {
++    if (!valid) {
++        haveLast = false;
++        if (since == 0) since = now;
++        return (uint32_t)(now - since) > WD_NO_SIGNAL_MS;
++    }
++    if (haveLast && absDiff(value, last) > WD_MAX_STEP) {
++        haveLast = false;               // implausible: do not trust until it settles
++        if (since == 0) since = now;
++        return (uint32_t)(now - since) > WD_NO_SIGNAL_MS;
++    }
++    last = value; haveLast = true; since = 0;
++    return false;
++}
++
 +void wdNoteAccepted() {
 +    lastAcceptedMs = millis();
 +}
@@ -174,18 +247,19 @@ diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 +    bool brakeOn = actBrakeState() != 0;
 +    bool moving = steerOn || brakeOn || ctrActive();
 +
-+    // feedback: no reading, no motion (the horn takes the sensor down)
-+    if (steerOn && !steerValid()) {
-+        if (steerNoSignalSince == 0) steerNoSignalSince = now;
-+        else if ((uint32_t)(now - steerNoSignalSince) > WD_NO_SIGNAL_MS) { allOff("NO_SIGNAL"); steerNoSignalSince = 0; return; }
++    if (steerOn || ctrActive()) {
++        if (sensorBad(steerValid(), steerValue(), lastSteer, haveLastSteer, steerNoSignalSince, now)) {
++            allOff("NO_SIGNAL"); steerNoSignalSince = 0; return;
++        }
 +    } else {
-+        steerNoSignalSince = 0;
++        steerNoSignalSince = 0; haveLastSteer = false;
 +    }
-+    if (brakeOn && !brakeValid()) {
-+        if (brakeNoSignalSince == 0) brakeNoSignalSince = now;
-+        else if ((uint32_t)(now - brakeNoSignalSince) > WD_NO_SIGNAL_MS) { allOff("NO_SIGNAL"); brakeNoSignalSince = 0; return; }
++    if (brakeOn) {
++        if (sensorBad(brakeValid(), brakeValue(), lastBrake, haveLastBrake, brakeNoSignalSince, now)) {
++            allOff("NO_SIGNAL"); brakeNoSignalSince = 0; return;
++        }
 +    } else {
-+        brakeNoSignalSince = 0;
++        brakeNoSignalSince = 0; haveLastBrake = false;
 +    }
 +
 +    // silence: an accepted command within the window, or everything off

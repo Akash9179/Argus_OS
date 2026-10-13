@@ -836,3 +836,18 @@ def test_a_board_watchdog_report_stops_without_driving_the_brake(rig):
     assert wait_until(lambda: c.snapshot()["safe_stopped"])
     assert p.brake("apply") not in drive.writes
     assert p.steer("stop") in drive.writes
+
+
+def test_no_signal_notice_faults_and_the_brake_stays_out_until_cleared(rig):
+    """4.1.5 prints 0x00;WD;NO_SIGNAL when it dropped an actuator for a bad
+    sensor. That is a fault, and after any board-reported trip no stop,
+    including close(), may re-energise the brake until a human clears."""
+    c, drive, accel, clock = rig
+    c.start()
+    drive.rx.put(b"0x00;WD;NO_SIGNAL\n")
+    assert wait_until(lambda: any("NO_SIGNAL" in f for f in c.snapshot()["faults"]))
+    drive.writes.clear()
+    c.safe_stop()                 # a later stop, default brake_on_stop=True in this rig
+    c.close()
+    assert p.brake("apply") not in drive.writes
+    assert p.steer("stop") in drive.writes

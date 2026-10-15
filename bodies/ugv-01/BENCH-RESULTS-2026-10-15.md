@@ -257,7 +257,7 @@ Configured limits 70 to 170 deg (`0x0F;OK;02BC06A4`).
 | C apply | 5 x 300 ms | 61.0, 90.3, 114.3, 138.3, 161.0, 176.7 | 98, 80, 80, 76, 52 |
 | D release | 5 x 300 ms | 176.8, 149.1, 123.1, 96.0, 67.5, 67.5 (fifth refused below 70) | 92, 87, 90, 95 |
 | E apply | 3 x 300 ms then 800 ms | 67.5, 95.7, 119.2, 143.4, then 157.2 at 0.32 s, 173.7 at 0.54 s, 179.1 at 0.73 s, 178.9 after the stop at 0.80 s | 75 deg/s, then slowing to a stop at 179 before the host's stop |
-| F release | 5 x 300 ms | see the log | |
+| F release | 5 x 300 ms | 178.9, 151.3, 125.4, 98.9, 69.4, 69.3 (fifth refused below 70) | 92, 86, 88, 98 |
 
 Facts from this:
 
@@ -283,7 +283,7 @@ Facts from this:
   end stop.
 - The host did not fault on a reading 9 deg past the configured
   maximum; its out-of-range rule is written for steering only.
-- The brake was left at 67.5 or wherever the last release stopped.
+- The brake was left at 69.3 at the end of the night. Run D's frames were overwritten on the Jetson when run F was pasted with run D's log name; run D's angles above are from the session output, run F's log is saved as brakeF.
   After a watchdog trip the brake stays wherever it was: this is the
   stopping-architecture question in the plan's step 0.
 

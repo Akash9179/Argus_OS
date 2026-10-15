@@ -51,15 +51,25 @@ only), so the first compile is in the Arduino IDE.
 
 ## Drive module (ESP32-S3), firmware 4.1.4 to 4.1.5
 
-Folder: `esp32_drive_watchdog/`. Two new files, `watchdog.h` and
-`watchdog.cpp`, go into `src/`, and the patch makes the edits to
-`config.h`, `main.cpp` and `serial_protocol.cpp`. From the folder that
-contains `src/`:
+Source of the build: `esp32_drive_4.1.5_src/` holds the complete 4.1.5
+tree, byte for byte the one the team was given and flashed on 14 Oct,
+with a `platformio.ini` pinned to the platform that built it
+(espressif32 7.1.3, board `esp32-s3-devkitc-1`, framework arduino).
+Build it with `pio run` in that folder, or build every image at once
+with `bash build.sh` from this folder (prints the SHA-256 of each image,
+flashes nothing). Both have run on the Jetson.
 
-    patch -p1 < esp32_4.1.5_watchdog.patch
-
-The patched tree compiles clean with PlatformIO for `esp32-s3-devkitc-1`,
-framework arduino. Build and flash as before.
+For reading: `esp32_drive_watchdog/` keeps the watchdog's two files and
+`esp32_4.1.5_watchdog.patch`, the exact difference from the vendor tree.
+The patch was regenerated on 15 Oct against the vendor tree as stored:
+three vendor files have CRLF line endings, and the 14 Oct patch did not
+apply to them (every hunk of `serial_protocol.cpp` was rejected, which
+left a build that reports 4.1.5 but never feeds or checks the
+watchdog). The 14 Oct zip carried the full tree, not the patch, so the
+team's build was not affected. To reproduce from the vendor tree:
+`patch -p1 < esp32_4.1.5_watchdog.patch` from the folder that contains
+`src/`, then `diff -r` against `esp32_drive_4.1.5_src/src` must be
+silent.
 
 What changes:
 - Silence: while a steering or brake actuator is on, or centring is

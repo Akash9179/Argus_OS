@@ -1,6 +1,6 @@
 diff -ruN a/src/config.h b/src/config.h
---- a/src/config.h	2026-10-09 04:50:11
-+++ b/src/config.h	2026-10-13 14:25:44
+--- a/src/config.h	2026-10-15 09:41:24
++++ b/src/config.h	2026-10-15 09:41:24
 @@ -2,9 +2,13 @@
  
  #define FW_VERSION_MAJOR    4
@@ -17,8 +17,8 @@ diff -ruN a/src/config.h b/src/config.h
  #define PWM_PIN             4
  #define LEDC_CH             0
 diff -ruN a/src/main.cpp b/src/main.cpp
---- a/src/main.cpp	2026-10-03 08:35:24
-+++ b/src/main.cpp	2026-10-13 14:25:44
+--- a/src/main.cpp	2026-10-15 09:41:24
++++ b/src/main.cpp	2026-10-15 09:41:24
 @@ -11,6 +11,7 @@
  #include "wifi_setup.h"
  #include "angle_limits.h"
@@ -36,8 +36,8 @@ diff -ruN a/src/main.cpp b/src/main.cpp
      hornUpdate();
      limitsUpdate();
 diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
---- a/src/serial_protocol.cpp	2026-10-09 04:52:13
-+++ b/src/serial_protocol.cpp	2026-10-13 14:25:44
+--- a/src/serial_protocol.cpp	2026-10-15 09:41:24
++++ b/src/serial_protocol.cpp	2026-10-15 09:41:24
 @@ -10,13 +10,16 @@
  #include "wifi_setup.h"
  #include "angle_limits.h"
@@ -180,7 +180,7 @@ diff -ruN a/src/serial_protocol.cpp b/src/serial_protocol.cpp
      }
 diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 --- a/src/watchdog.cpp	1969-12-31 19:00:00
-+++ b/src/watchdog.cpp	2026-10-13 14:25:02
++++ b/src/watchdog.cpp	2026-10-15 09:41:24
 @@ -0,0 +1,90 @@
 +#include "watchdog.h"
 +#include "config.h"
@@ -274,7 +274,7 @@ diff -ruN a/src/watchdog.cpp b/src/watchdog.cpp
 +bool wdTripped() { return tripped; }
 diff -ruN a/src/watchdog.h b/src/watchdog.h
 --- a/src/watchdog.h	1969-12-31 19:00:00
-+++ b/src/watchdog.h	2026-10-13 14:20:02
++++ b/src/watchdog.h	2026-10-15 09:41:24
 @@ -0,0 +1,27 @@
 +#pragma once
 +#include <stdint.h>

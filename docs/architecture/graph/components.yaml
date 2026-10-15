@@ -487,15 +487,21 @@ components:
     type: Firmware
     path: bodies/ugv-01/firmware/
     plane: hardware
-    role: ARGUS additions to the team's firmware so each board stops by itself on host silence; Nano throttle logic in a tested header plus sketch, ESP32-S3 watchdog as two files and a patch (nano_throttle_watchdog/, esp32_drive_watchdog/, README-WATCHDOG.md)
+    role: ARGUS additions to the team's firmware so each board stops by itself on host silence; Nano throttle logic in a tested header plus sketch, the complete ESP32-S3 4.1.5 tree with a pinned platformio.ini (esp32_drive_4.1.5_src/), the watchdog's two files and the exact patch for reading (esp32_drive_watchdog/), and build.sh, which builds all four images on the Jetson and flashes nothing (README-WATCHDOG.md)
     status: scaffolded
     disposition: keep
+    evidence:
+      hardware_runs:
+        - "2026-10-15: all four images built on the Jetson (tessy, JetPack R36.5, aarch64) by build.sh with PlatformIO Core 6.2.0 (espressif32 7.1.3) and arduino-cli (arduino:avr 1.8.8): drive 4.1.4 81e45b6e..., drive 4.1.5 c33a05ad..., Nano AC 1.2 78f465a1..., Nano AC 1.3 da0f82b2... (full SHA-256 in bodies/ugv-01/firmware/BUILDS.md, log in bodies/ugv-01/bench-logs/2026-10-15/build-sh.log). Build only: no port opened, nothing flashed, nothing moved."
     tests: [bodies/ugv-01/firmware/nano_throttle_watchdog/test/test_throttle_logic.cpp]
     known_gaps:
-      - Never flashed, never bench-run; the Nano sketch is not compiled on the Mac (x86-only AVR toolchain), the ESP32 tree compiles with PlatformIO; Codex reviewed three times
+      - The Jetson toolchain is a hand install under ~/argus-tools (venv plus a tarball), outside Git and Ansible; acceptable for the bench, a snowflake until it is scripted (law 14)
+      - The drive module image carries the vendor's Wi-Fi stack with default credentials; mode OFF by default and the Wi-Fi commands locked, but the mode persists in NVS across flashes, so a board once set to AP stays AP (law 8). Confirm WI=00 in STATUS at every identity read
+      - Flashed by the team on 14 Oct 2026 from the ARGUS zip; both boards answered the new versions and the Nano silence test passed on the team's bench, by their report, with no electrical measurement. On 15 Oct the team put 4.1.4 back on the drive module on its own and called the cause a firmware issue, without saying what it saw; what is on either board now is unverified until our own identity read
+      - The vehicle silence test (README-WATCHDOG.md steps 2 and 4 on the wire) has not been run from our side; the Codex-reviewed runner and the board simulator are in bench-logs/2026-10-14/
       - Keepalive is any accepted command, so a host that polls angles keeps a stuck actuator alive on the drive module; the host-side heartbeat in the controls covers that case
     blockers:
-      - Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
+      - Identity read, then flash of 4.1.5 and AC 1.3 from the Jetson with the human at the key (build.sh prints the commands), then the silence runs; those open the section 6 gate or not
 
   - id: bodies.ugv01.firmware_v4
     name: v4 watchdog firmware (relay board, superseded)

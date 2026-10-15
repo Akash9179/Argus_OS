@@ -8,7 +8,7 @@ CI fails if this file drifts from the graph.
 Maturity (law 17): `planned` < `scaffolded` < `simulated` <
 `software_verified` < `hardware_integrated` < `field_validated`.
 `simulated` means proven only against simulated hardware or fixtures.
-Nothing here has been field validated, and 3 components have hardware evidence (listed below).
+Nothing here has been field validated, and 4 components have hardware evidence (listed below).
 Disposition is the 18 Aug 2026 reconciliation
 verdict: keep / refactor / replace / archive / new.
 
@@ -75,7 +75,7 @@ verdict: keep / refactor / replace / archive / new.
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
 | ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 5 known gaps |
-| Silence watchdogs for the two boards (AC 1.3, 4.1.5) (`bodies.ugv01.firmware_watchdog`) | scaffolded | keep | BLOCKED (1); 2 known gaps |
+| Silence watchdogs for the two boards (AC 1.3, 4.1.5) (`bodies.ugv01.firmware_watchdog`) | scaffolded | keep | BLOCKED (1); 5 known gaps |
 | v4 watchdog firmware (relay board, superseded) (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane
@@ -108,7 +108,7 @@ verdict: keep / refactor / replace / archive / new.
 - `perception.zed`: Air-gapped SDK activation and field licensing unverified with Stereolabs (decision D-2); PARKED on founder instruction 18 Aug 2026
 - `bodies.ugv01`: Bench verification of the two new boards (bodies/ugv-01/FINDINGS-2026-10-13.md section 7), wheels off the ground, one command at a time, with pilot/hal/drivers/ugv01/bench.py
 - `bodies.ugv01`: A proven stop on link loss on both boards (firmware watchdog or an independent stop) before any autonomous motion (ARCHITECTURE.md section 6)
-- `bodies.ugv01.firmware_watchdog`: Gulshan Shah flashes both and reports the version strings; the silence test on the vehicle then opens the section 6 gate or not
+- `bodies.ugv01.firmware_watchdog`: Identity read, then flash of 4.1.5 and AC 1.3 from the Jetson with the human at the key (build.sh prints the commands), then the silence runs; those open the section 6 gate or not
 - `bodies.ugv01.firmware_v4`: The link-loss stop now has to be built or proven on the ARGUS DRIVE module and the accelerator board instead
 
 ## Hardware evidence (everything else is Mac and CI containers)
@@ -117,6 +117,7 @@ verdict: keep / refactor / replace / archive / new.
 - `edge.hal.ugv01`: 2026-10-13: bench on the vehicle, wheels on jacks, Gulshan Shah at the key, founder relaying. From ARGUS code on the Jetson: both boards identified (drive 4.1.4, accel 1.2), STATUS read, lights, indicators and horn acknowledged, gear D proven by STATUS, steering left and right with feedback (left increases the reading, about 67 deg/s), throttle 20 percent acknowledged and the wheels turned, brake applied and released with feedback (61.7 released end, about 100 deg/s). Partial bench integration: no braking force, no ground contact, no speed. Record: bodies/ugv-01/BENCH-RESULTS-2026-10-13.md, logs in bodies/ugv-01/bench-logs/2026-10-13/.
 - `edge.hal.ugv01`: 2026-10-13, Phase E: throttle held at 20 percent, host silent 15.0 s with ports open and the board powered; the wheels turned (19 s by a human stopwatch) until the zero arrived. No stop on silence occurred in that window. Finite, powered, ports-open test; port close and reset not tested. The section 6 gate stays shut.
 - `teleop.relay`: 2026-08: ran on the Jetson AGX Orin over a 271 ms relayed link, 30 s at 15 Hz, zero watchdog latches, no frame loss, 0.4 percent CPU (recorded in docs/architecture/audits/2026-08-17-as-built-audit.md section 3 and in pre-graph STATUS.md git history). Network path only; no vehicle actuation involved.
+- `bodies.ugv01.firmware_watchdog`: 2026-10-15: all four images built on the Jetson (tessy, JetPack R36.5, aarch64) by build.sh with PlatformIO Core 6.2.0 (espressif32 7.1.3) and arduino-cli (arduino:avr 1.8.8): drive 4.1.4 81e45b6e..., drive 4.1.5 c33a05ad..., Nano AC 1.2 78f465a1..., Nano AC 1.3 da0f82b2... (full SHA-256 in bodies/ugv-01/firmware/BUILDS.md, log in bodies/ugv-01/bench-logs/2026-10-15/build-sh.log). Build only: no port opened, nothing flashed, nothing moved.
 
 ## Open decisions (founder-gated; details in docs/architecture/graph/decisions.yaml)
 

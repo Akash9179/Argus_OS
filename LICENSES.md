@@ -41,9 +41,10 @@ whether direct or not.
 | `python-ulid`, `PyYAML`, `httpx` | current | MIT / MIT / BSD 3-Clause | everywhere | Clear. |
 | React, Vite, Leaflet | current | MIT / MIT / BSD 2-Clause | C2 | Clear. |
 | pyserial | 3.5 or later | BSD-3-Clause | drive/pilot/hal/drivers/ugv01/ (the two vehicle boards' serial ports; imported only when a real port is opened, 13 Oct 2026) | Clear. Permissive. |
-| Arduino AVR core (compiles the Nano sketch; not shipped in this repo) | 1.8.x | LGPL-2.1 | bodies/ugv-01/firmware/nano_throttle_watchdog/, built in Gulshan Shah's Arduino IDE | Clear for firmware that links it; nothing of it is copied here. |
-| Arduino core for ESP32 (compiles the drive module; not shipped) | espressif32 via PlatformIO | LGPL-2.1 | bodies/ugv-01/firmware/esp32_drive_watchdog/, built with PlatformIO | Clear, same terms. |
-| PlatformIO Core (build tool only) | 6.x | Apache-2.0 | developer machines | Clear. Not deployed. |
+| Arduino AVR core (compiles the Nano sketch; not shipped in this repo) | 1.8.8 | LGPL-2.1 | bodies/ugv-01/firmware/nano_throttle_watchdog/, built by build.sh on the Jetson (and once in Gulshan Shah's Arduino IDE, 14 Oct 2026) | Clear for firmware that links it; nothing of it is copied here. |
+| Arduino core for ESP32 (compiles the drive module; not shipped) | espressif32 7.1.3 via PlatformIO | LGPL-2.1 | bodies/ugv-01/firmware/esp32_drive_4.1.5_src/, built by build.sh on the Jetson | Clear, same terms. |
+| PlatformIO Core (build tool only) | 6.2.0 | Apache-2.0 | the Jetson's ~/argus-tools and developer machines | Clear. Not deployed. |
+| arduino-cli (build tool only) | latest Linux ARM64 at 15 Oct 2026 | GPL-3.0 | the Jetson's ~/argus-tools, driven by bodies/ugv-01/firmware/build.sh | Clear. A build tool that is run, not linked or shipped; GPL imposes nothing on the firmware it compiles. |
 | Vehicle firmware (ESP32-S3 4.1.4, Nano AC 1.2, written by Gulshan Shah) | 13 Oct 2026 | Company-owned (founder, 14 Oct 2026, decision D-24) | bodies/ugv-01/firmware/vendor-2026-10-13/ | Clear. Ours. |
 
 C2's dev-only tooling never ships: `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals` and `vitest`. All are MIT, checked with `npm view <pkg> license` on 12 Oct 2026. They stay outside the shipped-software tables by decision, not by omission.

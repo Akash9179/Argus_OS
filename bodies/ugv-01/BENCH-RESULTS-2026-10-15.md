@@ -1,0 +1,245 @@
+# ugv-01 bench results, 15 Oct 2026 (evening IST)
+
+The silence watchdogs on the vehicle, from our side. Drive wheels on a
+jack, Gulshan Shah at the jeep as hands and eyes, the founder on his
+phone pasting each command into the session and relaying what Gulshan
+said; the agent read every line and chose the next command. All code
+and all commands from our side over Tailscale to the Jetson (`tessy`),
+per the 14 Oct direction. Every frame sent and received is in
+`bench-logs/2026-10-15/` (JSON lines, one file per run). Runner:
+`bench-logs/2026-10-14/bench_run.py` (commit `ee0f615`), copied to
+`~/argus/var/bench_run_2026-10-14.py` on the Jetson. Jetson checkout
+`6d64355`.
+
+Three kinds of evidence, kept apart as on 13 Oct: what the board said on
+the wire, what the sensors read, and what the human saw. The human's
+words are Gulshan's, relayed by the founder.
+
+## Context
+
+The team had put 4.1.4 back on the drive module earlier on 15 Oct and
+called the cause "firmware side", without saying what it saw. Our
+re-read of the 4.1.5 patch against the vendor source found nothing that
+touches boot, relays, lights, indicators or horn (details in the wiki
+and in `firmware/README-WATCHDOG.md`). Today's runs test the firmware
+itself, on the vehicle.
+
+## Setup
+
+- Ports as on 13 Oct: drive module `usb-1a86_USB_Serial-if00-port0`
+  (CH340), accelerator `usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0`
+  (FTDI). Nothing else held them; the team's ROS 2 stack was not running.
+- Each run opens both boards once (the drive module resets on open, see
+  the ignition test), reads identity, STATUS, limits and angles, sends
+  duty zero to the accelerator, runs its steps with a 250 ms keepalive
+  while anything moves, and closes with a stop. No brake in the
+  automatic stop. Bench cap 30 percent duty; today used 20.
+- The harness refused the agent every command that opens a port, so the
+  founder pasted each line himself. Flashing was done the same way.
+
+## Identity (run0, before anything else)
+
+| Item | Reading | Source |
+|---|---|---|
+| Drive module firmware | 4.1.4 (`0x01;OK;040104`); STATUS without a WD field | wire |
+| Accelerator firmware | AC 1.3 (`0x01;OK;AC0103`), read-back `0x03;OK;00;00` | wire |
+| Steering at rest | 161.4 deg | sensor |
+| Brake at rest | 61.7 deg (released end stop, as on 13 Oct) | sensor |
+| STATUS at rest | `A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00` | wire |
+
+So the team's rollback was real and limited to the drive module; the
+accelerator still carried the ARGUS watchdog build with zero timeouts
+since its last boot. Wi-Fi off (`WI=00`). `A=14` is the drive module's
+own throttle output at its 20 percent floor, the pin the 13 Oct
+inventory believes is unwired; the accelerator's duty read 0.
+
+## Ignition test (ignition_monitor.py, 75 s, nothing sent)
+
+| Event | Wire | Seen |
+|---|---|---|
+| port open | drive module ROM banner, `rst:0x1 (POWERON)`, then `0x00;OK;040104` 200 ms later | |
+| the next 74 s | no line from either board | not yet relayed |
+
+The drive module resets on every port open even with DTR and RTS held
+low before opening (the CH340 adapter pulls EN). From reset to the
+application's first line is about 200 ms after the ROM lines; the
+application then waits a further 200 ms before it drives the relay pins.
+The 200 ms is the startup delay in `main.cpp`, read from the source,
+not measured. During that window the four steering and brake relay
+inputs are not driven; that they float is inferred from the absence of
+pull-ups in what we know of the wiring, not measured. Identical in
+4.1.4 and 4.1.5.
+
+Whether Gulshan turned the key during the window, and whether anything
+flickered, was not relayed before this record was written. If he did,
+the absence of any reset line says the drive module keeps running
+through ignition and the flicker is the relay module's own power-up.
+Until that answer arrives the test is incomplete and will be repeated.
+
+## Run 1 and run 1b: accelerator silence (AC 1.3; drive module 4.1.4, then 4.1.5)
+
+Steps: `snap [status] gear:D expect:GR=01 brake:release:300
+throttle_silence:20:1500 snap clear throttle:20:1000 snap`.
+
+| Step | Wire | Seen (run 1b) |
+|---|---|---|
+| gear D | `GR=01` already; acknowledged | |
+| brake release 300 ms | 61.7 before and after (released end) | |
+| throttle 20 percent, then host silent 1500 ms | `0x02;OK;14`; first read-back after the silence `0x03;OK;00;01`: duty at rest, timeout count 1 | "The wheel spun, then stopped, and then spun again" |
+| host fallback stop after the silence | duty zero sent, acknowledged | |
+| clear | latch cleared with an explicit zero; faults empty | |
+| throttle 20 percent for 1000 ms | `0x03;OK;14;01` four times, then `00;01` after the zero | (the second spin) |
+
+Both runs identical on the wire: faults exactly
+`['accel board took a timeout on its own (1)']`, count 0 to 1, clear
+accepted, throttle after the clear accepted. Run 1 had 4.1.4 on the
+drive module, run 1b had 4.1.5; the accelerator result does not depend
+on it. The read-back polls at about 300 ms, so the board's own stop is
+bounded only to "inside the 1.5 s silence"; its 800 ms deadline is not
+measured here. Gulshan's words match the sequence: spin, stop on its
+own, spin once more after the clear.
+
+## Flash of 4.1.5 from the Jetson (key off)
+
+`pio run -t upload` from `~/argus-tools/build-script/esp32_drive_4.1.5`,
+image SHA-256 `c33a05ad880f712d11da9404e3e4eacf94848ab1ac2a829e74f1f8d19b3ad021`
+(the 15 Oct Jetson build, `firmware/BUILDS.md`). 707264 bytes written at
+0x10000, hash verified by esptool, hard reset by RTS. Key off during the
+flash so the actuators had no power while the relay inputs floated. The
+next open answered `0x01;OK;040105` and STATUS gained `WD=00`.
+
+## Run 2, 2b: steering silence refused by the bench (no fault)
+
+| Attempt | Wire | Why |
+|---|---|---|
+| `steer:left:450` | 161.4 to 192.6 deg in 450 ms, acknowledged; 4.1.5 moved normally under the 250 ms keepalive | first left turn done |
+| second `steer:left:450` | refused by the bench: room 50.4 deg toward the upper limit (243), need 54.0 | the margin rule, not the board |
+| `steer:right:1500` (2b) | refused: room 125.6 toward the lower limit (67), need 127.5 | same |
+
+The bench's room rule assumes 70 deg/s plus 22.5 deg for a timed move,
+and 70 deg/s over the silence plus 0.9 s plus 10 deg for a silence
+move. Both refusals closed with a stop and nothing moved. Kept here
+because they show 4.1.5 steering normally and the admission rules
+holding.
+
+## Run 2c: drive module silence (4.1.5), `--max-angle-step 120`
+
+Steps: `snap steer:right:1400 snap steer_silence:left:900 status snap
+clear steer:right:300 snap`.
+
+| Step | Wire | Sensor | Seen |
+|---|---|---|---|
+| steer right 1400 ms | acknowledged, keepalive throughout | 192.6 to 92.0 deg | awaiting Gulshan's words |
+| room check | 151.0 deg toward the upper limit, need 136.0 | | |
+| steer left, then host silent 900 ms | `0x05;OK;01` at t=0; `0x00;WD;TIMEOUT` from the board at t=851 ms; host fallback stop sent at t=852 ms, `0x05;OK;00` at t=858 ms | 92.0 to 154.7 deg (62.7 deg in about 0.9 s of motion including coast) | |
+| STATUS after | `...,CT=00,WD=01`: trip count 0 to 1 | | |
+| clear | faults empty, latch cleared | | |
+| steer right 300 ms | accepted, `0x05;OK;02` | 154.7 to 134.2 deg | |
+
+Faults after the silence exactly
+`['drive module WD TIMEOUT: it stopped its actuators itself']`. The
+board announced its own stop 851 ms after accepting the move, against
+an 800 ms deadline measured from its OK reply; the 51 ms difference is
+not explained by measurement (loop period and USB latency are the
+candidates). The host had sent nothing between the OK and the
+notice.
+
+## Ignition test, second run (ignition_2026-10-15b.jsonl, 75 s)
+
+Same shape as the first: the drive module reset at open (POWERON), the
+4.1.5 banner 200 ms after the ROM lines, then no line from either board
+for the remaining 74 s. Gulshan was told to turn the key off and on
+twice inside the window; whether he did, and whether anything
+flickered, had not been relayed when this record was written. The
+test stands as "no board reset observed in the window" and nothing
+more until his answer is in.
+
+## Traffic test (bench_ugv01_2026-10-15_traffic.jsonl, about 90 s)
+
+Twenty cycles of `throttle:20:1000 wait:300 steer:left:400
+steer:right:400 wait:300` under the 250 ms keepalive, then STATUS and
+read-back. README-WATCHDOG.md step 9 in short form.
+
+| Item | Result |
+|---|---|
+| faults | none, all cycles |
+| drive module WD count | 00 before and after (the counter resets on the board's reset at open) |
+| accelerator timeout count | 0 before and after |
+| throttle | `0x02;OK;14` every cycle, read-back `14` while on, `00` after each zero |
+| steering | 145 to 174 deg and back every cycle, same excursion each time; 146.5 at the end |
+| brake | 61.7 throughout |
+
+Gulshan's observation not relayed. No nuisance trip on either board
+under normal driving traffic with 4.1.5 and AC 1.3.
+
+## Horn during steering (bench_ugv01_2026-10-15_horn.jsonl): the horn alone faults the host
+
+Steps `snap horn steer:left:600 ...`. The steering never started: the
+horn alone corrupted both angle readings and the host latched.
+
+| t from the horn's OK | Wire | Reading |
+|---|---|---|
+| 0 ms | `0x0B 01`, `0x0B;OK;01` | steering 146.5, brake 61.7 |
+| +203 ms | `0x04;OK;0DED` | steering 356.5 (above the 243 limit) |
+| +404 ms | `0x04;OK;05B9`, `0x03;OK;03B6` | steering back at 146.5, brake 95.0 (was 61.7) |
+| +597 ms | host faults and stops | `steering feedback jumped 146.5 to 356.5 deg`, `brake feedback jumped 61.7 to 95.0 deg` |
+
+One bad sample on each sensor during the horn's 0.5 s pulse, at 5 Hz
+polling, exactly as on 13 Oct, now with 4.1.5. The firmware's own
+NO_SIGNAL path was not exercised because no actuator was on. Nothing
+moved; the run closed with a stop. Consequence: with the present
+wiring, sounding the horn while an actuator moves will stop the vehicle
+through the host's plausibility rule, and the firmware's 200 ms
+no-signal rule would do the same on a longer dropout. The fix is in the
+wiring (horn current path against the sensors' supply or ground), not
+in software; it heads the list for the wiring capture.
+
+## What is proven, and what is not
+
+Proven on the vehicle, by the board's own report over the wire and,
+for the throttle, by a human's eyes:
+
+- The accelerator board (AC 1.3) rests its output on its own when the
+  host goes silent with the throttle on, counts the trip, and accepts
+  the next throttle after the host's explicit zero. Twice, and seen by
+  Gulshan on run 1b.
+- The drive module (4.1.5) switches its steering off on its own after
+  800 ms of host silence, announces it, counts the trip, and accepts
+  the next move after the host's explicit stop. Once, by the wire and
+  the angle sensor; Gulshan's words for this run were not relayed.
+- 4.1.5 and AC 1.3 run normal driving traffic (twenty throttle and
+  steering cycles under the 250 ms keepalive) with no fault and no trip
+  on either board.
+- The horn still corrupts both angle sensors (one sample each inside
+  its 0.5 s pulse), and the host stops on it. Wiring, not firmware.
+- The host receives both boards' notices, faults, stops, and clears
+  only on command.
+
+Not proven, so the section 6 gate stays shut:
+
+- No electrical measurement of either stop (meter on the Nano's pin 9,
+  on the relay coils). Read-back and eyes bound the stop; they do not
+  time it. README-WATCHDOG.md steps 2 and 4 "electrically".
+- Brake silence and centring silence on the drive module untested.
+- Refusal while latched (`0x02;ERR;TIMEOUT`, `ERR;WD_TRIPPED`) was not
+  exercised: the host sent its own zero or stop at once after every
+  silence and no move was attempted while a board was latched. That
+  behaviour rests on the Nano unit test and the team's 14 Oct report.
+- No feedback-loss test (step 5: sensor disconnected during a move), no
+  late-command or malformed-frame tests (steps 3 and 6), no port-close,
+  unplug or reset cases (step 7). The ten minute no-nuisance run (step
+  9) was done in a 90 s form only.
+- Gulshan's words for the steering run and for the ignition test were
+  not relayed before this record was written.
+- The undriven relay-input window at every reset and port open is
+  unaddressed and its effect unmeasured (hardware pull-ups are the
+  expected fix).
+- The esptool transcript of the flash exists only as the tail pasted
+  into the session, saved as `bench-logs/2026-10-15/flash_4.1.5_esptool.txt`.
+
+## Open with the team, still unanswered
+
+What Gulshan saw with 4.1.5 that made him roll it back. Whether he
+turned the key during the ignition window and what flickered. The
+compiled images he flashed on 14 Oct (never hashed). Whether the motor
+was wired during his PowerShell test on 14 Oct.

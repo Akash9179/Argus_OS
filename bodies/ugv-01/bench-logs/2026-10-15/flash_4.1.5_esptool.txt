@@ -1,0 +1,31 @@
+# Flash of drive module 4.1.5 from the Jetson, 15 Oct 2026, key off.
+# Command (pasted by the founder into the session, run on tessy):
+#   cd ~/argus-tools/build-script/esp32_drive_4.1.5 && sha256sum .pio/build/esp32s3/firmware.bin \
+#   && timeout 300 ~/argus-tools/pio-venv/bin/pio run -t upload --upload-port /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0 2>&1 | tail -n 25
+# This is the tail as it appeared in the session; the full transcript was not kept.
+c33a05ad880f712d11da9404e3e4eacf94848ab1ac2a829e74f1f8d19b3ad021  .pio/build/esp32s3/firmware.bin
+Writing at 0x00056d48... (37 %)
+Writing at 0x0005bc6e... (41 %)
+Writing at 0x00060ce6... (44 %)
+Writing at 0x00065e97... (48 %)
+Writing at 0x0006b0e0... (51 %)
+Writing at 0x00070df7... (55 %)
+Writing at 0x00075bec... (58 %)
+Writing at 0x0007ab68... (62 %)
+Writing at 0x0007fc24... (65 %)
+Writing at 0x00085087... (68 %)
+Writing at 0x0008a391... (72 %)
+Writing at 0x0008fa4b... (75 %)
+Writing at 0x000955a7... (79 %)
+Writing at 0x0009abf4... (82 %)
+Writing at 0x000a3187... (86 %)
+Writing at 0x000ab30e... (89 %)
+Writing at 0x000b0560... (93 %)
+Writing at 0x000b5ea4... (96 %)
+Writing at 0x000bba99... (100 %)
+Wrote 707264 bytes (461148 compressed) at 0x00010000 in 10.5 seconds (effective 539.9 kbit/s)...
+Hash of data verified.
+
+Leaving...
+Hard resetting via RTS pin...
+======================== [SUCCESS] Took 100.56 seconds ========================

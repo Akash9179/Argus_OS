@@ -34,8 +34,8 @@ risks:
   - id: R-5
     title: Near-zero hardware contact, and the first contact is hostile
     severity: high
-    affects: [edge.pilot, perception.zed, bodies.ugv01, bodies.ugv01.firmware_v4]
-    summary: PILOT has never run on a Jetson; the container base has no CUDA; the vehicle's boards changed under us between August and October (an ARGUS DRIVE module and an accelerator board replaced the relay path, found 13 Oct 2026) and neither has a demonstrated watchdog, the accelerator latching its last duty. "3B is just drivers and a manifest" is an untested claim. Budget for the HAL being wrong once.
+    affects: [edge.pilot, perception.zed, bodies.ugv01, bodies.ugv01.firmware_v4, bodies.ugv01.firmware_watchdog]
+    summary: PILOT has never run on a Jetson; the container base has no CUDA; the vehicle's boards changed under us between August and October (an ARGUS DRIVE module and an accelerator board replaced the relay path, found 13 Oct 2026); the vendor firmware had no watchdog and the accelerator latched its last duty (13 Oct). The ARGUS watchdog builds stopped both boards on host silence on the vehicle on 15 Oct 2026, by read-back, and for the throttle also by eyes, not yet by meter, and the team reflashed one board on its own in between. "3B is just drivers and a manifest" is an untested claim. Budget for the HAL being wrong once.
     mitigation: The safety gate (ARCHITECTURE.md section 6) plus phase 3, real Jetson proof before the cognitive layer.
 
   - id: R-6

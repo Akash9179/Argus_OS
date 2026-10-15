@@ -1,0 +1,13 @@
+{"t": 1792076859.7027748, "event": "go", "human": "Gulshan"}
+{"t": 1792076859.7184222, "event": "opened", "drive": "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0", "accel": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0"}
+{"t": 1792076859.9191437, "board": "drive", "event": "line", "line": "ESP-ROM:esp32s3-20210327"}
+{"t": 1792076859.9193783, "board": "drive", "event": "line", "line": "Build:Mar 27 2021"}
+{"t": 1792076859.9194663, "board": "drive", "event": "line", "line": "rst:0x1 (POWERON),boot:0x2b (SPI_FAST_FLASH_BOOT)"}
+{"t": 1792076859.9195414, "board": "drive", "event": "line", "line": "SPIWP:0xee"}
+{"t": 1792076859.9196663, "board": "drive", "event": "line", "line": "mode:DIO, clock div:1"}
+{"t": 1792076859.9197435, "board": "drive", "event": "line", "line": "load:0x3fce3808,len:0x4bc"}
+{"t": 1792076859.9198022, "board": "drive", "event": "line", "line": "load:0x403c9700,len:0xbd8"}
+{"t": 1792076859.919855, "board": "drive", "event": "line", "line": "load:0x403cc700,len:0x2a0c"}
+{"t": 1792076859.9199069, "board": "drive", "event": "line", "line": "entry 0x403c98d0"}
+{"t": 1792076860.1200817, "board": "drive", "event": "boot_at_open", "line": "0x00;OK;040104"}
+{"t": 1792076934.6562212, "event": "closed"}

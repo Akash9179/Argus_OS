@@ -148,11 +148,62 @@ notice.
 
 Same shape as the first: the drive module reset at open (POWERON), the
 4.1.5 banner 200 ms after the ROM lines, then no line from either board
-for the remaining 74 s. Gulshan was told to turn the key off and on
-twice inside the window; whether he did, and whether anything
-flickered, had not been relayed when this record was written. The
-test stands as "no board reset observed in the window" and nothing
-more until his answer is in.
+for the remaining 74 s. Gulshan's answer, relayed by the founder after
+the run: he turned the key off and on twice inside the window, and
+nothing flickered. So the drive module keeps running through ignition
+(no reset line), and the flicker reported by Mohit on 14 Oct did not
+reproduce tonight with 4.1.5. The flicker, when it happens, is not a
+board reset and not the firmware.
+
+Reset at open is not every open: the traffic run below opened the
+port and found the trip counter still at 1 from the run before, so
+that open did not reset the board. The CH340's auto-reset depends on
+how DTR and RTS move at open; not characterised.
+
+## Run 2d: drive module silence the other way (4.1.5)
+
+Steps: `snap steer:left:1000 snap steer_silence:right:900 status snap
+clear steer:left:300 snap`, `--max-angle-step 120`. No human
+observation requested (founder instruction: no more questions to
+Gulshan).
+
+| Step | Wire | Sensor |
+|---|---|---|
+| steer left 1000 ms | acknowledged, keepalive throughout | 178 region before the silence step (see log) |
+| steer right, then host silent 900 ms | `0x00;WD;TIMEOUT` from the board, host fallback stop acknowledged | stopped at 157.3 deg |
+| STATUS | `WD=01` | |
+| clear, steer left 300 ms | accepted | 157.3 to 178.2 deg |
+
+Faults exactly `['drive module WD TIMEOUT: it stopped its actuators
+itself']`. The steering watchdog has now tripped once in each
+direction.
+
+## Ten minute traffic run (bench_ugv01_2026-10-15_traffic10.jsonl): stopped at 21 s by the host, not by a board
+
+120 cycles of the same traffic as the 90 s run were requested. At
+20.62 s, during the third cycle's `steer:right:400`, a steering angle
+poll answered `0x04;ERR;NO_SIGNAL`. The poll had been sent at 20.619 s;
+the host sent the step's own steering stop at 20.622 s, so the bad
+sample coincides with the steering relay switching off. The host's rule
+latches a fault on a single unreadable angle (`steering feedback
+failed: NO_SIGNAL`), stopped everything and abandoned the run. The
+next poll 200 ms later read 179.7 deg normally. No `WD;NO_SIGNAL` from
+the board: its rule needs four consecutive 50 ms misses and saw one.
+
+| Run | steering polls | `NO_SIGNAL` |
+|---|---|---|
+| 90 s traffic (20 cycles, 40 relay switchings) | 561 | 0 |
+| ten minute attempt (3 cycles) | 89 | 1 |
+| all other runs today | 180 | 0 |
+
+So the angle sensor drops an occasional sample when a steering relay
+switches, the same coupling the horn shows at full strength. The
+watchdogs are not involved. Consequence for driving: under the present
+host rule the vehicle stops by itself on a single dropped sample. Two
+fixes, not exclusive: the sensor and relay wiring; and a host rule that
+tolerates one miss while an actuator is on, with the firmware's four
+miss rule behind it. The second is a safety logic change and gets a
+test and a review before it ships. The ten minute run is not done.
 
 ## Traffic test (bench_ugv01_2026-10-15_traffic.jsonl, about 90 s)
 
@@ -205,8 +256,11 @@ for the throttle, by a human's eyes:
   Gulshan on run 1b.
 - The drive module (4.1.5) switches its steering off on its own after
   800 ms of host silence, announces it, counts the trip, and accepts
-  the next move after the host's explicit stop. Once, by the wire and
-  the angle sensor; Gulshan's words for this run were not relayed.
+  the next move after the host's explicit stop. Twice, once each way,
+  by the wire and the angle sensor; no human observation of these.
+- The drive module keeps running through ignition: two key cycles
+  inside a listening window produced no reset line, and nothing
+  flickered (Gulshan, relayed).
 - 4.1.5 and AC 1.3 run normal driving traffic (twenty throttle and
   steering cycles under the 250 ms keepalive) with no fault and no trip
   on either board.
@@ -228,7 +282,8 @@ Not proven, so the section 6 gate stays shut:
 - No feedback-loss test (step 5: sensor disconnected during a move), no
   late-command or malformed-frame tests (steps 3 and 6), no port-close,
   unplug or reset cases (step 7). The ten minute no-nuisance run (step
-  9) was done in a 90 s form only.
+  9) passed in a 90 s form and failed at 21 s on the host's
+  single-miss sensor rule, not on a board.
 - Gulshan's words for the steering run and for the ignition test were
   not relayed before this record was written.
 - The undriven relay-input window at every reset and port open is

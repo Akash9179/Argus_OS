@@ -32,7 +32,7 @@ verdict: keep / refactor / replace / archive / new.
 |---|---|---|---|
 | ARGUS PILOT (`edge.pilot`) | hardware_integrated | keep | BLOCKED (1); 2 known gaps |
 | Hardware abstraction layer (`edge.hal`) | simulated | keep | - |
-| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | hardware_integrated | keep | BLOCKED (2); 6 known gaps |
+| ugv-01 vehicle driver (two boards) (`edge.hal.ugv01`) | hardware_integrated | keep | BLOCKED (2); 7 known gaps |
 | SensorDriver interface (Detection-only) (`edge.hal.sensor_interface`) | simulated | replace | 1 known gap; succeeded by `core.perception_interface` |
 | LocomotionDriver interface (`edge.hal.locomotion_interface`) | simulated | refactor | 1 known gap |
 | CommsDriver interface (`edge.hal.comms_interface`) | software_verified | keep | - |

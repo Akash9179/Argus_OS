@@ -245,6 +245,48 @@ no-signal rule would do the same on a longer dropout. The fix is in the
 wiring (horn current path against the sensors' supply or ground), not
 in software; it heads the list for the wiring capture.
 
+## Brake stroke (bench_ugv01_2026-10-15_brakeA to F.jsonl): the first time the brake moved through its range
+
+Timed 300 ms steps with the host's keepalive, the angle read after each.
+Configured limits 70 to 170 deg (`0x0F;OK;02BC06A4`).
+
+| Run | Steps | Angles | Rate |
+|---|---|---|---|
+| A apply | 3 x 300 ms from the released end | 61.7, 91.0, 115.1, 139.0 | 98, 80, 80 deg/s |
+| B release | 4 x 300 ms | 139.0, 113.7, 83.0, 61.0, 61.0 (fourth refused at the end) | 84, 102, 73 |
+| C apply | 5 x 300 ms | 61.0, 90.3, 114.3, 138.3, 161.0, 176.7 | 98, 80, 80, 76, 52 |
+| D release | 5 x 300 ms | 176.8, 149.1, 123.1, 96.0, 67.5, 67.5 (fifth refused below 70) | 92, 87, 90, 95 |
+| E apply | 3 x 300 ms then 800 ms | 67.5, 95.7, 119.2, 143.4, then 157.2 at 0.32 s, 173.7 at 0.54 s, 179.1 at 0.73 s, 178.9 after the stop at 0.80 s | 75 deg/s, then slowing to a stop at 179 before the host's stop |
+| F release | 5 x 300 ms | see the log | |
+
+Facts from this:
+
+- The physical range is about 61 (released end stop) to 179 (applied
+  end) sensor degrees; end to end takes about 1.3 s at 80 to 95 deg/s,
+  the apply slowing over the last 10 deg as the actuator loads up.
+- The firmware refuses a brake command at command time when the
+  reading is already past a limit (release at 61 and at 67.5, both
+  below the 70 minimum, answered AT_LIMIT), so a release can rest
+  anywhere between 61 and 70 depending on where the host's stop lands,
+  and the host cannot then command it lower. Whether a brake resting at
+  67.5 drags is a step 2 question.
+- Whether the firmware halts a moving brake at the 170 maximum is NOT
+  established. In run E the reading was already 173.7 at 0.54 s and
+  reached 179.1 by 0.73 s, where the actuator stopped on its own before
+  the host's stop at 0.80 s. That is consistent with the mechanical end
+  and with a firmware halt near 170 followed by 8 deg of coast; the 5 Hz
+  polls cannot separate them. The code (`angle_limits.cpp`,
+  `brakeLimitsUpdate`) does halt at `brakeMax` when limits are enabled,
+  and they are enabled by default and locked. The oscilloscope on the
+  relay coil (step 1) answers it. Until then the host bounds every
+  brake move by time, and a long move can run the actuator onto its
+  end stop.
+- The host did not fault on a reading 9 deg past the configured
+  maximum; its out-of-range rule is written for steering only.
+- The brake was left at 67.5 or wherever the last release stopped.
+  After a watchdog trip the brake stays wherever it was: this is the
+  stopping-architecture question in the plan's step 0.
+
 ## What is proven, and what is not
 
 Proven on the vehicle, by the board's own report over the wire and,

@@ -53,6 +53,8 @@ export interface MergeLayout {
   /** the seam's feather on the right image, as fractions of its width */
   seamFrom: number
   seamTo: number
+  /** the rows both frames cover: shown, the rest cropped, so no corner is black */
+  crop: { y: number; height: number }
 }
 
 /** Both frames on one canvas, the right one at its offset, the seam in the
@@ -70,5 +72,24 @@ export function mergeLayout(o: { dx: number; dy: number }, w: number, h: number,
     right: { x: o.dx - minX, y: o.dy - minY },
     seamFrom: Math.max(0, seamRightPx - feather / 2) / w,
     seamTo: Math.min(w, seamRightPx + feather / 2) / w,
+    crop: {
+      y: Math.max(0 - minY, o.dy - minY),
+      height: Math.min(0 - minY + h, o.dy - minY + h) - Math.max(0 - minY, o.dy - minY),
+    },
   }
+}
+
+/** The same ZED camera's colour-coded depth stream, by the wrapper's topic
+ *  naming (…/rgb/color/rect/image → …/depth/depth_color), or null. */
+export function depthUrlFor(url: string): string | null {
+  const rgb = '/rgb/color/rect/image'
+  return url.includes(rgb) ? url.replace(rgb, '/depth/depth_color') : null
+}
+
+export type CameraView = 'merged' | 'pair' | 'grid'
+
+/** The views the operator can switch between, the default first. */
+export function viewsFor(feeds: VideoFeeds | null, merge: { dx: number; dy: number } | null): CameraView[] {
+  if (feeds?.kind !== 'pair') return []
+  return merge ? ['merged', 'pair', 'grid'] : ['pair', 'grid']
 }

@@ -85,3 +85,39 @@ describe('mergeLayout', () => {
     expect(m.right).toEqual({ x: 500, y: 0 })
   })
 })
+
+describe('mergeLayout crop', () => {
+  it('keeps only the rows both cameras cover, so no black corners show', () => {
+    const m = mergeLayout({ dx: 247, dy: 34 }, 960, 600, 60)
+    expect(m.crop).toEqual({ y: 34, height: 566 })
+    const up = mergeLayout({ dx: 500, dy: -40 }, 960, 600, 60)
+    expect(up.crop).toEqual({ y: 40, height: 560 })
+  })
+})
+
+// 5 Nov 2026: a view switcher (merged, side by side, grid) and the grid's depth tiles.
+import { depthUrlFor, viewsFor } from './videoSource'
+
+describe('depthUrlFor', () => {
+  it("gives the same camera's colour-coded depth stream", () => {
+    expect(depthUrlFor('http://h:8080/stream?topic=/zed_rear/zed_node/rgb/color/rect/image'))
+      .toBe('http://h:8080/stream?topic=/zed_rear/zed_node/depth/depth_color')
+  })
+  it('gives nothing for a stream it does not recognise', () => {
+    expect(depthUrlFor('http://h:8080/stream?topic=/other/image')).toBeNull()
+  })
+})
+
+describe('viewsFor', () => {
+  const pair = { kind: 'pair' as const, left: 'http://a', right: 'http://b' }
+  it('offers merged first when a merge offset is set', () => {
+    expect(viewsFor(pair, { dx: 1, dy: 2 })).toEqual(['merged', 'pair', 'grid'])
+  })
+  it('offers side by side and grid for a pair without an offset', () => {
+    expect(viewsFor(pair, null)).toEqual(['pair', 'grid'])
+  })
+  it('offers no switcher for one feed or none', () => {
+    expect(viewsFor({ kind: 'single', url: 'http://a' }, null)).toEqual([])
+    expect(viewsFor(null, null)).toEqual([])
+  })
+})

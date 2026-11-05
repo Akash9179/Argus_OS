@@ -39,7 +39,7 @@ import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActi
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
-import { videoFeedsFromSearch, mergeFromSearch, mergeLayout } from '../transport/videoSource'
+import { videoFeedsFromSearch, mergeFromSearch, mergeLayout, depthUrlFor, viewsFor, type CameraView } from '../transport/videoSource'
 
 const STEER_MAX_DEG = 30
 const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
@@ -89,6 +89,12 @@ const say = {
   videoAltRight: "The vehicle's front camera, right",
   videoAltMerged: "The vehicle's two front cameras, merged",
   mergedNote: 'Merged view, approximate: objects near or far may kink at the seam',
+  viewNames: { merged: 'Merged', pair: 'Side by side', grid: 'Grid' } as Record<CameraView, string>,
+  tileLeft: 'Left camera',
+  tileRight: 'Right camera',
+  tileLeftDepth: 'Left camera depth',
+  tileRightDepth: 'Right camera depth',
+  depthNote: 'Depth: near is warm, far is cool',
   rearLine: 'No camera has been checked on the vehicle yet.',
   linkPill: (ms: number) => `Link good · ${ms} ms`,
   linkLost: 'Link lost',
@@ -439,20 +445,37 @@ function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, o
   const feeds = videoFeedsFromSearch(search)
   const merge = feeds?.kind === 'pair' ? mergeFromSearch(search) : null
   const ml = merge ? mergeLayout(merge, 960, 600, 60) : null
+  const views = viewsFor(feeds, merge)
+  const [view, setView] = useState<CameraView | null>(null)
+  const shown: CameraView | null = view && views.includes(view) ? view : views[0] ?? null
   return (
     <div className="card video">
       <div className="video-ground" />
       <div className="video-horizon" />
-      {feeds?.kind === 'pair' && ml ? (
+      {feeds?.kind === 'pair' && shown === 'grid' ? (
+        <div className="video-grid">
+          {[
+            { src: feeds.left, label: say.tileLeft },
+            { src: feeds.right, label: say.tileRight },
+            { src: depthUrlFor(feeds.left), label: say.tileLeftDepth },
+            { src: depthUrlFor(feeds.right), label: say.tileRightDepth },
+          ].map((t) => (
+            <div key={t.label} className="video-tile">
+              {t.src ? <img src={t.src} alt={t.label} /> : <span className="video-tile-empty">{say.noVideo}</span>}
+              <span className="video-tile-label">{t.label}</span>
+            </div>
+          ))}
+        </div>
+      ) : feeds?.kind === 'pair' && ml && shown === 'merged' ? (
         <div className="video-merge">
-          <div className="video-merge-inner" style={{ aspectRatio: `${ml.width} / ${ml.height}`,
-            width: `min(100cqw, calc(100cqh * ${ml.width} / ${ml.height}))` }}>
+          <div className="video-merge-inner" style={{ aspectRatio: `${ml.width} / ${ml.crop.height}`,
+            width: `min(100cqw, calc(100cqh * ${ml.width} / ${ml.crop.height}))` }}>
             <img src={feeds.left} alt={say.videoAltMerged} style={{
-              left: `${(ml.left.x / ml.width) * 100}%`, top: `${(ml.left.y / ml.height) * 100}%`,
-              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.height) * 100}%` }} />
+              left: `${(ml.left.x / ml.width) * 100}%`, top: `${((ml.left.y - ml.crop.y) / ml.crop.height) * 100}%`,
+              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.crop.height) * 100}%` }} />
             <img src={feeds.right} alt="" style={{
-              left: `${(ml.right.x / ml.width) * 100}%`, top: `${(ml.right.y / ml.height) * 100}%`,
-              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.height) * 100}%`,
+              left: `${(ml.right.x / ml.width) * 100}%`, top: `${((ml.right.y - ml.crop.y) / ml.crop.height) * 100}%`,
+              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.crop.height) * 100}%`,
               maskImage: `linear-gradient(to right, transparent ${ml.seamFrom * 100}%, black ${ml.seamTo * 100}%)`,
               WebkitMaskImage: `linear-gradient(to right, transparent ${ml.seamFrom * 100}%, black ${ml.seamTo * 100}%)` }} />
           </div>
@@ -474,6 +497,17 @@ function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, o
             </svg>
             <span>{say.noVideoLine}</span>
           </div>
+        </div>
+      )}
+
+      {views.length > 1 && (
+        <div className="hud-views" role="group" aria-label="Camera view">
+          {views.map((v) => (
+            <button key={v} type="button" className={`hud-view ${shown === v ? 'is-on' : ''}`}
+              aria-pressed={shown === v} onClick={() => setView(v)}>
+              {say.viewNames[v]}
+            </button>
+          ))}
         </div>
       )}
 

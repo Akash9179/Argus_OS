@@ -75,7 +75,7 @@ verdict: keep / refactor / replace / archive / new.
 | Component | Maturity | Disposition | Notes |
 |---|---|---|---|
 | ugv-01 hardware truth (`bodies.ugv01`) | scaffolded | keep | BLOCKED (2); 5 known gaps |
-| Silence watchdogs for the two boards (AC 1.4 and 4.1.6 on the vehicle since 5 Nov 2026; authority not yet proven on the vehicle) (`bodies.ugv01.firmware_watchdog`) | hardware_integrated | keep | BLOCKED (1); 6 known gaps |
+| Silence watchdogs for the two boards (AC 1.4 and 4.1.6 on the vehicle since 5 Nov 2026; authority not yet proven on the vehicle) (`bodies.ugv01.firmware_watchdog`) | hardware_integrated | keep | BLOCKED (1); 7 known gaps |
 | v4 watchdog firmware (relay board, superseded) (`bodies.ugv01.firmware_v4`) | scaffolded | archive | BLOCKED (1); 1 known gap |
 
 ## Learning plane

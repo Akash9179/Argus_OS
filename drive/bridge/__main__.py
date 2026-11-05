@@ -87,6 +87,19 @@ def controls_kwargs(args: argparse.Namespace) -> dict:
     return {"steer_sense": args.steer_sense, "max_duty": args.max_duty}
 
 
+def log_snapshot(controls, log, wait_s: float = 0.3) -> None:
+    """One fresh STATUS read through the bridge's own controls (the one
+    writer on the port), then the controls' whole snapshot to the session
+    log. Read-only; nothing moves. Asked for with SIGUSR1 (5 Nov 2026)."""
+    import json
+    import time
+    controls.read_status()
+    if wait_s:
+        time.sleep(wait_s)
+    snap = json.loads(json.dumps(controls.snapshot(), default=str))
+    log.event("snapshot", **snap)
+
+
 def waived_checks(args: argparse.Namespace) -> tuple[str, ...]:
     """The preflight checks this run may arm through (the bench waiver)."""
     return ("stop_on_link_loss",) if args.bench_on_jack else ()
@@ -156,6 +169,17 @@ def main() -> int:
           f"watchdog={args.watchdog_ms}ms report={'on' if reporter else 'off'} "
           f"name={args.name or '(none)'} "
           f"operators={args.operators} log={args.log}")
+
+    if controls is not None and hasattr(signal, "SIGUSR1"):
+        import threading
+
+        def _snapshot(*_):
+            # off the signal handler: the read waits for the board's answer
+            threading.Thread(target=log_snapshot, args=(controls, daemon.log),
+                             daemon=True).start()
+        signal.signal(signal.SIGUSR1, _snapshot)
+        print("snapshot on request: kill -USR1 %d logs the boards' state" % os.getpid(),
+              file=sys.stderr)
 
     stop = signal.SIGTERM, signal.SIGINT
     done = {"flag": False}

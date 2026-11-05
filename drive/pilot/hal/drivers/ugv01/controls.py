@@ -171,6 +171,8 @@ class Ugv01Controls:
         # The gear the board has confirmed (STATUS GR, or an OK to 0x08), not
         # the one last sent; None is unknown (Codex, 5 Nov 2026).
         self._gear_acked: str | None = None
+        # the brake move in progress: (direction, began); bounded in tick()
+        self._brake_move: tuple[str, float] | None = None
         self._steer_limits: tuple[float, float] | None = None
         self._brake_limits: tuple[float, float] | None = None
         # intent and acknowledgement
@@ -668,11 +670,13 @@ class Ugv01Controls:
                 if seq is not None:
                     self._duty_last_seq = seq
                 self._brake_moving = True
+                self._brake_move = ("apply", self._now())
                 self._write(self._drive, frame, p.BRK_SW, arg=0x01)
             elif action == "release":
                 self._check_open("brake release")
                 self._check_armed("brake release")
                 self._brake_moving = True
+                self._brake_move = ("release", self._now())
                 seq = self._write(self._drive, frame, p.BRK_SW, arg=0x02)
                 self._brake_release_seq = seq
             else:
@@ -809,6 +813,7 @@ class Ugv01Controls:
                     self._brake_applied = True
                     self._brake_moving = True
                     self._stop_brake_apply_at = self._now()
+                    self._brake_move = ("apply", self._stop_brake_apply_at)
                     seqs.append(self._write(self._drive, p.brake("apply"), p.BRK_SW, arg=0x01))
                 elif (began is not None and self._brake_moving and brake is not False
                       and not self._board_tripped and self._armed_reason is None
@@ -949,6 +954,35 @@ class Ugv01Controls:
                     self.poll_feedback()
             # 5. steering loop
             self._steer_loop(now)
+            # 6. every brake move is bounded by the stroke time (5 Nov 2026 on
+            #    the jack: a release acknowledged by the board left the brake
+            #    at 174 deg for 47 s with the relay on; the firmware's stall
+            #    rule resets on sensor noise). Halt it, then check the end.
+            self._bound_brake_move(now)
+
+    def _bound_brake_move(self, now: float) -> None:
+        mv = self._brake_move
+        if mv is None:
+            return
+        if not self._brake_moving:
+            self._brake_move = None
+            return
+        direction, began = mv
+        if now - began <= self._brake_stroke_max:
+            return
+        self._brake_move = None
+        self._brake_moving = False
+        self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00)
+        ang, at, lim = self._brake_angle, self._brake_angle_at, self._brake_limits
+        fresh = ang is not None and at is not None and now - at <= self._feedback_max_age
+        if direction == "release":
+            arrived = fresh and lim is not None and ang <= lim[0] + self.BRAKE_RELEASED_MARGIN_DEG
+        else:
+            arrived = fresh and lim is not None and ang >= lim[1] - self.BRAKE_RELEASED_MARGIN_DEG
+        if not arrived:
+            self._fault("brake did not reach its %s end in %.1f s (reads %s deg)" % (
+                "released" if direction == "release" else "applied", self._brake_stroke_max,
+                "none" if ang is None else "%.1f" % ang))
 
     def _drive_keepalive_due(self, now: float) -> bool:
         """Whether a 0x15 may leave the host now. Never to a board that is

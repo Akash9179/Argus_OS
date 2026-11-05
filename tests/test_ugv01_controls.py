@@ -346,6 +346,8 @@ def test_heartbeat_keeps_motion_alive(rig):
     for _ in range(5):
         clock.advance(0.5)
         c.heartbeat()
+        c.poll_feedback()     # the bridge polls at 5 Hz; the brake move bound needs it
+        time.sleep(0.02)
         c.tick()
         time.sleep(0.03)     # the reader thread answers the liveness probe
     assert p.brake("apply") not in drive.writes
@@ -1462,4 +1464,52 @@ def test_a_brake_release_answered_with_an_error_latches_a_fault():
     c.start()
     c.brake("release")
     assert wait_until(lambda: any("brake release" in f for f in c.snapshot()["faults"]))
+    c.close()
+
+
+# ------------------------------------------- 5 Nov 2026 on the jack: a brake move with no motion
+
+def _drive_brake(c, clock, seconds, state=None, to=None):
+    import time
+    steps = int(seconds / 0.1)
+    for i in range(steps):
+        if state is not None and to is not None:
+            state["deg"] += (to - state["deg"]) * 0.5
+        clock.advance(0.1); c.heartbeat(); c.tick(); time.sleep(0.01)
+
+
+def test_a_release_that_never_moves_the_brake_is_halted_and_faults():
+    """18:05 on the jack: the release was acknowledged, the brake read 171 to
+    176 deg for 47 s, the relay stayed on, and nothing noticed. The host
+    bounds every brake move by brake_stroke_max_s and checks where it ended."""
+    state = {"deg": 100.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_stroke_max_s=2.0, poll_hz=5)
+    c.start()
+    c.brake("release")
+    _drive_brake(c, clock, 2.5)
+    assert p.brake("stop") in drive.writes
+    faults = c.snapshot()["faults"]
+    assert any("did not reach its released end" in f for f in faults), faults
+    c.close()
+
+
+def test_a_release_that_arrives_is_halted_quietly():
+    state = {"deg": 90.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_stroke_max_s=2.0, poll_hz=5)
+    c.start()
+    c.brake("release")
+    _drive_brake(c, clock, 2.5, state, to=55.0)
+    assert p.brake("stop") in drive.writes
+    assert c.snapshot()["faults"] == []
+    c.close()
+
+
+def test_an_apply_that_arrives_is_halted_quietly():
+    state = {"deg": 100.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_stroke_max_s=2.0, poll_hz=5)
+    c.start()
+    c.brake("apply")
+    _drive_brake(c, clock, 2.5, state, to=108.0)
+    assert p.brake("stop") in drive.writes
+    assert c.snapshot()["faults"] == []
     c.close()

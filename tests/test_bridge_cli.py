@@ -36,3 +36,24 @@ def test_the_bench_waiver_is_off_unless_asked_for():
     assert waived_checks(build_parser().parse_args([])) == ()
     args = build_parser().parse_args(["--vehicle", "ugv01", "--bench-on-jack"])
     assert waived_checks(args) == ("stop_on_link_loss",)
+
+
+def test_a_snapshot_request_reads_status_through_the_bridge_and_logs_the_controls():
+    """5 Nov 2026: the Jetson session needed the board's state (STATUS, the
+    brake angle) while the bridge holds the ports. SIGUSR1 asks the bridge
+    itself, the one writer, for a fresh STATUS and logs the snapshot."""
+    from bridge.__main__ import log_snapshot
+
+    class Controls:
+        reads = 0
+        def read_status(self): self.reads += 1
+        def snapshot(self): return {"drive": {"status_raw": "GR=01,BR=00"}, "brake": {"angle_deg": 174.0}}
+
+    class Log:
+        def __init__(self): self.events = []
+        def event(self, name, **kw): self.events.append((name, kw))
+
+    c, log = Controls(), Log()
+    log_snapshot(c, log, wait_s=0)
+    assert c.reads == 1
+    assert log.events == [("snapshot", {"drive": {"status_raw": "GR=01,BR=00"}, "brake": {"angle_deg": 174.0}})]

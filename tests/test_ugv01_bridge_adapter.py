@@ -44,7 +44,12 @@ class FakeControls:
     def light(self, w): self._rec("light", w); self.snap["commanded"]["light"] = w
     def indicator(self, w): self._rec("indicator", w); self.snap["commanded"]["indicator"] = w
     def horn(self): self._rec("horn")
-    def safe_stop(self): self._rec("safe_stop")
+    def safe_stop(self): self._rec("safe_stop"); self.snap["safe_stopped"] = True
+    def resume_after_stop(self):
+        if self.snap["faults"] or not self.snap["safe_stopped"]:
+            return False
+        self._rec("resume_after_stop"); self.snap["safe_stopped"] = False
+        return True
     def tick(self): self._rec("tick")
     def snapshot(self): return self.snap
 
@@ -202,3 +207,33 @@ def test_measured_map_says_what_is_not_a_reading(rig):
     assert t.measured["speedKmh"] is False and t.measured["battery"] is False
     assert t.measured["steerAngleDeg"] is True
     assert "measured" in t.to_wire()
+
+
+# ------------------------------------------- 5 Nov 2026: the stop latch and a fresh arm
+
+def test_a_fresh_arm_clears_the_controls_stop_latch(rig):
+    """On the jack: after the bridge's link-loss stop the controls refused
+    every move with 'safe-stopped, clear_faults() first', and nothing in the
+    bridge ever cleared it. The operator's fresh arm is that decision."""
+    v, fc = rig
+    v.safe_stop()
+    assert fc.snap["safe_stopped"] is True
+    v.resume()
+    assert ("resume_after_stop",) in fc.calls
+    assert fc.snap["safe_stopped"] is False
+
+
+def test_a_fresh_arm_never_clears_a_latched_board_fault(rig):
+    v, fc = rig
+    v.safe_stop()
+    fc.snap["faults"] = ["drive module WD TIMEOUT: it stopped its actuators itself"]
+    v.resume()
+    assert ("resume_after_stop",) not in fc.calls
+    assert fc.snap["safe_stopped"] is True
+
+
+def test_resume_on_a_vehicle_that_was_never_stopped_sends_nothing(rig):
+    v, fc = rig
+    v.resume()
+    assert ("resume_after_stop",) not in fc.calls
+

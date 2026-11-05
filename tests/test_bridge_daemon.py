@@ -1254,3 +1254,71 @@ def test_the_waiver_is_logged_when_the_daemon_starts(tmp_path):
         assert ev and ev[0]["waived"] == ["stop_on_link_loss"]
     finally:
         d.stop()
+
+
+class _ResumeCounting(_TogglingVehicle):
+    def __init__(self):
+        super().__init__()
+        self.resumes = 0
+
+    def resume(self):
+        self.resumes += 1
+
+
+def test_every_arm_and_rearm_resumes_the_vehicle_once(tmp_path):
+    """The controls under the bridge keep their own stop latch; the
+    operator's fresh arm is what lifts it, once per arm, never per frame."""
+    v = _ResumeCounting()
+    d, c = _direct(v, tmp_path)
+    assert _arm(d, c) == "DRIVING"
+    assert v.resumes == 1
+    d._handle(c, drive_frame(arm=True))
+    d._handle(c, drive_frame(arm=True))
+    assert v.resumes == 1
+    d._handle(c, drive_frame(arm=True, estop=True))   # latch
+    d._handle(c, drive_frame(arm=False))
+    d._handle(c, drive_frame(arm=True))                # the fresh press re-arms
+    assert d.watchdog.state == "DRIVING"
+    assert v.resumes == 2
+
+
+class _LockCheckingVehicle(_TogglingVehicle):
+    """Records, at each resume and stop, whether the daemon held the
+    watchdog lock and what state the watchdog was in."""
+    def __init__(self):
+        super().__init__()
+        self.daemon = None
+        self.seen = []
+
+    def resume(self):
+        self.seen.append(("resume", self.daemon._wd_lock.locked(), self.daemon.watchdog.state))
+
+    def safe_stop(self):
+        if self.daemon is not None:
+            self.seen.append(("stop", self.daemon._wd_lock.locked(), self.daemon.watchdog.state))
+        super().safe_stop()
+
+
+def test_resume_runs_under_the_watchdog_lock_and_only_while_driving(tmp_path):
+    """Codex, 5 Nov 2026: a stop from the tick thread or a dropped link
+    landing between the arm decision and the resume was undone by it."""
+    v = _LockCheckingVehicle()
+    d, c = _direct(v, tmp_path)
+    v.daemon = d
+    assert _arm(d, c) == "DRIVING"
+    assert v.seen == [("resume", True, "DRIVING")]
+
+
+def test_every_daemon_stop_runs_under_the_watchdog_lock(tmp_path):
+    v = _LockCheckingVehicle()
+    d, c = _direct(v, tmp_path, timeout_s=0.1)
+    v.daemon = d
+    assert _arm(d, c) == "DRIVING"
+    time.sleep(0.2)
+    d._handle(c, drive_frame(arm=True, throttle=0.2))      # late frame: latch and stop
+    v.board_ok = False
+    d._handle(c, drive_frame(arm=False))
+    d._handle(c, drive_frame(arm=True))
+    stops = [e for e in v.seen if e[0] == "stop"]
+    assert stops and all(locked for _, locked, _ in stops)
+

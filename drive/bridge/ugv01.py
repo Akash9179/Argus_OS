@@ -156,6 +156,18 @@ class Ugv01Vehicle(VehicleAdapter):
             self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
             self._brake_held = True
 
+    def resume(self) -> None:
+        """Lift the controls' stop latch on a fresh arm (5 Nov 2026: after
+        the bridge's link-loss stop the controls refused every move with
+        'safe-stopped, clear_faults() first' and nothing ever cleared it, so
+        the cockpit read DRIVING while the wheels could not move). Only the
+        stop latch: with a board fault latched nothing is cleared, and the
+        self-test's faults check already refuses the arm."""
+        with self._lock:
+            if self._c.resume_after_stop():
+                self._duty_sent = 0
+                self._steer_sent = None
+
     def tick(self, dt: float) -> None:
         self._c.tick()
 

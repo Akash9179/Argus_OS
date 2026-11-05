@@ -817,6 +817,28 @@ class Ugv01Controls:
             if seq is not None:
                 self._duty_last_seq = seq
 
+    def resume_after_stop(self) -> bool:
+        """Lift the stop latch a stop set, when no fault is latched: the
+        owner's operator has just armed again (bridge, 5 Nov 2026). Checked
+        and lifted under one lock, so a fault that lands meanwhile is never
+        wiped. Faults, the board-trip flag and the throttle board's zero
+        acknowledgement are untouched; only clear_faults() clears a fault.
+        A stop brake apply still running is halted where it is. Returns
+        whether the latch was lifted."""
+        with self._lock:
+            if self._closing or self._faults or self._board_tripped or not self._safe_stopped:
+                return False
+            self._safe_stopped = False
+            self._stop_requested = False
+            self._stop_seqs = set()
+            self._stop_acked_seqs = set()
+            self._stop_incomplete = False
+            self._stop_brake_apply_at = None
+            if self._brake_moving:
+                self._brake_moving = False
+                self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00)
+            return True
+
     def _fault(self, reason: str, link: _Link | None = None, *, port_dead: bool = False,
                brake: bool | None = None) -> None:
         """Record a fault and stop. A silent board keeps its port open and

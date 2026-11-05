@@ -31,6 +31,11 @@ class VehicleAdapter(abc.ABC):
         """Bring the vehicle to a safe state immediately: zero throttle,
         neutral steer. Must be idempotent and must not depend on the link."""
 
+    def resume(self) -> None:
+        """The operator has just armed: a fresh press at zero throttle with
+        the self-test passing. A vehicle whose own controls latch a stop
+        lifts that latch here, never a latched fault. Default: nothing."""
+
     @abc.abstractmethod
     def self_test(self) -> list[dict]:
         """Pre-arm checks, run when ignition comes on. Each check is

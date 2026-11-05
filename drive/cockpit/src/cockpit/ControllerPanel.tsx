@@ -84,6 +84,17 @@ export function ControllerPanel({ open, onClose }: { open: boolean; onClose: () 
             </div>
           </div>
 
+          {/* raw readout: what the browser reports, for mapping a pad it does not know */}
+          {m.connected && (
+            <div className="rounded-control border border-line bg-surface-2 px-4 py-3 font-mono text-[12px] text-text-2">
+              <div>layout: <span className="text-text">{m.mapping || 'not standard'}</span> · {m.axes.length} axes · {m.buttonCount} buttons</div>
+              <div className="mt-1">axes: {m.axes.map((a, i) => (
+                <span key={i} className={Math.abs(a) > 0.2 ? 'text-accent' : ''}>{i}:{a.toFixed(2)} </span>
+              ))}</div>
+              <div className="mt-1">pressed: <span className="text-accent">{m.values.map((v, i) => (v > 0.1 ? `${i}(${v.toFixed(2)}) ` : '')).join('') || 'none'}</span></div>
+            </div>
+          )}
+
           {/* how to connect */}
           {!m.connected && (
             <ol className="space-y-1.5 rounded-control border border-line bg-surface-2 px-4 py-3 text-[13px] text-text-2">

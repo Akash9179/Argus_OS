@@ -12,6 +12,9 @@ export interface GamepadMonitor {
   throttle: number // mapped 0..1
   pressed: boolean[] // per-button pressed
   buttonCount: number
+  mapping: string // 'standard', or '' when the browser does not know this pad's layout
+  axes: number[] // every raw axis, for mapping an unknown pad
+  values: number[] // every raw button value 0..1
 }
 
 const EMPTY: GamepadMonitor = {
@@ -25,6 +28,9 @@ const EMPTY: GamepadMonitor = {
   throttle: 0,
   pressed: [],
   buttonCount: 0,
+  mapping: '',
+  axes: [],
+  values: [],
 }
 
 /** Read-only live gamepad snapshot for the Controller test panel. Does NOT
@@ -54,6 +60,9 @@ export function useGamepadMonitor(active: boolean): GamepadMonitor {
           throttle: Math.max(0, Math.min(1, r2 - l2)),
           pressed: gp.buttons.map((b) => !!b.pressed),
           buttonCount: gp.buttons.length,
+          mapping: gp.mapping,
+          axes: Array.from(gp.axes),
+          values: gp.buttons.map((b) => b.value),
         })
       } else {
         setMon((m) => (m.connected ? EMPTY : m))

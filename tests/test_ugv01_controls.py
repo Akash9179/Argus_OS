@@ -1288,3 +1288,54 @@ def test_a_second_stop_inside_the_window_keeps_the_stop_brake_stroke_running():
     assert c._brake_moving is False
     assert drive.writes[-2:] == [p.brake("stop"), p.steer("stop")]
     c.close()
+
+
+# ------------------------------------------- 5 Nov 2026: resume after the bridge's stop
+
+def test_resume_after_stop_lifts_only_the_stop_latch():
+    """The bridge's fresh arm lifts the stop latch it set, and nothing else:
+    the throttle board's zero acknowledgement stands, a steer goes out."""
+    c, drive, accel, clock = _rig(drive_board, accel_board)
+    c.start(); poll_once(c, clock)
+    c.safe_stop()
+    poll_once(c, clock)
+    alive_before = c.snapshot()["accel"]["alive"]
+    assert c.resume_after_stop() is True
+    s = c.snapshot()
+    assert s["safe_stopped"] is False and s["faults"] == []
+    assert s["accel"]["alive"] == alive_before
+    poll_once(c, clock); c.heartbeat()
+    c.steer("left")
+    assert drive.writes[-1] == p.steer("left")
+    c.close()
+
+
+def test_resume_after_stop_never_clears_a_latched_fault():
+    c, drive, accel, clock = _rig(drive_board, accel_board)
+    c.start(); poll_once(c, clock)
+    c._fault("drive module WD TIMEOUT: it stopped its actuators itself", brake=False)
+    assert c.resume_after_stop() is False
+    s = c.snapshot()
+    assert s["safe_stopped"] is True and s["faults"]
+    with pytest.raises(Refused):
+        c.steer("left")
+    c.close()
+
+
+def test_resume_after_stop_does_nothing_when_not_stopped():
+    c, drive, accel, clock = _rig(drive_board, accel_board)
+    c.start(); poll_once(c, clock)
+    n = len(drive.writes)
+    assert c.resume_after_stop() is False
+    assert len(drive.writes) == n
+    c.close()
+
+
+def test_resume_after_stop_halts_a_running_stop_brake_move():
+    c, drive, accel, clock = _rig(drive_board, accel_board, brake_on_stop=True, brake_stroke_max_s=5.0)
+    c.start(); poll_once(c, clock); c.heartbeat(); c.steer("left")
+    clock.advance(0.71); c.tick()                   # heartbeat stop: brake apply running
+    drive.writes.clear()
+    assert c.resume_after_stop() is True
+    assert drive.writes == [p.brake("stop")]
+    c.close()

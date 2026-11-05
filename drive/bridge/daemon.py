@@ -124,8 +124,9 @@ class BridgeDaemon:
         threading.Thread(target=self._tick_loop, daemon=True).start()
 
     def stop(self) -> None:
-        self._stop.set()
-        self.vehicle.safe_stop()
+        with self._wd_lock:
+            self._stop.set()
+            self.vehicle.safe_stop()
         if self._server:
             self._server.close()
         self.log.event("daemon_stop")
@@ -286,13 +287,18 @@ class BridgeDaemon:
             if withdrawn:
                 self.log.event("readiness_withdrawn", session=client.session,
                                failed=[c["name"] for c in self.preflight["checks"] if not c["ok"]])
-        if latched_here or withdrawn:
-            # A latch found on a command frame stops the vehicle here, exactly
-            # as the tick thread's would (Codex, 5 Nov 2026: a late frame that
-            # beat the tick to the stall latched with no stop at all). The
-            # frame itself is not applied.
-            self.vehicle.safe_stop()
-            return
+            if latched_here or withdrawn:
+                # A latch found on a command frame stops the vehicle here,
+                # exactly as the tick thread's would (Codex, 5 Nov 2026: a
+                # late frame that beat the tick to the stall latched with no
+                # stop at all). The frame itself is not applied.
+                self.vehicle.safe_stop()
+                return
+            if before != "DRIVING" and self.watchdog.state == "DRIVING" and not self._stop.is_set():
+                # A fresh arm lifts the vehicle's own stop latch, once. Under
+                # the watchdog lock, like every stop, so a stop from the tick,
+                # a dropped link or shutdown is never undone by it (Codex).
+                self.vehicle.resume()
         if not may_drive:
             # state controls (ignition, lights, gear) still apply; motion does not
             cmd = Command(
@@ -328,8 +334,7 @@ class BridgeDaemon:
                     tripped = self.watchdog.link_lost()
                     if tripped:
                         self.log.event("latched", session=client.session, reason="link_lost")
-                if tripped:
-                    self.vehicle.safe_stop()
+                        self.vehicle.safe_stop()
                 self._driver = min(self._clients, key=lambda c: c.joined) if self._clients else None
                 promoted = self._driver
             else:
@@ -364,8 +369,7 @@ class BridgeDaemon:
                         "latched", session=driver.session if driver else None,
                         reason="operator_silence",
                     )
-            if tripped:
-                self.vehicle.safe_stop()
+                    self.vehicle.safe_stop()
             n += 1
             if n % telemetry_every == 0:
                 self._broadcast_telemetry()

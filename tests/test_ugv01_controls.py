@@ -186,6 +186,14 @@ def wait_until(pred, tries=200):
 
 
 
+def read_feedback_now(c):
+    """Read both angles once without ticking (a tick would see a brake move
+    with no heartbeat and stop): what the 5 Hz poll gives the real host."""
+    before = c._brake_angle_at
+    c.poll_feedback()
+    wait_until(lambda: c._brake_angle_at is not None and c._brake_angle_at != before or False, tries=20)
+
+
 def poll_once(c, clock):
     """One angle poll through the controls, for rigs built with poll_hz=0:
     a steering move needs a fresh reading (Phase A rule)."""
@@ -250,6 +258,7 @@ def test_throttle_is_refused_until_the_brake_is_known_released(rig):
     assert p.accel_duty(30) not in accel.writes
     c.brake("release")
     assert wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(30)
     assert accel.writes[-1] == p.accel_duty(30)
 
@@ -259,6 +268,7 @@ def test_throttle_is_capped_and_zero_is_always_allowed(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(100)
     assert accel.writes[-1] == p.accel_duty(90)
     c.brake("apply")
@@ -271,6 +281,7 @@ def test_brake_apply_zeroes_the_throttle_before_the_brake_moves(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(40)
     order = []
     accel.write = lambda d, _w=accel.write: (order.append(("accel", d)), _w(d))
@@ -288,6 +299,7 @@ def test_throttle_is_refused_when_the_accel_board_stops_answering(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(40)
     accel.silent = True
     c.set_throttle(45)            # written, never answered
@@ -308,6 +320,7 @@ def test_heartbeat_silence_with_motion_commanded_safe_stops_in_order(rig):
     c.heartbeat()
     c.brake("release")           # a brake move is motion: the heartbeat must be live
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.brake("stop")
     c.set_throttle(40)
     c.steer("left")
@@ -326,6 +339,7 @@ def test_heartbeat_keeps_motion_alive(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.heartbeat()
     c.set_throttle(40)
     import time
@@ -427,6 +441,7 @@ def test_close_zeroes_the_throttle_and_stops_before_the_ports_close(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(40)
     c.close()
     assert accel.writes[-1] == p.ACCEL_ZERO
@@ -495,6 +510,7 @@ def test_gear_needs_the_latest_zero_acked_not_an_old_one(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(40)
     wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 40)
     accel.silent = True
@@ -565,6 +581,7 @@ def test_invalid_input_changes_no_state(rig):
     c.start()
     c.brake("release")
     wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     c.set_throttle(30)
     with pytest.raises(ValueError):
         c.set_throttle(-1)
@@ -708,6 +725,7 @@ def test_a_release_answered_at_limit_counts_as_released():
     c.start()
     c.brake("release")
     assert wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
     assert c.snapshot()["faults"] == []
     c.set_throttle(20)
     assert accel.writes[-1] == p.accel_duty(20)
@@ -787,7 +805,7 @@ def test_keepalive_runs_faster_than_the_boards_timeout_while_throttle_is_on(rig)
     keepalive at least every 250 ms."""
     c, drive, accel, clock = rig
     c.start()
-    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"]); read_feedback_now(c)
     c.heartbeat(); c.set_throttle(20)
     wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 20)
     accel.writes.clear()
@@ -809,7 +827,7 @@ def test_a_timeout_error_from_the_board_latches_a_fault():
     drive = FakePort(drive_board); accel = FakePort(board)
     c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now, sleep=clock.sleep, poll_hz=0)
     c.start()
-    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"]); read_feedback_now(c)
     c.heartbeat(); c.set_throttle(20)
     assert wait_until(lambda: any("TIMEOUT" in f for f in c.snapshot()["faults"]))
     assert c.snapshot()["safe_stopped"] is True
@@ -868,7 +886,7 @@ def test_on_ac14_the_keepalive_carries_the_read_back_and_a_new_timeout_faults():
     drive = FakePort(drive_board); accel = FakePort(board)
     c = Ugv01Controls(drive_port=drive, accel_port=accel, now=clock.now, sleep=clock.sleep, poll_hz=0)
     c.start()
-    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"]); read_feedback_now(c)
     c.heartbeat(); c.set_throttle(20)
     wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 20)
     accel.writes.clear()
@@ -1103,6 +1121,7 @@ def test_accel_keepalive_is_the_explicit_opcode_while_the_throttle_is_on_and_a_p
     import time
     c, drive, accel, clock = _rig(drive_board, accel_board)
     c.start(); c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)
     c.heartbeat(); c.set_throttle(20); wait_until(lambda: c.snapshot()["accel"]["duty_acked"] == 20)
     accel.writes.clear()
     for _ in range(8):
@@ -1338,4 +1357,109 @@ def test_resume_after_stop_halts_a_running_stop_brake_move():
     drive.writes.clear()
     assert c.resume_after_stop() is True
     assert drive.writes == [p.brake("stop")]
+    c.close()
+
+
+# ------------------------------------------- Codex Astra on the brake gate, 5 Nov 2026
+
+def _brake_at(state):
+    """A 4.1.6 drive module whose brake reading the test moves, and which can
+    answer a brake apply with AT_LIMIT as the real board does above its limit."""
+    def answer(frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        cmd = int(text.split()[0], 16)
+        if cmd == p.READ_BRAKE:
+            return [("0x03;OK;%04X\n" % int(round(state["deg"] * 10))).encode()]
+        if cmd == p.BRK_SW and text.endswith("01") and state.get("apply_at_limit"):
+            return [b"0x06;ERR;AT_LIMIT\n"]
+        return drive_board(frame)
+    return answer
+
+
+def test_throttle_waits_for_the_brake_to_reach_its_released_end():
+    """The board acknowledges a release as the actuator starts; the stroke
+    takes about 1.3 s. Throttle is refused until a fresh reading shows the
+    brake near its released end (the lower limit, 50.0 on this board)."""
+    state = {"deg": 90.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board)
+    c.start()
+    c.brake("release")
+    assert wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
+    with pytest.raises(Refused, match="released end"):
+        c.set_throttle(20)
+    state["deg"] = 61.1
+    read_feedback_now(c)
+    c.set_throttle(20)
+    assert accel.writes[-1] == p.accel_duty(20)
+    c.close()
+
+
+def test_throttle_refuses_a_stale_brake_reading():
+    state = {"deg": 61.1}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board)
+    c.start()
+    c.brake("release")
+    assert wait_until(lambda: not c.snapshot()["brake"]["applied"])
+    read_feedback_now(c)          # a fresh brake reading, as the 5 Hz poll gives
+    clock.advance(1.0)                                # no poll since
+    with pytest.raises(Refused, match="released end"):
+        c.set_throttle(20)
+    c.close()
+
+
+def test_an_at_limit_answer_to_the_stop_brake_apply_counts_as_acknowledged():
+    """Above its upper limit the board answers a brake apply AT_LIMIT: the
+    brake is at its applied end, which is what the stop asked for."""
+    state = {"deg": 174.0, "apply_at_limit": True}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_on_stop=True)
+    c.start(); poll_once(c, clock)
+    c.safe_stop()
+    assert wait_until(lambda: c.snapshot()["stop"]["acked"])
+    c.close()
+
+
+# ------------------------------------------- the other session's Codex, 5 Nov 2026
+
+def _board_with(gear_answer=None, release_answer=None):
+    def answer(frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        cmd = int(text.split()[0], 16)
+        if cmd == p.GEAR and gear_answer is not None:
+            return [gear_answer]
+        if cmd == p.BRK_SW and text.endswith("02") and release_answer is not None:
+            return [release_answer]
+        return drive_board(frame)
+    return answer
+
+
+def test_the_gear_counts_once_the_board_confirms_it_and_start_reads_it_from_status():
+    c, drive, accel, clock = _rig(_board_with(), accel_board)
+    c.start()
+    assert c.snapshot()["gear_acked"] == "D"           # STATUS GR=01
+    c.gear("N")
+    assert wait_until(lambda: c.snapshot()["gear_acked"] == "N")
+    c.close()
+
+
+def test_throttle_is_refused_until_the_gear_is_confirmed_in_drive_or_reverse():
+    """Codex: gear could miss D (its zero-ack gate refused) while throttle
+    still went out, leaving the board in N with duty on and no wheel spin."""
+    c, drive, accel, clock = _rig(_board_with(gear_answer=b"0x08;ERR;BUSY\n"), accel_board)
+    c.start()
+    c.gear("N")                                         # the board refuses: gear unknown now
+    assert wait_until(lambda: c.snapshot()["gear_acked"] is None)
+    c.brake("release"); wait_until(lambda: not c.snapshot()["brake"]["applied"]); read_feedback_now(c)
+    with pytest.raises(Refused, match="gear"):
+        c.set_throttle(20)
+    c.close()
+
+
+def test_a_brake_release_answered_with_an_error_latches_a_fault():
+    """Codex: a release answered STALL or WD_TRIPPED left the brake 'applied'
+    with no fault and no log, and throttle refused in silence for ever."""
+    c, drive, accel, clock = _rig(_board_with(release_answer=b"0x06;ERR;STALL\n"), accel_board)
+    c.start()
+    c.brake("release")
+    assert wait_until(lambda: any("brake release" in f for f in c.snapshot()["faults"]))
     c.close()

@@ -1333,13 +1333,19 @@ class _RefusingVehicle(_TogglingVehicle):
     def __init__(self):
         super().__init__()
         self.applied = []
-        self.last_refusal = ""
+        self.refusals = {}
+        self.acks = {"gear": "N", "brake_released": False}
 
     def apply(self, cmd):
         self.applied.append(cmd)
         if cmd.throttle > 0:
-            self.last_refusal = "throttle: throttle refused: brake applied or not known released"
+            self.refusals = {"throttle": "throttle refused: brake applied or not known released"}
+        else:
+            self.refusals = {}
         super().apply(cmd)
+
+    def ack_state(self):
+        return dict(self.acks)
 
 
 def test_the_brake_is_held_until_driving_and_released_while_driving(tmp_path):
@@ -1364,4 +1370,29 @@ def test_a_vehicle_refusal_reaches_the_session_log_once(tmp_path):
     ev = [e for e in read_events(d.log.path) if e["event"] == "refused"]
     assert len(ev) == 1
     assert "brake applied" in ev[0]["reason"]
+
+
+def test_a_refusal_that_returns_after_a_recovery_is_logged_again(tmp_path):
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path)
+    _arm(d, c)
+    d._handle(c, drive_frame(arm=True, throttle=0.5))
+    d._handle(c, drive_frame(arm=True, throttle=0.0))   # recovered
+    d._handle(c, drive_frame(arm=True, throttle=0.5))   # back again
+    ev = [e for e in read_events(d.log.path) if e["event"] == "refused"]
+    assert len(ev) == 2 and ev[0]["what"] == "throttle"
+
+
+def test_gear_and_brake_confirmations_are_logged_when_they_change(tmp_path):
+    """The other session asked for proof from the log that the brake released
+    and the gear is in D, rather than a guess."""
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path)
+    _arm(d, c)
+    v.acks = {"gear": "D", "brake_released": True}
+    d._handle(c, drive_frame(arm=True))
+    d._handle(c, drive_frame(arm=True))
+    ev = [e for e in read_events(d.log.path) if e["event"] == "vehicle_ack"]
+    assert ev[-1]["gear"] == "D" and ev[-1]["brake_released"] is True
+    assert len([e for e in ev if e["gear"] == "D"]) == 1
 

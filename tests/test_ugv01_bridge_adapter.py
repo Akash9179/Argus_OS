@@ -241,15 +241,29 @@ def test_resume_on_a_vehicle_that_was_never_stopped_sends_nothing(rig):
 
 # ------------------------------------------- 5 Nov 2026: throttle refused on the jack
 
-def test_a_fresh_adapter_treats_the_brake_as_applied():
-    """The controls count an unknown brake as applied and refuse throttle
-    until a release is acknowledged; the adapter assumed released, so no
-    release ever went out after a fresh start and every throttle was
-    refused. Unknown is applied here too: the first released frame releases."""
+def test_a_fresh_adapter_sends_whatever_brake_the_first_frame_asks_for():
+    """Unknown is neither applied nor released (Codex, 5 Nov 2026): assuming
+    released, no release ever went out and throttle was refused for good;
+    assuming applied, a brake a trip had left released stayed released
+    through every unarmed frame. The first frame's request always goes out."""
     fc = FakeControls()
     v = Ugv01Vehicle(fc)
     v.apply(cmd(brake=True))
-    assert ("brake", "apply") not in fc.names()
-    v.apply(cmd(brake=False))
-    assert ("brake", "release") in fc.names()
+    assert ("brake", "apply") in fc.names()
+    fc2 = FakeControls()
+    v2 = Ugv01Vehicle(fc2)
+    v2.apply(cmd(brake=False))
+    assert ("brake", "release") in fc2.names()
+
+
+def test_refusals_are_kept_per_kind_and_cleared_on_success():
+    fc = FakeControls()
+    v = Ugv01Vehicle(fc)
+    v.apply(cmd())
+    fc.refuse = {"set_throttle", "steer"}
+    v.apply(cmd(throttle=0.5, steer=1.0))
+    assert set(v.refusals) == {"throttle", "steer"}
+    fc.refuse = set()
+    v.apply(cmd(throttle=0.6, steer=1.0))
+    assert v.refusals == {}
 

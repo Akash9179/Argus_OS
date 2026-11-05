@@ -70,12 +70,13 @@ class Ugv01Vehicle(VehicleAdapter):
         self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
         self._light_sent: str | None = None
         self._ind_sent: str | None = None
-        # Unknown counts as applied, as in the controls (5 Nov 2026: assumed
-        # released, no release ever went out after a fresh start, and the
-        # controls refused every throttle until one was acknowledged).
-        self._brake_held = True
+        # Unknown is neither (Codex, 5 Nov 2026): the first frame's request,
+        # apply or release, always goes out. The controls still count an
+        # unknown brake as applied for throttle.
+        self._brake_held: bool | None = None
         self._horn_held = False
         self.last_refusal: str = ""
+        self.refusals: dict[str, str] = {}      # what -> reason, as of the last frame
 
     # ------------------------------------------------------------- commands
 
@@ -102,6 +103,15 @@ class Ugv01Vehicle(VehicleAdapter):
             fn(cmd)
         except Refused as e:
             self.last_refusal = "%s: %s" % (what, e)
+            self.refusals[what] = str(e)
+        else:
+            self.refusals.pop(what, None)
+
+    def ack_state(self) -> dict:
+        """What the boards have confirmed, for the session log."""
+        s = self._c.snapshot()
+        return {"gear": s.get("gear_acked"),
+                "brake_released": not s["brake"]["applied"]}
 
     def _gear(self, cmd: Command) -> None:
         g = _GEAR_TO_BOARD[cmd.gear]
@@ -110,11 +120,11 @@ class Ugv01Vehicle(VehicleAdapter):
             self._gear_sent = g
 
     def _brake(self, cmd: Command) -> None:
-        if cmd.brake and not self._brake_held:
+        if cmd.brake and self._brake_held is not True:
             self._c.brake("apply")
             self._brake_held = True
             self._duty_sent = 0
-        elif not cmd.brake and self._brake_held:
+        elif not cmd.brake and self._brake_held is not False:
             self._c.brake("release")
             self._brake_held = False
 

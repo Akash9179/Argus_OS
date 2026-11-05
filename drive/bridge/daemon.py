@@ -48,6 +48,8 @@ class _Client:
         self.addr = addr
         self.operator = operator
         self.session = uuid.uuid4().hex[:12]
+        self.refusals_logged: dict[str, str] = {}   # per session, by kind
+        self.acks_logged: dict | None = None
         self.joined = time.monotonic()
         self.send_lock = threading.Lock()
 
@@ -81,7 +83,6 @@ class BridgeDaemon:
         # the jack): these checks may fail and still let the vehicle arm. They
         # stay in the preflight as failed, marked waived, and the log says so.
         self.waive = tuple(waive)
-        self._last_refusal_logged = ""
         if len(operators) == 0:
             raise ValueError(
                 "at least one operator token is required; see the operators file"
@@ -311,11 +312,25 @@ class BridgeDaemon:
                 arm=cmd.arm, estop=cmd.estop, brake=True,
             )
         self.vehicle.apply(cmd)
-        refusal = getattr(self.vehicle, "last_refusal", "")
-        if refusal and refusal != self._last_refusal_logged:
-            # Codex, 5 Nov 2026: refusals stayed in the adapter; once per change
-            self.log.event("refused", session=client.session, reason=refusal)
-        self._last_refusal_logged = refusal
+        self._log_vehicle_state(client)
+
+    def _log_vehicle_state(self, client: _Client) -> None:
+        """Refusals and board confirmations reach the session log (Codex,
+        5 Nov 2026: they stayed in the adapter). A refusal is logged when it
+        becomes active in this session, and again if it returns after it
+        cleared; a confirmation when it changes."""
+        now = dict(getattr(self.vehicle, "refusals", {}) or {})
+        logged = client.refusals_logged
+        for what, reason in now.items():
+            if logged.get(what) != reason:
+                self.log.event("refused", session=client.session, what=what, reason=reason)
+        client.refusals_logged = now
+        ack = getattr(self.vehicle, "ack_state", None)
+        if ack:
+            state = ack()
+            if state != client.acks_logged:
+                self.log.event("vehicle_ack", session=client.session, **state)
+                client.acks_logged = state
 
     def _log_transition(
         self, client: _Client, before: str, after: str, estop: bool, stalled: bool = False,

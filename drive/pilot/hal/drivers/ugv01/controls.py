@@ -167,6 +167,10 @@ class Ugv01Controls:
         self._steer_angle: float | None = None
         self._steer_angle_at: float | None = None
         self._brake_angle: float | None = None
+        self._brake_angle_at: float | None = None
+        # The gear the board has confirmed (STATUS GR, or an OK to 0x08), not
+        # the one last sent; None is unknown (Codex, 5 Nov 2026).
+        self._gear_acked: str | None = None
         self._steer_limits: tuple[float, float] | None = None
         self._brake_limits: tuple[float, float] | None = None
         # intent and acknowledgement
@@ -388,7 +392,11 @@ class Ugv01Controls:
             if len(self._answered) > 64:
                 for old in sorted(self._answered)[:-64]:
                     del self._answered[old]
-            if txn.seq in self._stop_seqs and reply.ok:
+            if txn.seq in self._stop_seqs and (reply.ok or (
+                    reply.cmd == p.BRK_SW and txn.arg == 0x01
+                    and reply.data.upper() == "AT_LIMIT")):
+                # a stop's brake apply answered AT_LIMIT: the brake is at its
+                # applied end, which is what the stop asked for (Codex, 5 Nov)
                 self._stop_acked_seqs.add(txn.seq)
             if link is self._accel:
                 self._on_accel_reply(txn, reply)
@@ -433,6 +441,10 @@ class Ugv01Controls:
                 self._accel_alive = True
 
     def _on_drive_reply(self, txn: _Txn, r: p.Reply) -> None:
+        if r.cmd == p.GEAR:
+            # only the board's answer says which gear it is in; a refusal
+            # leaves it unknown, and unknown drives nothing
+            self._gear_acked = {1: "D", 2: "N", 3: "R"}.get(txn.arg) if r.ok else None
         if not r.ok:
             if (r.cmd == p.BRK_SW and txn.seq == self._brake_release_seq
                     and r.data.upper() == "AT_LIMIT"):
@@ -441,6 +453,14 @@ class Ugv01Controls:
                 # the released state, so it counts as the release ack.
                 self._brake_applied = False
                 self._brake_release_seq = None
+                return
+            if r.cmd == p.BRK_SW and txn.seq == self._brake_release_seq:
+                # any other answer to a release (STALL, WD_TRIPPED...): the
+                # brake is where it is, applied as far as throttle is
+                # concerned, and that is a fault, not a silent refusal
+                # (Codex, 5 Nov 2026)
+                self._brake_release_seq = None
+                self._fault("brake release answered %s" % (r.data or "ERR"))
                 return
             if r.cmd in (p.READ_STEER, p.READ_BRAKE):
                 # Seen on the vehicle on 13 Oct: 0x04;ERR;NO_SIGNAL after a
@@ -454,6 +474,8 @@ class Ugv01Controls:
                 self._drive.firmware = v
         elif r.cmd == p.STATUS:
             self._status_raw = r.data
+            gr = p.status_field(r.data, "GR")
+            self._gear_acked = {1: "D", 2: "N", 3: "R"}.get(gr) if gr is not None else self._gear_acked
             self._note_trips(p.status_field(r.data, "WD"))
             if self._started:
                 was = self._armed_reason
@@ -484,7 +506,7 @@ class Ugv01Controls:
             elif not self._plausible(a, self._brake_angle, None, "brake"):
                 return
             else:
-                self._brake_angle = a
+                self._brake_angle, self._brake_angle_at = a, self._now()
         elif r.cmd == p.STR_LIM:
             self._steer_limits = p.limits_deg(r.data) or self._steer_limits
         elif r.cmd == p.BRK_LIM:
@@ -596,6 +618,8 @@ class Ugv01Controls:
         with self._lock:
             self._last_heartbeat = self._now()
 
+    BRAKE_RELEASED_MARGIN_DEG = 15.0
+
     def set_throttle(self, pct: int) -> None:
         pct = int(pct)
         if not 0 <= pct <= 100:
@@ -610,6 +634,20 @@ class Ugv01Controls:
                     raise Refused("throttle refused: accel board has not acknowledged duty zero")
                 if self._brake_applied:
                     raise Refused("throttle refused: brake applied or not known released")
+                # The board acknowledges a release as the actuator starts; the
+                # stroke takes about 1.3 s (Codex, 5 Nov 2026). Throttle waits
+                # for a fresh reading near the released end. The margin is not
+                # calibrated: the 15 Oct stroke rests at 61 to 70 against a
+                # lower limit of 70.
+                if self._gear_acked not in ("D", "R"):
+                    raise Refused("throttle refused: gear not confirmed in D or R (board says %s)"
+                                  % (self._gear_acked or "unknown"))
+                ang, at, lim = self._brake_angle, self._brake_angle_at, self._brake_limits
+                if (ang is None or at is None or not lim
+                        or self._now() - at > self._feedback_max_age
+                        or ang > lim[0] + self.BRAKE_RELEASED_MARGIN_DEG):
+                    raise Refused("throttle refused: brake not yet at its released end (reads %s deg)"
+                                  % ("none" if ang is None else "%.1f" % ang))
                 pct = min(pct, self._max_duty)
             self._duty_commanded = pct
             seq = self._write(self._accel, p.accel_duty(pct), p.ACCEL_DUTY_CMD, arg=pct)
@@ -1013,6 +1051,7 @@ class Ugv01Controls:
                     "applied": self._brake_applied,
                 },
                 "commanded": dict(self._commanded),
+                "gear_acked": self._gear_acked,
                 "armed": {"ok": self._armed_reason is None, "reason": self._armed_reason},
                 "safe_stopped": self._safe_stopped,
                 "faults": list(self._faults),

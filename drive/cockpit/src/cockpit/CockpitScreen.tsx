@@ -39,7 +39,7 @@ import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActi
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
-import { videoFeedsFromSearch } from '../transport/videoSource'
+import { videoFeedsFromSearch, mergeFromSearch, mergeLayout } from '../transport/videoSource'
 
 const STEER_MAX_DEG = 30
 const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
@@ -87,6 +87,8 @@ const say = {
   videoAlt: "The vehicle's front camera",
   videoAltLeft: "The vehicle's front camera, left",
   videoAltRight: "The vehicle's front camera, right",
+  videoAltMerged: "The vehicle's two front cameras, merged",
+  mergedNote: 'Merged view, approximate: objects near or far may kink at the seam',
   rearLine: 'No camera has been checked on the vehicle yet.',
   linkPill: (ms: number) => `Link good · ${ms} ms`,
   linkLost: 'Link lost',
@@ -433,12 +435,30 @@ function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, o
   const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
   const dir = tele.steerAngleDeg < 0 ? say.steerLeft : say.steerRight
   const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
-  const feeds = videoFeedsFromSearch(typeof window === 'undefined' ? '' : window.location.search)
+  const search = typeof window === 'undefined' ? '' : window.location.search
+  const feeds = videoFeedsFromSearch(search)
+  const merge = feeds?.kind === 'pair' ? mergeFromSearch(search) : null
+  const ml = merge ? mergeLayout(merge, 960, 600, 60) : null
   return (
     <div className="card video">
       <div className="video-ground" />
       <div className="video-horizon" />
-      {feeds?.kind === 'pair' ? (
+      {feeds?.kind === 'pair' && ml ? (
+        <div className="video-merge">
+          <div className="video-merge-inner" style={{ aspectRatio: `${ml.width} / ${ml.height}`,
+            width: `min(100cqw, calc(100cqh * ${ml.width} / ${ml.height}))` }}>
+            <img src={feeds.left} alt={say.videoAltMerged} style={{
+              left: `${(ml.left.x / ml.width) * 100}%`, top: `${(ml.left.y / ml.height) * 100}%`,
+              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.height) * 100}%` }} />
+            <img src={feeds.right} alt="" style={{
+              left: `${(ml.right.x / ml.width) * 100}%`, top: `${(ml.right.y / ml.height) * 100}%`,
+              width: `${(960 / ml.width) * 100}%`, height: `${(600 / ml.height) * 100}%`,
+              maskImage: `linear-gradient(to right, transparent ${ml.seamFrom * 100}%, black ${ml.seamTo * 100}%)`,
+              WebkitMaskImage: `linear-gradient(to right, transparent ${ml.seamFrom * 100}%, black ${ml.seamTo * 100}%)` }} />
+          </div>
+          <span className="video-merge-note">{say.mergedNote}</span>
+        </div>
+      ) : feeds?.kind === 'pair' ? (
         <div className="video-pair">
           <img src={feeds.left} alt={say.videoAltLeft} />
           <img src={feeds.right} alt={say.videoAltRight} />

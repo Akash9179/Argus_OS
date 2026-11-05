@@ -29,3 +29,46 @@ export function videoFeedsFromSearch(search: string): VideoFeeds | null {
   const one = left ?? right ?? videoUrlFromSearch(search, 'video')
   return one ? { kind: 'single', url: one } : null
 }
+
+/** The right camera's offset in left-camera pixels (?merge=dx,dy). With a
+ *  pair of feeds this overlaps them into one wide view. It is a fixed 2D
+ *  offset measured once, not a calibration: things nearer or farther than
+ *  where it was measured show a kink at the seam (5 Nov 2026). */
+export function mergeFromSearch(search: string): { dx: number; dy: number } | null {
+  const raw = new URLSearchParams(search).get('merge')
+  if (!raw) return null
+  const parts = raw.split(',')
+  if (parts.length !== 2) return null
+  const [dx, dy] = parts.map((p) => Number(p.trim()))
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null
+  if (Math.abs(dx) > 2000 || Math.abs(dy) > 2000) return null
+  return { dx, dy }
+}
+
+export interface MergeLayout {
+  width: number
+  height: number
+  left: { x: number; y: number }
+  right: { x: number; y: number }
+  /** the seam's feather on the right image, as fractions of its width */
+  seamFrom: number
+  seamTo: number
+}
+
+/** Both frames on one canvas, the right one at its offset, the seam in the
+ *  middle of the overlap with a feather `feather` pixels wide. */
+export function mergeLayout(o: { dx: number; dy: number }, w: number, h: number, feather: number): MergeLayout {
+  const minX = Math.min(0, o.dx), minY = Math.min(0, o.dy)
+  const maxX = Math.max(w, o.dx + w), maxY = Math.max(h, o.dy + h)
+  const overlapFrom = Math.max(0, o.dx), overlapTo = Math.min(w, o.dx + w)
+  const seamLeftPx = (overlapFrom + overlapTo) / 2
+  const seamRightPx = seamLeftPx - o.dx
+  return {
+    width: maxX - minX,
+    height: maxY - minY,
+    left: { x: 0 - minX, y: 0 - minY },
+    right: { x: o.dx - minX, y: o.dy - minY },
+    seamFrom: Math.max(0, seamRightPx - feather / 2) / w,
+    seamTo: Math.min(w, seamRightPx + feather / 2) / w,
+  }
+}

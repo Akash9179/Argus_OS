@@ -49,3 +49,39 @@ describe('videoFeedsFromSearch', () => {
     expect(videoFeedsFromSearch(q({ video: 'http://a/s', videoL: L, videoR: R }))).toEqual({ kind: 'pair', left: L, right: R })
   })
 })
+
+// 5 Nov 2026: the merged view, two forward cameras overlapped at a fixed
+// offset (from the "x" mark seen by both) with a feathered seam.
+import { mergeFromSearch, mergeLayout } from './videoSource'
+
+describe('mergeFromSearch', () => {
+  it('reads the right image offset in left-image pixels', () => {
+    expect(mergeFromSearch('?merge=524,62')).toEqual({ dx: 524, dy: 62 })
+    expect(mergeFromSearch('?merge=-10.5,0')).toEqual({ dx: -10.5, dy: 0 })
+  })
+  it('refuses anything that is not two finite numbers in range', () => {
+    expect(mergeFromSearch('')).toBeNull()
+    expect(mergeFromSearch('?merge=524')).toBeNull()
+    expect(mergeFromSearch('?merge=a,b')).toBeNull()
+    expect(mergeFromSearch('?merge=5000,0')).toBeNull()
+  })
+})
+
+describe('mergeLayout', () => {
+  it('places both 960x600 frames on one canvas and puts the seam mid-overlap', () => {
+    const m = mergeLayout({ dx: 524, dy: 62 }, 960, 600, 60)
+    expect(m.width).toBe(1484)
+    expect(m.height).toBe(662)
+    expect(m.left).toEqual({ x: 0, y: 0 })
+    expect(m.right).toEqual({ x: 524, y: 62 })
+    // overlap in left pixels 524..960, seam at 742; in right-image pixels 218 +- 30
+    expect(m.seamFrom).toBeCloseTo(188 / 960, 5)
+    expect(m.seamTo).toBeCloseTo(248 / 960, 5)
+  })
+  it('handles a right image above the left one', () => {
+    const m = mergeLayout({ dx: 500, dy: -40 }, 960, 600, 60)
+    expect(m.height).toBe(640)
+    expect(m.left).toEqual({ x: 0, y: 40 })
+    expect(m.right).toEqual({ x: 500, y: 0 })
+  })
+})

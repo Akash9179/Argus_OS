@@ -124,6 +124,7 @@ class Ugv01Controls:
         steer_deadband_deg: float = 1.0,
         brake_on_stop: bool = True,
         brake_absent: bool = False,
+        bench_on_jack: bool = False,
         on_line=None,
         on_tx=None,
     ) -> None:
@@ -155,6 +156,8 @@ class Ugv01Controls:
         # Bench only (founder, 5 Nov 2026: "the brake is not working"): no
         # 0x06 frame from any path, and throttle skips the two brake gates.
         # Stops are duty zero plus the key. Never on the ground.
+        if brake_absent and not bench_on_jack:
+            raise ValueError("brake_absent is for a vehicle on a jack only: pass bench_on_jack=True")
         self._brake_absent = brake_absent
         self._on_line_hook = on_line
         self._on_tx_hook = on_tx
@@ -401,7 +404,16 @@ class Ugv01Controls:
             if len(self._answered) > 64:
                 for old in sorted(self._answered)[:-64]:
                     del self._answered[old]
-            if txn.seq in self._stop_seqs and (reply.ok or (
+            if txn.seq in self._stop_seqs and link is self._accel:
+                # the throttle board's part of a stop counts only with a
+                # valid zero echoed back (Codex, 5 Nov 2026)
+                try:
+                    zero_echo = reply.ok and txn.arg == 0 and int(reply.data, 16) == 0
+                except ValueError:
+                    zero_echo = False
+                if zero_echo:
+                    self._stop_acked_seqs.add(txn.seq)
+            elif txn.seq in self._stop_seqs and (reply.ok or (
                     reply.cmd == p.BRK_SW and txn.arg == 0x01
                     and reply.data.upper() == "AT_LIMIT")):
                 # a stop's brake apply answered AT_LIMIT: the brake is at its
@@ -648,6 +660,12 @@ class Ugv01Controls:
                     raise Refused("throttle refused: drive link down, brake unreachable")
                 if not self._accel_alive:
                     raise Refused("throttle refused: accel board has not acknowledged duty zero")
+                if self._duty_commanded == 0 and not (
+                        self._duty_acked == 0 and self._duty_acked_seq is not None
+                        and self._duty_acked_seq == self._duty_last_seq):
+                    # from rest, the latest zero sent must be the one the board
+                    # confirmed (Codex, 5 Nov 2026: any earlier zero was enough)
+                    raise Refused("throttle refused: latest throttle zero not acknowledged")
                 if self._brake_applied and not self._brake_absent:
                     raise Refused("throttle refused: brake applied or not known released")
                 # The board acknowledges a release as the actuator starts; the
@@ -674,7 +692,15 @@ class Ugv01Controls:
         frame = p.brake(action)
         with self._lock:
             if self._brake_absent:
-                return          # bench, brake absent: nothing is sent
+                # bench, brake absent: no brake frame, but an apply keeps its
+                # other half, throttle off (Codex: skipping it left duty on
+                # after a disarm)
+                if action == "apply":
+                    self._duty_commanded = 0
+                    seq = self._write(self._accel, p.ACCEL_ZERO, p.ACCEL_DUTY_CMD, arg=0)
+                    if seq is not None:
+                        self._duty_last_seq = seq
+                return
             if action == "apply":
                 self._check_armed("brake apply")
                 # throttle off before the brake moves, and locked even if
@@ -924,6 +950,12 @@ class Ugv01Controls:
                 return
             now = self._now()
             # 1. reply deadlines on both links
+            if self._brake_absent:
+                # bench, brake absent: a brake read nobody answered expires
+                # quietly; every other command keeps its deadline
+                while (self._drive.pending and self._drive.pending[0].cmd == p.READ_BRAKE
+                       and now - self._drive.pending[0].sent_at > self._reply_timeout):
+                    self._drive.pending.popleft()
             for link in (self._accel, self._drive):
                 if link.pending and now - link.pending[0].sent_at > self._reply_timeout:
                     link.pending.clear()

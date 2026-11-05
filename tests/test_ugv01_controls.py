@@ -1522,7 +1522,7 @@ def test_with_the_brake_absent_no_brake_frame_ever_goes_out():
     For the jack only, the controls can run with the brake absent: no 0x06
     frame from any path, stops are duty zero plus the key."""
     state = {"deg": 174.0}
-    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True)
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True, bench_on_jack=True)
     c.start(); read_feedback_now(c)
     c.brake("release"); c.brake("apply"); c.brake("stop")
     c.heartbeat(); c.steer("left")
@@ -1534,7 +1534,7 @@ def test_with_the_brake_absent_no_brake_frame_ever_goes_out():
 
 def test_with_the_brake_absent_throttle_skips_only_the_brake_gates():
     state = {"deg": 174.0}
-    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True)
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True, bench_on_jack=True)
     c.start(); read_feedback_now(c)
     c.heartbeat(); c.set_throttle(20)
     assert accel.writes[-1] == p.accel_duty(20)
@@ -1543,7 +1543,7 @@ def test_with_the_brake_absent_throttle_skips_only_the_brake_gates():
 
 
 def test_with_the_brake_absent_the_gear_gate_still_holds():
-    c, drive, accel, clock = _rig(_board_with(gear_answer=b"0x08;ERR;BUSY\n"), accel_board, brake_absent=True)
+    c, drive, accel, clock = _rig(_board_with(gear_answer=b"0x08;ERR;BUSY\n"), accel_board, brake_absent=True, bench_on_jack=True)
     c.start(); read_feedback_now(c)
     c.gear("N")
     assert wait_until(lambda: c.snapshot()["gear_acked"] is None)
@@ -1558,8 +1558,84 @@ def test_with_the_brake_absent_a_brake_reading_failure_is_not_a_fault():
         if int(text.split()[0], 16) == p.READ_BRAKE:
             return [b"0x03;ERR;NO_SIGNAL\n"]
         return drive_board(frame)
-    c, drive, accel, clock = _rig(answer, accel_board, brake_absent=True)
+    c, drive, accel, clock = _rig(answer, accel_board, brake_absent=True, bench_on_jack=True)
     c.start()
     c.poll_feedback(); wait_until(lambda: False, tries=20)
+    assert c.snapshot()["faults"] == []
+    c.close()
+
+
+# ------------------------------------------- Codex Astra on 0d0257f, 5 Nov 2026
+
+def _accel_that(*, drop_zero_after_start=False, zero_echo=None):
+    seen = {"zeros": 0}
+    def answer(frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        if text == "0x02;00":
+            seen["zeros"] += 1
+            if drop_zero_after_start and seen["zeros"] > 1:
+                return []
+            if zero_echo is not None and seen["zeros"] > 1:
+                return [zero_echo]
+        return accel_board(frame)
+    return answer
+
+
+def test_brake_absent_needs_the_jack_acknowledgement_at_the_controls():
+    with pytest.raises(ValueError, match="jack"):
+        _rig(drive_board, accel_board, brake_absent=True, bench_on_jack=False)
+
+
+def test_brake_absent_a_brake_apply_still_zeroes_the_throttle():
+    """Codex blocker 1: the disarm's brake apply returned early in absent
+    mode and skipped its duty zero; the adapter then suppressed the frame's
+    own zero, and duty 20 stayed on."""
+    c, drive, accel, clock = _rig(drive_board, accel_board, brake_absent=True, bench_on_jack=True)
+    c.start(); read_feedback_now(c)
+    c.heartbeat(); c.set_throttle(20)
+    assert accel.writes[-1] == p.accel_duty(20)
+    c.brake("apply")
+    assert accel.writes[-1] == p.ACCEL_ZERO
+    assert c.snapshot()["accel"]["duty_commanded"] == 0
+    assert not [w for w in drive.writes if w.startswith(b"0x06")]
+    c.close()
+
+
+def test_positive_throttle_needs_the_latest_zero_acknowledged():
+    """Codex blocker 2: any zero acknowledged since the port opened was
+    enough; an unanswered stop zero followed by throttle sent duty."""
+    c, drive, accel, clock = _rig(drive_board, _accel_that(drop_zero_after_start=True), brake_absent=True, bench_on_jack=True)
+    c.start(); read_feedback_now(c)
+    c.set_throttle(0)                                  # never answered
+    wait_until(lambda: False, tries=10)
+    c.heartbeat()
+    with pytest.raises(Refused, match="zero"):
+        c.set_throttle(20)
+    c.close()
+
+
+def test_a_stop_zero_echoed_as_nonzero_is_not_a_confirmed_stop():
+    """Codex blocker 3: any OK from the throttle board counted, whatever it echoed."""
+    c, drive, accel, clock = _rig(drive_board, _accel_that(zero_echo=b"0x02;OK;14\n"), brake_on_stop=False)
+    c.start(); read_feedback_now(c)
+    c.safe_stop()
+    wait_until(lambda: False, tries=20)
+    assert c.snapshot()["stop"]["acked"] is False
+    c.close()
+
+
+def test_brake_absent_an_unanswered_brake_poll_is_not_a_fault():
+    seen = {"n": 0}
+    def answer(frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        if int(text.split()[0], 16) == p.READ_BRAKE:
+            seen["n"] += 1
+            if seen["n"] > 1:
+                return []
+        return drive_board(frame)
+    c, drive, accel, clock = _rig(answer, accel_board, brake_absent=True, bench_on_jack=True)
+    c.start()
+    c.poll_feedback(); wait_until(lambda: False, tries=10)
+    clock.advance(1.1); c.tick()
     assert c.snapshot()["faults"] == []
     c.close()

@@ -89,7 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
 def controls_kwargs(args: argparse.Namespace) -> dict:
     """What the real vehicle's controls are built with, beyond the ports."""
     return {"steer_sense": args.steer_sense, "max_duty": args.max_duty,
-            "brake_absent": bool(args.bench_brake_absent)}
+            "brake_absent": bool(args.bench_brake_absent),
+            "bench_on_jack": bool(args.bench_on_jack)}
 
 
 def check_bench_flags(args: argparse.Namespace) -> str | None:

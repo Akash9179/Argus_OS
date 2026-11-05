@@ -252,6 +252,11 @@ class BridgeDaemon:
             if client is self._driver:
                 self.watchdog.feed()
             return
+        if t == "cmd" and (msg.get("safety") or {}).get("estop"):
+            # every STOP leaves a line, from anyone, before anything else
+            # decides what to do with the frame (Codex, 5 Nov 2026)
+            self.log.event("estop_received", session=client.session,
+                           role=self._role_of(client), state=self.watchdog.state)
         if t == "preflight" and client is self._driver:
             self._run_preflight(client)
             return
@@ -275,9 +280,6 @@ class BridgeDaemon:
         effective_arm = cmd.arm and ready
         with self._wd_lock:
             before = self.watchdog.state
-            if cmd.estop:
-                # every STOP leaves a line, even one that lands on a latch
-                self.log.event("estop_received", session=client.session, state=before)
             may_drive = self.watchdog.command(cmd.arm, cmd.estop, cmd.throttle, ready=ready)
             stalled = self.watchdog.stalled
             if stalled:

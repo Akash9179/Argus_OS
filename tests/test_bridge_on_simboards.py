@@ -115,7 +115,7 @@ def _rig_brake_absent(tmp_path):
         return real_write(data)
     drive_port.write = write
     c = Ugv01Controls(drive_port=drive_port, accel_port=sim.SimPort(boards["accel"]),
-                      steer_sense="left_increases", max_duty=20, brake_absent=True)
+                      steer_sense="left_increases", max_duty=20, brake_absent=True, bench_on_jack=True)
     c.start()
     v = Ugv01Vehicle(c)
     d = BridgeDaemon(v, operators=OperatorDirectory({"pw": Operator("op", "Op")}),
@@ -145,6 +145,14 @@ def test_brake_absent_on_the_jack_arm_gear_d_and_throttle_reach_the_board(tmp_pa
             d._handle(cl, _frame(arm=True, throttle=1.0)); c.tick(); time.sleep(0.05)
         assert v.refusals == {}, v.refusals
         assert boards["accel"].duty == 20
+        assert not [f for f in sent if f.startswith(b"0x06")], sent
+        # Codex blocker 1: a disarm (a frame that may not drive) must take
+        # the duty to zero even though no brake moves
+        d._handle(cl, _frame(arm=False, throttle=0.0))
+        for _ in range(4):
+            d._handle(cl, _frame(arm=False)); c.tick(); time.sleep(0.05)
+        assert d.watchdog.state != "DRIVING"
+        assert boards["accel"].duty == 0
         assert not [f for f in sent if f.startswith(b"0x06")], sent
     finally:
         c.close()

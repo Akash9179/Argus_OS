@@ -1410,3 +1410,16 @@ def test_an_estop_that_lands_on_a_latched_vehicle_is_still_logged(tmp_path):
     d._handle(c, drive_frame(arm=False, estop=True))    # then STOP
     ev = [e for e in read_events(d.log.path) if e["event"] == "estop_received"]
     assert len(ev) == 1 and ev[0]["state"] == "LATCHED"
+
+
+def test_an_estop_from_a_viewer_is_logged_with_its_role(tmp_path):
+    """Codex, 5 Nov 2026: a spectator's estop frame returned before the log."""
+    from bridge.daemon import _Client
+    from bridge.identity import Operator
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path)
+    viewer = _Client(None, ("viewer", 0), Operator("op-2", "Viewer"))
+    d._handle(viewer, drive_frame(arm=False, estop=True))
+    ev = [e for e in read_events(d.log.path) if e["event"] == "estop_received"]
+    assert ev and ev[0]["role"] == "SPECTATOR"
+

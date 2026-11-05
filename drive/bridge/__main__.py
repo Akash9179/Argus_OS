@@ -32,7 +32,17 @@ from .identity import OperatorDirectory
 from .vehicle import MockVehicle
 
 
-def main() -> int:
+def _duty(text: str) -> int:
+    try:
+        v = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("a whole percent, 0 to 90")
+    if not 0 <= v <= 90:
+        raise argparse.ArgumentTypeError("a whole percent, 0 to 90")
+    return v
+
+
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="drive.bridge", description="ARGUS DRIVE vehicle daemon")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8090)
@@ -46,6 +56,9 @@ def main() -> int:
                     help="ugv01: the throttle board's port, by-id path; required with --vehicle ugv01")
     ap.add_argument("--steer-sense", choices=["right_increases", "left_increases"],
                     default=None, help="ugv01: which way raises the angle reading; from the bench")
+    ap.add_argument("--max-duty", type=_duty, default=20,
+                    help="ugv01: throttle cap in percent (default 20, walking pace on the "
+                         "jack; the hardware limit is 90). Raise it only on purpose.")
     ap.add_argument("--watchdog-ms", type=int, default=700)
     ap.add_argument("--operators", default=os.environ.get(
         "ARGUS_OPERATORS", "var/bridge_operators.json"),
@@ -62,6 +75,16 @@ def main() -> int:
     ap.add_argument("--longitude", type=float, default=-0.118)
     ap.add_argument("--mqtt-host", default="127.0.0.1")
     ap.add_argument("--mqtt-port", type=int, default=1883)
+    return ap
+
+
+def controls_kwargs(args: argparse.Namespace) -> dict:
+    """What the real vehicle's controls are built with, beyond the ports."""
+    return {"steer_sense": args.steer_sense, "max_duty": args.max_duty}
+
+
+def main() -> int:
+    ap = build_parser()
     args = ap.parse_args()
 
     if os.environ.get("ARGUS_PASSWORD"):
@@ -85,12 +108,13 @@ def main() -> int:
         controls = Ugv01Controls(
             drive_port=PySerialPort(args.drive_port),
             accel_port=PySerialPort(args.accel_port),
-            steer_sense=args.steer_sense,
+            **controls_kwargs(args),
         )
         print(f"ugv01: opening {args.drive_port} and {args.accel_port}; "
               "the accelerator board reboots on open", file=sys.stderr)
         controls.start()
         snap = controls.snapshot()
+        print(f"ugv01: throttle capped at {args.max_duty} percent", file=sys.stderr)
         print(f"ugv01: drive v{snap['drive']['firmware']} accel v{snap['accel']['firmware']} "
               f"steer {snap['steer']['angle_deg']} deg limits {snap['steer']['limits_deg']} "
               f"brake {snap['brake']['angle_deg']} deg", file=sys.stderr)

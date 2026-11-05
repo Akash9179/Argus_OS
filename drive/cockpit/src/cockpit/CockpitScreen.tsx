@@ -39,6 +39,7 @@ import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActi
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
+import { videoUrlFromSearch } from '../transport/videoSource'
 
 const STEER_MAX_DEG = 30
 const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
@@ -81,6 +82,7 @@ const say = {
   rearCamera: 'Rear camera',
   noVideo: 'No video yet',
   noVideoLine: 'No video yet. Video appears here once a camera on the vehicle is checked.',
+  videoAlt: "The vehicle's front camera",
   rearLine: 'No camera has been checked on the vehicle yet.',
   linkPill: (ms: number) => `Link good · ${ms} ms`,
   linkLost: 'Link lost',
@@ -422,19 +424,24 @@ function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, o
   const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
   const dir = tele.steerAngleDeg < 0 ? say.steerLeft : say.steerRight
   const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
+  const videoUrl = videoUrlFromSearch(typeof window === 'undefined' ? '' : window.location.search)
   return (
     <div className="card video">
       <div className="video-ground" />
       <div className="video-horizon" />
-      <div className="video-empty">
-        <div>
-          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6">
-            <rect x="3" y="7" width="13" height="10" rx="1.5" />
-            <path d="M16 10l5-2.5v9L16 14" />
-          </svg>
-          <span>{say.noVideoLine}</span>
+      {videoUrl ? (
+        <img className="video-feed" src={videoUrl} alt={say.videoAlt} />
+      ) : (
+        <div className="video-empty">
+          <div>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.6">
+              <rect x="3" y="7" width="13" height="10" rx="1.5" />
+              <path d="M16 10l5-2.5v9L16 14" />
+            </svg>
+            <span>{say.noVideoLine}</span>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="hud-tl">
         <button type="button" className={`rec ${recording ? 'is-on' : 'is-off'}`} onClick={onToggleRecord} title={recording ? say.recStop : say.recStart}>

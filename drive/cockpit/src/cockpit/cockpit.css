@@ -90,6 +90,7 @@
 .video-ground { position: absolute; inset: 0; background: linear-gradient(180deg, var(--card-2) 0%, var(--card-2) 55%, var(--card-3) 55%, var(--bg) 100%); }
 .video-horizon { position: absolute; left: 0; right: 0; top: 55%; height: 1px; background: var(--line); }
 .video-empty { position: absolute; inset: 0; display: grid; place-items: center; }
+.video-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .video-empty > div { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; max-width: 360px; padding: 0 24px; }
 .video-empty span { font-size: var(--fs-body); color: var(--ink-3); line-height: 1.5; }
 .hud-tl { position: absolute; left: 14px; top: 12px; display: flex; align-items: center; gap: 8px; }

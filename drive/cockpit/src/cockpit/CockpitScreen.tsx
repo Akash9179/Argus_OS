@@ -39,7 +39,7 @@ import { postEscape, subscribeSignOut, useDriveActive } from '../embed/driveActi
 import { isDriveMode, getDriveKey, setDriveKey, clearDriveKey } from '../transport/auth'
 import type { PreflightState, SessionFacts, Telemetry } from '../contract'
 import './cockpit.css'
-import { videoUrlFromSearch } from '../transport/videoSource'
+import { videoFeedsFromSearch } from '../transport/videoSource'
 
 const STEER_MAX_DEG = 30
 const clamp1 = (n: number) => Math.max(-1, Math.min(1, n))
@@ -85,6 +85,8 @@ const say = {
   noVideo: 'No video yet',
   noVideoLine: 'No video yet. Video appears here once a camera on the vehicle is checked.',
   videoAlt: "The vehicle's front camera",
+  videoAltLeft: "The vehicle's front camera, left",
+  videoAltRight: "The vehicle's front camera, right",
   rearLine: 'No camera has been checked on the vehicle yet.',
   linkPill: (ms: number) => `Link good · ${ms} ms`,
   linkLost: 'Link lost',
@@ -431,13 +433,18 @@ function Video({ tele, session, lastSession, remote, linkOpen, down, everOpen, o
   const steerDeg = Math.round(Math.abs(tele.steerAngleDeg))
   const dir = tele.steerAngleDeg < 0 ? say.steerLeft : say.steerRight
   const rec = useSecondsSince(useVehicleStore((s) => s.recordingSince))
-  const videoUrl = videoUrlFromSearch(typeof window === 'undefined' ? '' : window.location.search)
+  const feeds = videoFeedsFromSearch(typeof window === 'undefined' ? '' : window.location.search)
   return (
     <div className="card video">
       <div className="video-ground" />
       <div className="video-horizon" />
-      {videoUrl ? (
-        <img className="video-feed" src={videoUrl} alt={say.videoAlt} />
+      {feeds?.kind === 'pair' ? (
+        <div className="video-pair">
+          <img src={feeds.left} alt={say.videoAltLeft} />
+          <img src={feeds.right} alt={say.videoAltRight} />
+        </div>
+      ) : feeds?.kind === 'single' ? (
+        <img className="video-feed" src={feeds.url} alt={say.videoAlt} />
       ) : (
         <div className="video-empty">
           <div>

@@ -1,7 +1,7 @@
 import type { Gear, Blinker } from '../contract'
 
 /* DualSense → ARGUS command mapping (standard Gamepad mapping).
- * Continuous: left stick X → steer, R2 → throttle, L2 → brake.
+ * Continuous: left stick X → steer, R2 or right stick forward → throttle, L2 → brake.
  * Edges (rising): face buttons → gear, D-pad → blinker, Square → lights,
  * R1 → horn (or re-arm when L1 held), Options → E-STOP, Create → record. */
 
@@ -52,7 +52,11 @@ export function readGamepad(gp: Gamepad, prev: boolean[]): GamepadReading {
   const rising = (i: number) => pressed(i) && !prev[i]
 
   const steer = applyDeadzone(gp.axes[0] ?? 0)
-  const throttle = Math.max(0, Math.min(1, val(BTN.r2) - val(BTN.l2)))
+  // Right stick forward drives as well as R2: an "Xbox360 For Windows" clone
+  // never reports its right trigger to Chrome (ugv-01, 5 Nov 2026). The stick
+  // springs back to zero; back and noise inside the deadzone are never drive.
+  const stickUp = Math.max(0, applyDeadzone(-(gp.axes[3] ?? 0)))
+  const throttle = Math.max(0, Math.min(1, Math.max(val(BTN.r2), stickUp) - val(BTN.l2)))
 
   let gear: Gear | undefined
   if (rising(BTN.triangle)) gear = 'F'

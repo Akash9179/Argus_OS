@@ -57,7 +57,7 @@ export function useGamepadMonitor(active: boolean): GamepadMonitor {
           r2,
           l2,
           steer: applyDeadzone(gp.axes[0] ?? 0),
-          throttle: Math.max(0, Math.min(1, r2 - l2)),
+          throttle: Math.max(0, Math.min(1, Math.max(r2, Math.max(0, applyDeadzone(-(gp.axes[3] ?? 0)))) - l2)),
           pressed: gp.buttons.map((b) => !!b.pressed),
           buttonCount: gp.buttons.length,
           mapping: gp.mapping,

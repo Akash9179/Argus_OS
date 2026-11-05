@@ -3,7 +3,7 @@ import { GamepadIcon, CloseIcon } from '../ui/icons'
 
 const BUTTON_MAP: { action: string; button: string }[] = [
   { action: 'Steer', button: 'Left stick' },
-  { action: 'Drive / accelerate', button: 'R2  ·  right trigger' },
+  { action: 'Drive / accelerate', button: 'R2, or right stick forward' },
   { action: 'Brake', button: 'L2  ·  left trigger' },
   { action: 'Gear: forward', button: 'Triangle  △' },
   { action: 'Gear: neutral', button: 'Cross  ✕' },

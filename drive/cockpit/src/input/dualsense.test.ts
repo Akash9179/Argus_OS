@@ -35,6 +35,19 @@ describe('readGamepad', () => {
     expect(readGamepad(pad({ values: { 7: 0.2, 6: 1 } }), NONE).throttle).toBe(0)
   })
 
+  // 5 Nov 2026, ugv-01 on the jack: an "Xbox360 For Windows" clone never
+  // reports its right trigger to Chrome. Right stick forward also drives.
+  it('right stick forward is throttle too, and the left trigger still subtracts', () => {
+    expect(readGamepad(pad({ axes: [0, 0, 0, -1] }), NONE).throttle).toBeCloseTo(1, 5)
+    expect(readGamepad(pad({ axes: [0, 0, 0, -1], values: { 6: 1 } }), NONE).throttle).toBe(0)
+    expect(readGamepad(pad({ axes: [0, 0, 0, -1], values: { 7: 0.3 } }), NONE).throttle).toBeCloseTo(1, 5)
+  })
+
+  it('right stick back, and right stick noise, are never throttle', () => {
+    expect(readGamepad(pad({ axes: [0, 0, 0, 1] }), NONE).throttle).toBe(0)
+    expect(readGamepad(pad({ axes: [0, 0, 0, -0.08] }), NONE).throttle).toBe(0)
+  })
+
   it('detects gear on rising edge of face buttons', () => {
     expect(readGamepad(pad({ pressed: [3] }), NONE).gear).toBe('F') // triangle
     expect(readGamepad(pad({ pressed: [1] }), NONE).gear).toBe('R') // circle

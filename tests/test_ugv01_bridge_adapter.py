@@ -69,11 +69,12 @@ def cmd(**kw):
 def rig():
     """A vehicle after its first frame. The first frame is the sync frame:
     it commands gear, light and indicator so the board matches the
-    cockpit; everything after is edges."""
+    cockpit, and releases the brake the adapter starts out treating as
+    applied; everything after is edges."""
     fc = FakeControls()
     v = Ugv01Vehicle(fc)
     v.apply(cmd())
-    assert fc.names() == [("gear", "N"), ("set_throttle", 0), ("steer", "stop"),
+    assert fc.names() == [("gear", "N"), ("brake", "release"), ("set_throttle", 0), ("steer", "stop"),
                           ("light", "off"), ("indicator", "off")]
     fc.calls.clear()
     return v, fc
@@ -236,4 +237,19 @@ def test_resume_on_a_vehicle_that_was_never_stopped_sends_nothing(rig):
     v, fc = rig
     v.resume()
     assert ("resume_after_stop",) not in fc.calls
+
+
+# ------------------------------------------- 5 Nov 2026: throttle refused on the jack
+
+def test_a_fresh_adapter_treats_the_brake_as_applied():
+    """The controls count an unknown brake as applied and refuse throttle
+    until a release is acknowledged; the adapter assumed released, so no
+    release ever went out after a fresh start and every throttle was
+    refused. Unknown is applied here too: the first released frame releases."""
+    fc = FakeControls()
+    v = Ugv01Vehicle(fc)
+    v.apply(cmd(brake=True))
+    assert ("brake", "apply") not in fc.names()
+    v.apply(cmd(brake=False))
+    assert ("brake", "release") in fc.names()
 

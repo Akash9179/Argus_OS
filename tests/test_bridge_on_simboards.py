@@ -68,3 +68,35 @@ def test_a_fresh_arm_after_a_link_loss_stop_steers_again(tmp_path):
         assert c.snapshot()["steer"]["moving"] == "right"
     finally:
         c.close()
+
+
+def test_after_a_fresh_start_and_an_arm_the_throttle_reaches_the_board_capped(tmp_path):
+    """5 Nov 2026 on the jack: the cockpit read 100 percent and the wheels
+    did not turn. After a fresh bridge start no brake release ever went out,
+    and the controls refuse throttle until one is acknowledged."""
+    sim = _sim()
+    boards = sim.make_boards()
+    c = Ugv01Controls(drive_port=sim.SimPort(boards["drive"]), accel_port=sim.SimPort(boards["accel"]),
+                      steer_sense="left_increases", max_duty=20)
+    c.start()
+    v = Ugv01Vehicle(c)
+    d = BridgeDaemon(v, operators=OperatorDirectory({"pw": Operator("op", "Op")}),
+                     host="127.0.0.1", port=0, log_path=tmp_path / "s.jsonl",
+                     waive=("stop_on_link_loss",))
+    cl = _Client(None, ("t", 0), Operator("op", "Op"))
+    d._driver = cl
+    try:
+        for _ in range(10):
+            c.tick(); time.sleep(0.05)
+        d._handle(cl, _frame(arm=False))
+        d._handle(cl, _frame(arm=True))
+        assert d.watchdog.state == "DRIVING"
+        for _ in range(6):                              # the release frame and its answer
+            d._handle(cl, _frame(arm=True)); c.tick(); time.sleep(0.05)
+        v.last_refusal = ""
+        for _ in range(4):
+            d._handle(cl, _frame(arm=True, throttle=1.0)); c.tick(); time.sleep(0.05)
+        assert v.last_refusal == "", v.last_refusal
+        assert boards["accel"].duty == 20
+    finally:
+        c.close()

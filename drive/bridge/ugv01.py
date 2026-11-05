@@ -70,7 +70,10 @@ class Ugv01Vehicle(VehicleAdapter):
         self._steer_sent: str | None = None     # unknown until the sync frame sends a stop
         self._light_sent: str | None = None
         self._ind_sent: str | None = None
-        self._brake_held = False
+        # Unknown counts as applied, as in the controls (5 Nov 2026: assumed
+        # released, no release ever went out after a fresh start, and the
+        # controls refused every throttle until one was acknowledged).
+        self._brake_held = True
         self._horn_held = False
         self.last_refusal: str = ""
 

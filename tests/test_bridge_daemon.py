@@ -1109,14 +1109,20 @@ def test_preflight_checks_carry_a_sentence(daemon):
     c.close()
 
 
-def test_a_frame_that_may_not_drive_still_carries_the_brake():
-    """The rebuilt not-armed Command must keep aux.brake: dropping it would
-    send the vehicle a brake release the operator never asked for."""
-    from bridge.daemon import BridgeDaemon
-    from bridge.identity import OperatorDirectory
-    import inspect
-    src = inspect.getsource(BridgeDaemon._handle)
-    assert "brake=cmd.brake" in src
+def test_a_frame_that_may_not_drive_never_releases_the_brake(tmp_path):
+    """The rebuilt not-armed Command must never carry a brake release the
+    operator did not ask for. Since 5 Nov 2026 it holds the brake outright,
+    whatever the frame said."""
+    v = RecordingVehicle()
+    d = BridgeDaemon(v, operators=two_operators(), host="127.0.0.1", port=0,
+                     log_path=tmp_path / "s.jsonl")
+    from bridge.daemon import _Client
+    from bridge.identity import Operator
+    c = _Client(None, ("t", 0), Operator("op", "Op"))
+    d._driver = c
+    for brake in (False, True):
+        d._handle(c, drive_frame(arm=False, brake=brake))
+        assert v.applied[-1].brake is True
 
 
 # ------------------------------------------- bench waiver, 5 Nov 2026: joystick on the jack
@@ -1321,4 +1327,41 @@ def test_every_daemon_stop_runs_under_the_watchdog_lock(tmp_path):
     d._handle(c, drive_frame(arm=True))
     stops = [e for e in v.seen if e[0] == "stop"]
     assert stops and all(locked for _, locked, _ in stops)
+
+
+class _RefusingVehicle(_TogglingVehicle):
+    def __init__(self):
+        super().__init__()
+        self.applied = []
+        self.last_refusal = ""
+
+    def apply(self, cmd):
+        self.applied.append(cmd)
+        if cmd.throttle > 0:
+            self.last_refusal = "throttle: throttle refused: brake applied or not known released"
+        super().apply(cmd)
+
+
+def test_the_brake_is_held_until_driving_and_released_while_driving(tmp_path):
+    """The cockpit sends no brake of its own. Not armed, the bridge holds
+    the brake; armed, it passes the cockpit's (released) brake through."""
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path)
+    d._handle(c, drive_frame(arm=False))
+    assert v.applied[-1].brake is True
+    d._handle(c, drive_frame(arm=True))
+    assert d.watchdog.state == "DRIVING"
+    assert v.applied[-1].brake is False
+
+
+def test_a_vehicle_refusal_reaches_the_session_log_once(tmp_path):
+    """Codex, 5 Nov 2026: refusals stayed in the adapter's last_refusal."""
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path)
+    _arm(d, c)
+    for _ in range(3):
+        d._handle(c, drive_frame(arm=True, throttle=0.5))
+    ev = [e for e in read_events(d.log.path) if e["event"] == "refused"]
+    assert len(ev) == 1
+    assert "brake applied" in ev[0]["reason"]
 

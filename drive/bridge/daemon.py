@@ -81,6 +81,7 @@ class BridgeDaemon:
         # the jack): these checks may fail and still let the vehicle arm. They
         # stay in the preflight as failed, marked waived, and the log says so.
         self.waive = tuple(waive)
+        self._last_refusal_logged = ""
         if len(operators) == 0:
             raise ValueError(
                 "at least one operator token is required; see the operators file"
@@ -300,14 +301,21 @@ class BridgeDaemon:
                 # a dropped link or shutdown is never undone by it (Codex).
                 self.vehicle.resume()
         if not may_drive:
-            # state controls (ignition, lights, gear) still apply; motion does not
+            # state controls (ignition, lights, gear) still apply; motion does
+            # not, and the brake is held until the operator is driving
+            # (5 Nov 2026: the cockpit sends no brake of its own)
             cmd = Command(
                 steer=0.0, throttle=0.0, gear=cmd.gear, mode=cmd.mode,
                 ignition=cmd.ignition, headlights=cmd.headlights,
                 blinker=cmd.blinker, horn=cmd.horn, record=cmd.record,
-                arm=cmd.arm, estop=cmd.estop, brake=cmd.brake,
+                arm=cmd.arm, estop=cmd.estop, brake=True,
             )
         self.vehicle.apply(cmd)
+        refusal = getattr(self.vehicle, "last_refusal", "")
+        if refusal and refusal != self._last_refusal_logged:
+            # Codex, 5 Nov 2026: refusals stayed in the adapter; once per change
+            self.log.event("refused", session=client.session, reason=refusal)
+        self._last_refusal_logged = refusal
 
     def _log_transition(
         self, client: _Client, before: str, after: str, estop: bool, stalled: bool = False,

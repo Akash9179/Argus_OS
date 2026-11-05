@@ -3,11 +3,14 @@
 # on a Linux host (the Jetson is the intended one; founder direction of
 # 14 Oct 2026: compile and flash move to our side).
 #
-# Builds four images and prints their SHA-256:
+# Builds six images and prints their SHA-256:
 #   drive module 4.1.4   vendor tree as received        (reference only)
-#   drive module 4.1.5   vendor plus the ARGUS watchdog (esp32_drive_4.1.5_src/)
+#   drive module 4.1.5   vendor plus the ARGUS watchdog (esp32_drive_4.1.5_src/; on the vehicle 15 Oct)
+#   drive module 4.1.6   watchdog authority: motion and 0x15 only (esp32_drive_4.1.6_src/)
 #   throttle Nano AC 1.2 vendor sketch as received      (reference only)
-#   throttle Nano AC 1.3 ARGUS watchdog sketch
+#   throttle Nano AC 1.3 ARGUS watchdog sketch          (nano_throttle_watchdog/; on the vehicle 15 Oct)
+#   throttle Nano AC 1.4 watchdog authority: duty and 0x04 only (nano_throttle_AC0104/)
+# The host controls arm motion only on 4.1.6 and AC 1.4.
 #
 # This script never opens a serial port and never flashes. Flashing is a
 # separate, human-gated step (CLAUDE.md rule zero): the upload commands
@@ -34,7 +37,9 @@ NANO_FQBN="${NANO_FQBN:-arduino:avr:nano}"
 for t in "$PIO" "$ACLI"; do
   [ -x "$t" ] || { echo "missing tool: $t (see the header of this script)" >&2; exit 2; }
 done
-command -v sha256sum >/dev/null || { echo "sha256sum not found" >&2; exit 2; }
+if command -v sha256sum >/dev/null; then SHA=sha256sum
+elif command -v shasum >/dev/null; then SHA="shasum -a 256"     # macOS
+else echo "sha256sum not found" >&2; exit 2; fi
 mkdir -p "$OUT"
 
 # --- drive module (ESP32-S3) -------------------------------------------
@@ -51,6 +56,7 @@ build_esp32() {
 }
 build_esp32 esp32_drive_4.1.4 "$HERE/vendor-2026-10-13/esp32_drive_4.1.4_src"
 build_esp32 esp32_drive_4.1.5 "$HERE/esp32_drive_4.1.5_src/src"
+build_esp32 esp32_drive_4.1.6 "$HERE/esp32_drive_4.1.6_src/src"
 
 # --- throttle board (Arduino Nano) --------------------------------------
 # name, sketch file or sketch folder. arduino-cli wants the .ino inside a
@@ -70,12 +76,14 @@ build_nano() {
 }
 build_nano nano_throttle_AC0102 "$HERE/vendor-2026-10-13/nano_throttle_AC0102.ino"
 build_nano nano_throttle_AC0103 "$HERE/nano_throttle_watchdog"
+build_nano nano_throttle_AC0104 "$HERE/nano_throttle_AC0104"
 
 echo
 echo "images in $OUT"
-( cd "$OUT" && sha256sum esp32_drive_4.1.4.bin esp32_drive_4.1.5.bin nano_throttle_AC0102.hex nano_throttle_AC0103.hex )
+( cd "$OUT" && $SHA esp32_drive_4.1.4.bin esp32_drive_4.1.5.bin esp32_drive_4.1.6.bin \
+                    nano_throttle_AC0102.hex nano_throttle_AC0103.hex nano_throttle_AC0104.hex )
 echo
 echo "Nothing was flashed. To flash, with the human at the key and the wheels up:"
-echo "  drive module:  cd $OUT/esp32_drive_4.1.5 && $PIO run -t upload --upload-port <drive port>"
-echo "  throttle Nano: $ACLI upload -p <accel port> --fqbn $NANO_FQBN --input-dir $OUT/nano_throttle_AC0103/out"
+echo "  drive module:  cd $OUT/esp32_drive_4.1.6 && $PIO run -t upload --upload-port <drive port>"
+echo "  throttle Nano: $ACLI upload -p <accel port> --fqbn $NANO_FQBN --input-dir $OUT/nano_throttle_AC0104/out"
 echo "  (an old-bootloader Nano needs --fqbn arduino:avr:nano:cpu=atmega328old)"

@@ -7,7 +7,7 @@ ran and every expectation held.
 
   python3 bench_run.py --drive PORT --accel PORT --log FILE [--max-angle-step DEG] step ...
 
-Steps: snap | status | readback | wait:MS | expect:TEXT | clear |
+Steps: snap | status | readback | wait:MS | expect:TEXT | clear | poll_only_silence:DIR:MS |
        light:low | ind:left | horn | gear:D | speed:1 |
        steer:left:MS | steer:stop | brake:apply:MS | brake:release:MS |
        brake:stop | throttle:PCT:MS | throttle:0 |
@@ -91,20 +91,36 @@ rx = collections.deque(maxlen=400)          # (ts, link, line) every decoded lin
 rx_count = [0]
 def on_line(n, l):
     rx_count[0] += 1; rx.append((time.time(), n, l)); log("rx", link=n, line=l)
+tx_keepalives = [0]                         # 0x15 frames the host sent
 def on_tx(n, f):
+    if n == "drive" and f == p.keepalive():
+        tx_keepalives[0] += 1
     log("tx", link=n, frame=f.decode("ascii", "replace").strip())
 
-def saw_line(prefix, link, since_count, timeout=1.0):
-    """True once a line on `link` starting with `prefix` has arrived after
-    the rx count was `since_count`."""
+def line_at(prefix, link, since_count, timeout=1.0):
+    """The arrival time of the first line on `link` starting with `prefix`
+    after the rx count was `since_count`, or None inside `timeout`."""
     deadline = time.time() + timeout
-    while time.time() < deadline:
+    while True:
         seen = list(rx)[-(rx_count[0] - since_count):] if rx_count[0] > since_count else []
-        for _, n, l in seen:
+        for ts, n, l in seen:
             if n == link and l.strip().upper().startswith(prefix.upper()):
-                return True
+                return ts
+        if time.time() >= deadline:
+            return None
         time.sleep(0.02)
-    return False
+
+def saw_line(prefix, link, since_count, timeout=1.0):
+    return line_at(prefix, link, since_count, timeout) is not None
+
+def pulse(seconds):
+    """Feed the heartbeat from this thread for `seconds`. The ticker only
+    ticks (Codex, 15 Oct): a command thread that stalls here stops the
+    pulse, and the controls stop the move."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        c.heartbeat()
+        time.sleep(0.05)
 
 def wd_count(status_raw):
     if not status_raw:
@@ -156,7 +172,7 @@ def ticker():
             quiet.set()
         else:
             quiet.clear()
-            c.heartbeat(); c.tick()
+            c.tick()                # ticks only; the heartbeat is the command thread's
         time.sleep(0.05)
 threading.Thread(target=ticker, daemon=True).start()
 
@@ -253,24 +269,24 @@ def run(step):
                 need = need_room(ms or 300, 0.25, 5.0)
                 if room is None or room < need:
                     raise ValueError("steer refused by the bench: %s, need %.1f" % (why, need))
-            c.steer(arg)
+            c.heartbeat(); c.steer(arg)
             if arg != "stop":
-                time.sleep((ms or 300) / 1000.0); c.steer("stop")
+                pulse((ms or 300) / 1000.0); c.steer("stop")
         elif op == "brake":
-            c.brake(arg)
+            c.heartbeat(); c.brake(arg)
             if arg != "stop":
-                time.sleep((ms or 300) / 1000.0); c.brake("stop")
+                pulse((ms or 300) / 1000.0); c.brake("stop")
         elif op == "throttle":
-            c.set_throttle(int(arg))
+            c.heartbeat(); c.set_throttle(int(arg))
             if int(arg) > 0:
-                time.sleep((ms or 1000) / 1000.0); c.set_throttle(0)
+                pulse((ms or 1000) / 1000.0); c.set_throttle(0)
         elif op == "throttle_silence":
             t0 = before["accel"]["timeouts"]
             if t0 is None:
                 raise ValueError("timeout count unknown before silence (read-back never answered)")
             pct = min(int(arg), a.max_duty)
             n0 = rx_count[0]
-            c.set_throttle(int(arg))
+            c.heartbeat(); c.set_throttle(int(arg))
             if not saw_line("0x02;OK;%02X" % pct, "accel", n0, 0.5):
                 raise ValueError("duty %d not acknowledged on the wire" % pct)
             go_silent(ms or 1500)
@@ -286,7 +302,7 @@ def run(step):
             if wd0 is None:
                 raise ValueError("WD count unknown before silence")
             n0 = rx_count[0]
-            c.steer(arg)
+            c.heartbeat(); c.steer(arg)
             if not saw_line("0x05;OK;%02X" % p._STEER[arg], "drive", n0, 0.5):
                 raise ValueError("steer %s not acknowledged on the wire" % arg)
             go_silent(ms or 1000)
@@ -294,6 +310,59 @@ def run(step):
             wd1 = wd_count(fresh_status())
             log("wd_count", before=wd0, after=wd1)
             if wd1 != wd0 + 1:
+                err = "WD count %s, expected %d" % (wd1, wd0 + 1)
+            expected = [DRIVE_WD]
+        elif op == "poll_only_silence":
+            # 4.1.6 authority: the ticker is quiesced FIRST, then steering
+            # moves with one heartbeat behind it, then the host's command
+            # path is "dead" (no heartbeat, no tick, no keepalive) while its
+            # poller lives: angle polls and STATUS every 50 ms. The board
+            # must print WD;TIMEOUT within 800 ms of its OK to the move,
+            # polls or no polls; the host then faults on the notice. Pass:
+            # OK to WD line on the wire inside 1000 ms, and not one 0x15
+            # left the host from the move to the end of the window.
+            room, why = room_toward(arg)
+            need = need_room(ms or 1000, 0.9, 10.0)
+            if room is None or room < need:
+                raise ValueError("poll_only_silence refused by the bench: %s, need %.1f" % (why, need))
+            say("steering margin:", why, "need %.1f" % need)
+            wd0 = wd_count(fresh_status())
+            if wd0 is None:
+                raise ValueError("WD count unknown before the poll-only window")
+            silent.set()
+            if not quiet.wait(0.2):
+                raise ValueError("ticker did not go quiet")
+            time.sleep(0.15)                            # pending acks land
+            n0 = rx_count[0]; ka0 = tx_keepalives[0]
+            c.heartbeat(); c.steer(arg)
+            t_ok = line_at("0x05;OK;%02X" % p._STEER[arg], "drive", n0, 0.5)
+            if t_ok is None:
+                end_silence()
+                raise ValueError("steer %s not acknowledged on the wire" % arg)
+            say("HOST POLLING ONLY for %d ms: angles and STATUS, no keepalive. THE BOARD MUST STOP THE MOVE." % (ms or 1000))
+            log("poll_only_begin", ms=ms or 1000, snapshot=c.snapshot())
+            t_end = time.time() + (ms or 1000) / 1000.0
+            try:
+                while time.time() < t_end:
+                    c.poll_feedback(); c.read_status()
+                    time.sleep(0.05)
+            finally:
+                log("poll_only_end")
+                end_silence()
+            t_wd = line_at("0x00;WD", "drive", n0, 0.0)
+            trip_ms = None if t_wd is None else (t_wd - t_ok) * 1000.0
+            kas = tx_keepalives[0] - ka0
+            wd1 = wd_count(fresh_status())
+            log("poll_only_result", ok_to_wd_ms=trip_ms, keepalives_sent=kas, wd_before=wd0, wd_after=wd1)
+            say("poll-only: OK to WD line %s ms, keepalives sent %d, WD count %s -> %s" % (
+                "none" if trip_ms is None else "%.0f" % trip_ms, kas, wd0, wd1))
+            if kas:
+                err = "%d keepalive frame(s) left the host during the poll-only window" % kas
+            elif trip_ms is None:
+                err = "no WD line from the board after the move"
+            elif trip_ms > 1000.0:
+                err = "board tripped %.0f ms after its OK, limit 1000" % trip_ms
+            elif wd1 != wd0 + 1:
                 err = "WD count %s, expected %d" % (wd1, wd0 + 1)
             expected = [DRIVE_WD]
         elif op == "safe": c.safe_stop()

@@ -35,9 +35,11 @@ static void allOff(const char* why) {
 static uint16_t absDiff(uint16_t a, uint16_t b) { return a > b ? a - b : b - a; }
 
 // A sensor is trusted while an actuator is on only if it answers and its
-// reading moves plausibly. One valid-looking sample after a dropout does
-// not restore trust: a jump larger than WD_MAX_STEP between samples is
-// treated as no signal (the horn produces exactly that).
+// reading moves plausibly: a jump larger than WD_MAX_STEP between samples
+// is treated as no signal for that loop (the horn produces exactly that).
+// Known gap, left as is in 4.1.6: the jump forgets the last good sample,
+// so the next valid-looking sample, cached or fresh, is trusted again;
+// only a dropout longer than WD_NO_SIGNAL_MS trips.
 static bool sensorBad(bool valid, uint16_t value, uint16_t& last, bool& haveLast, uint32_t& since, uint32_t now) {
     if (!valid) {
         haveLast = false;

@@ -1,13 +1,20 @@
 """Real-time simulators of ugv-01's two boards with the watchdog firmware,
-behind the same Port protocol the controls use, so tonight's runner can be
+behind the same Port protocol the controls use, so the runner can be
 exercised on a laptop before it touches the vehicle.
 
-  python3 simboards.py [--broken accel|drive|both] -- <bench_run.py args>
+  python3 simboards.py [--fw new|old] [--broken accel|drive|both] -- <bench_run.py args>
 
 The runner is executed with PySerialPort replaced: device "drive" is the
-simulated 4.1.5 drive module, "accel" the simulated AC 1.3 Nano.
+simulated drive module, "accel" the simulated throttle Nano.
+--fw new (default): drive module 4.1.6 and AC 1.4, the watchdog-authority
+firmware of 15 Oct: only a motion command or the explicit keepalive (0x15
+on the drive module, 0x04 on the Nano) refreshes the watchdog; angle
+polls, STATUS, INFO and the read-back answer but refresh nothing.
+--fw old: 4.1.5 and AC 1.3, where any accepted line refreshes; the host
+refuses to arm motion on them.
 --broken makes that board's watchdog never fire (AC 1.2 / 4.1.4 behaviour)
 so the runner's FAIL path and the host's fallback stop are exercised.
+Unit tests: tests/test_ugv01_simboards.py.
 """
 import argparse, queue, runpy, sys, threading, time
 
@@ -46,17 +53,21 @@ class SimPort:
 
 class Nano13:
     name = "accel"
+    version = "AC0103"
+    REFRESH = {"0x01", "0x03", "0x02"}        # AC 1.3: any valid line
+    KEEPALIVE = False                           # 0x04 unknown
 
     def __init__(self, broken=False):
         self.broken = broken
         self.lock = threading.Lock()
 
-    def reset(self, port):
+    def reset(self, port, now=None):
+        now = time.monotonic() if now is None else now      # tests pass their own clock
         with self.lock:
             self.port = port
             self.duty = 0; self.timeouts = 0; self.latched = False
-            self.last_valid = time.monotonic()
-            self.boot_at = time.monotonic()
+            self.last_valid = now
+            self.boot_at = now
             self.events = []
 
     def tick(self, now):
@@ -73,11 +84,14 @@ class Nano13:
             if now - self.boot_at < 2.0:
                 return []                   # rebooting after DTR
             if text == "0x01":
-                self.last_valid = now
-                return ["0x01;OK;AC0103"]
+                if "0x01" in self.REFRESH: self.last_valid = now
+                return ["0x01;OK;%s" % self.version]
             if text == "0x03":
-                self.last_valid = now
+                if "0x03" in self.REFRESH: self.last_valid = now
                 return ["0x03;OK;%02X;%02X" % (self.duty, min(self.timeouts, 255))]
+            if text == "0x04" and self.KEEPALIVE:
+                self.last_valid = now
+                return ["0x04;OK;%02X;%02X" % (self.duty, min(self.timeouts, 255))]
             if text.startswith("0x02;"):
                 try:
                     d = int(text.split(";")[1], 16)
@@ -97,20 +111,31 @@ class Nano13:
             return ["ERR;UNKNOWN_COMMAND"]
 
 
+class Nano14(Nano13):
+    """AC 1.4: only a duty frame or the 0x04 keepalive refreshes."""
+    version = "AC0104"
+    REFRESH = {"0x02"}
+    KEEPALIVE = True
+
+
 class Drive415:
     name = "drive"
+    version = "040105"
+    REFRESH = None                              # 4.1.5: any accepted command refreshes
+    KEEPALIVE = False                           # 0x15 unknown
 
     def __init__(self, broken=False):
         self.broken = broken
         self.lock = threading.Lock()
 
-    def reset(self, port):
+    def reset(self, port, now=None):
+        now = time.monotonic() if now is None else now      # tests pass their own clock
         with self.lock:
             self.port = port
             self.steer = 153.7; self.brake = 61.7
             self.steer_dir = 0; self.brake_dir = 0
             self.gear = 3; self.wd = 0; self.latched = False
-            self.last_accepted = time.monotonic(); self.last_tick = time.monotonic()
+            self.last_accepted = now; self.last_tick = now
             self.lim = (67.0, 243.0); self.blim = (70.0, 170.0)
 
     def _move(self, now):
@@ -146,9 +171,13 @@ class Drive415:
                 return ["0x00;ERR;BAD_CMD"]
             arg = int(parts[1], 16) if len(parts) > 1 else None
             def ok(data=None):
-                self.last_accepted = now
+                if self.REFRESH is None or cmd in self.REFRESH:
+                    self.last_accepted = now
                 return ["0x%02X;OK%s" % (cmd, (";" + data) if data is not None else "")]
-            if cmd == 0x01: return ok("040105")
+            if cmd == 0x01: return ok(self.version)
+            if cmd == 0x15 and self.KEEPALIVE:
+                if arg is not None: return ["0x15;ERR;BAD_ARG"]
+                return ok("%02X" % min(self.wd, 255))
             if cmd == 0x16:
                 return ok("A=00,ST=%02X,BR=%02X,SP=02,GR=%02X,LI=00,IN=00,HO=00,WI=00,CT=00,WD=%02X"
                           % (self.steer_dir, self.brake_dir, self.gear, min(self.wd, 255)))
@@ -174,11 +203,26 @@ class Drive415:
                 return ok("%02X" % arg)
             if cmd in (0x09, 0x0A, 0x0B, 0x07):
                 return ok("%02X" % (arg or 0))
-            return ["0x%02X;ERR;UNKNOWN" % cmd]
+            return ["0x%02X;ERR;UNKNOWN_COMMAND" % cmd]
+
+
+class Drive416(Drive415):
+    """4.1.6: only a motion command (0x05, 0x06, 0x12, 0x13, 0x14) or the
+    0x15 keepalive refreshes; 0x15 answers the trip count."""
+    version = "040106"
+    REFRESH = {0x05, 0x06, 0x12, 0x13, 0x14, 0x15}
+    KEEPALIVE = True
+
+
+def make_boards(fw="new", broken=None):
+    drive_cls, nano_cls = (Drive416, Nano14) if fw == "new" else (Drive415, Nano13)
+    return {"drive": drive_cls(broken=broken in ("drive", "both")),
+            "accel": nano_cls(broken=broken in ("accel", "both"))}
 
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--fw", choices=["new", "old"], default="new")
     ap.add_argument("--broken", choices=["accel", "drive", "both"], default=None)
     ap.add_argument("--repo", required=True)
     ap.add_argument("--runner", required=True)
@@ -186,8 +230,7 @@ def main():
     a = ap.parse_args()
     sys.path.insert(0, a.repo + "/drive")
     import pilot.hal.drivers.ugv01.link as link
-    boards = {"drive": Drive415(broken=a.broken in ("drive", "both")),
-              "accel": Nano13(broken=a.broken in ("accel", "both"))}
+    boards = make_boards(fw=a.fw, broken=a.broken)
     link.PySerialPort = lambda device, *x, **k: SimPort(boards[device])
     rest = a.rest[1:] if a.rest and a.rest[0] == "--" else a.rest
     sys.argv = [a.runner] + rest

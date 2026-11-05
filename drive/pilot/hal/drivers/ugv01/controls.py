@@ -22,6 +22,14 @@ What this class guarantees, and what it cannot:
 - It never sends a locked, admin, reset, Wi-Fi or limit-write command
   (protocol.py has no encoder for them). It never auto-centres steering:
   that is a move, not a stop.
+- Motion is armed only on the watchdog-authority firmware (drive module
+  4.1.6, throttle board AC 1.4) with the drive module's Wi-Fi off
+  (WI=00 in STATUS). Older boards start and answer reads; every move is
+  refused with the reason. On those versions only a motion command or
+  the explicit keepalive (0x15, 0x04) refreshes a board's watchdog, and
+  the controls send the keepalive only while an actuator is commanded
+  on and the host heartbeat is live, so a dead command path cannot keep
+  a move alive through its poller.
 - A quiet accelerator gets a liveness probe every `accel_probe_s`; both
   links have reply deadlines; the steering loop stops on feedback older
   than `feedback_max_age_s`. Any board fault, any failed write, or a
@@ -31,8 +39,10 @@ What this class guarantees, and what it cannot:
   Faults latch until `clear_faults()`, a human decision.
 
 What it cannot guarantee, stated so nobody reads more into it: a host
-cannot command a board through a link that has failed, and neither
-board's firmware is known to have a watchdog. `snapshot()["stop"]`
+cannot command a board through a link that has failed. Both boards'
+silence watchdogs (AC 1.3, 4.1.5) were proven on the vehicle on 15 Oct
+2026 by read-back and eyes, not by meter; the authority versions (AC
+1.4, 4.1.6) are proven on the simulator only. `snapshot()["stop"]`
 reports "requested" and "acked" separately; acknowledged means the board
 answered, not that the vehicle is physically stopped. Until a stop on
 link loss is proven on both boards, the hardware safety gate in
@@ -59,8 +69,14 @@ class Refused(RuntimeError):
 
 
 STEER_SENSES = ("right_increases", "left_increases")
-SUPPORTED_DRIVE_FIRMWARE = ("4.1.",)     # ARGUS DRIVE 4.1.x
-SUPPORTED_ACCEL_FIRMWARE = ("1.",)       # accelerator board 1.x
+SUPPORTED_DRIVE_FIRMWARE = ("4.1.",)     # ARGUS DRIVE 4.1.x: identity and reads
+SUPPORTED_ACCEL_FIRMWARE = ("1.",)       # accelerator board 1.x: identity and reads
+# Motion is armed only on the watchdog-authority firmware (15 Oct 2026):
+# from these versions only a motion command or the explicit keepalive
+# refreshes a board's silence watchdog, so a poller cannot keep an actuator
+# alive. Older boards start, identify and answer reads; every move is refused.
+ARMED_DRIVE_FIRMWARE = (4, 1, 6)
+ARMED_ACCEL_FIRMWARE = (1, 4)
 
 
 @dataclass
@@ -97,7 +113,9 @@ class Ugv01Controls:
         drive_boot_s: float = 0.5,
         reply_timeout_s: float = 1.0,
         heartbeat_timeout_s: float = 0.7,
-        accel_probe_s: float = 0.25,     # AC 1.3 rests after 800 ms of silence; talk 3x faster
+        accel_probe_s: float = 0.25,     # the throttle board rests after 800 ms; talk 3x faster
+        drive_keepalive_s: float = 0.25, # the drive module likewise, 4.1.6: 0x15 while an actuator is on
+        brake_stroke_max_s: float = 2.0, # the stop's brake apply is kept alive this long, then halted (1.3 s measured 15 Oct)
         feedback_max_age_s: float = 0.5,
         max_angle_step_deg: float = 30.0,
         max_duty: int = 90,
@@ -124,6 +142,8 @@ class Ugv01Controls:
         self._reply_timeout = reply_timeout_s
         self._hb_timeout = heartbeat_timeout_s
         self._accel_probe_s = accel_probe_s
+        self._drive_keepalive_s = drive_keepalive_s
+        self._brake_stroke_max = brake_stroke_max_s
         self._feedback_max_age = feedback_max_age_s
         self._max_angle_step = max_angle_step_deg
         self._max_duty = max_duty
@@ -160,6 +180,10 @@ class Ugv01Controls:
         self._duty_read: int | None = None      # AC 1.3 read-back
         self._accel_timeouts: int | None = None
         self._accel_read_back = False           # firmware 1.3 or later
+        self._accel_keepalive = False           # firmware 1.4 or later: 0x04 is the keepalive
+        self._drive_trips: int | None = None    # WD count from STATUS and the keepalive reply
+        self._trip_announced = False            # a WD line arrived; the next count rise is that trip
+        self._armed_reason: str | None = "not started"   # None once motion may be commanded
         self._board_tripped = False             # a board stopped itself: no brake apply until cleared
         self._steer_moving: str = "stop"
         self._steer_target: float | None = None
@@ -169,6 +193,8 @@ class Ugv01Controls:
         self._last_heartbeat: float | None = None
         self._last_poll_at: float | None = None
         self._last_accel_probe_at: float | None = None
+        self._last_drive_keepalive_at: float | None = None
+        self._stop_brake_apply_at: float | None = None   # safe_stop's own brake apply, kept alive to its end
         self._safe_stopped = False
         self._in_stop = False
         self._faults: list[str] = []
@@ -195,6 +221,26 @@ class Ugv01Controls:
         with self._lock:
             self._started = True
             self._last_poll_at = self._now()
+            self._armed_reason = self._arm_reason()
+
+    def _arm_reason(self) -> str | None:
+        """Why motion may not be commanded, or None. Both boards on the
+        watchdog-authority firmware and the drive module's Wi-Fi off
+        (WI=00 in STATUS; the mode persists in NVS across flashes)."""
+        d = p.version_tuple(self._drive.firmware)
+        if d is None or d < ARMED_DRIVE_FIRMWARE:
+            return "drive module firmware %s is older than %s (watchdog authority)" % (
+                self._drive.firmware, ".".join(map(str, ARMED_DRIVE_FIRMWARE)))
+        a = p.version_tuple(self._accel.firmware)
+        if a is None or a < ARMED_ACCEL_FIRMWARE:
+            return "accelerator firmware %s is older than %s (watchdog authority)" % (
+                self._accel.firmware, ".".join(map(str, ARMED_ACCEL_FIRMWARE)))
+        wi = p.status_field(self._status_raw, "WI")
+        if wi is None:
+            return "drive module STATUS has no WI field (%r)" % (self._status_raw,)
+        if wi != 0:
+            return "drive module Wi-Fi is on (WI=%02X)" % wi
+        return None
 
     def _open_drive(self) -> None:
         d = self._drive
@@ -255,10 +301,9 @@ class Ugv01Controls:
             raise LinkError("accelerator firmware %s is not a supported version" % version)
         with self._lock:
             a.firmware = version
-            try:
-                self._accel_read_back = tuple(int(x) for x in version.split(".")) >= (1, 3)
-            except ValueError:
-                self._accel_read_back = False
+            v = p.version_tuple(version) or ()
+            self._accel_read_back = v >= (1, 3)
+            self._accel_keepalive = v >= ARMED_ACCEL_FIRMWARE
 
     def close(self) -> None:
         """Stop first, wait for the boards to answer, then let go. Closing
@@ -324,6 +369,7 @@ class Ugv01Controls:
                 # 4.1.5: the drive module switched its actuators off on its
                 # own (TIMEOUT after host silence, NO_SIGNAL for a sensor).
                 # Unsolicited, and a fault on our side.
+                self._trip_announced = True
                 self._fault("drive module WD %s: it stopped its actuators itself" % line.split(";")[-1].strip(),
                             brake=False)
                 return
@@ -360,7 +406,7 @@ class Ugv01Controls:
             v = p.accel_version(r.data)
             if v:
                 self._accel.firmware = v
-        elif r.cmd == p.ACCEL_READ_CMD and r.ok:
+        elif r.cmd in (p.ACCEL_READ_CMD, p.ACCEL_KEEPALIVE_CMD) and r.ok:
             parts = r.data.split(";")
             try:
                 duty = int(parts[0], 16); timeouts = int(parts[1], 16)
@@ -408,6 +454,21 @@ class Ugv01Controls:
                 self._drive.firmware = v
         elif r.cmd == p.STATUS:
             self._status_raw = r.data
+            self._note_trips(p.status_field(r.data, "WD"))
+            if self._started:
+                was = self._armed_reason
+                self._armed_reason = self._arm_reason()
+                wi = p.status_field(r.data, "WI")
+                if was is None and wi not in (None, 0):
+                    # 4.1.x: the Wi-Fi stack came up mid-session (NVS mode or
+                    # a locked command that got through). Not a vehicle we drive.
+                    self._fault("drive module Wi-Fi is on (WI=%02X)" % wi)
+        elif r.cmd == p.KEEPALIVE:
+            try:
+                trips = int(r.data, 16) if r.data else None
+            except ValueError:
+                trips = None
+            self._note_trips(trips)
         elif r.cmd == p.READ_STEER:
             a = p.angle_deg(r.data)
             if a is None:
@@ -433,6 +494,22 @@ class Ugv01Controls:
             # physically released; the brake angle is in the snapshot for that.
             self._brake_applied = False
             self._brake_release_seq = None
+
+    def _note_trips(self, trips: int | None) -> None:
+        """The drive module's own trip count, from STATUS or the keepalive
+        reply. A rise the WD line did not announce is still a board that
+        stopped itself: fault, and no brake apply (the actuator it dropped
+        must not be re-energised by our stop)."""
+        if trips is None:
+            return
+        previous = self._drive_trips
+        self._drive_trips = trips
+        if previous is not None and trips > previous:
+            if self._trip_announced:
+                self._trip_announced = False     # the notice already faulted for this one
+                return
+            self._fault("drive module trip count rose to %d: it stopped its actuators itself" % trips,
+                        brake=False)
 
     def _plausible(self, a: float, last: float | None, limits, what: str) -> bool:
         """A reading that jumps more than max_angle_step from the last good
@@ -509,6 +586,10 @@ class Ugv01Controls:
         if self._safe_stopped:
             raise Refused("%s refused: safe-stopped, clear_faults() first" % what)
 
+    def _check_armed(self, what: str) -> None:
+        if self._armed_reason is not None:
+            raise Refused("%s refused: not armed: %s" % (what, self._armed_reason))
+
     def heartbeat(self) -> None:
         """The command path above is alive. Feed this from every command
         frame, not from a separate heartbeat message."""
@@ -522,6 +603,7 @@ class Ugv01Controls:
         with self._lock:
             if pct > 0:
                 self._check_open("throttle")
+                self._check_armed("throttle")
                 if not self._drive.connected:
                     raise Refused("throttle refused: drive link down, brake unreachable")
                 if not self._accel_alive:
@@ -538,6 +620,7 @@ class Ugv01Controls:
         frame = p.brake(action)
         with self._lock:
             if action == "apply":
+                self._check_armed("brake apply")
                 # throttle off before the brake moves, and locked even if
                 # the accelerator write fails
                 self._brake_applied = True
@@ -550,6 +633,7 @@ class Ugv01Controls:
                 self._write(self._drive, frame, p.BRK_SW, arg=0x01)
             elif action == "release":
                 self._check_open("brake release")
+                self._check_armed("brake release")
                 self._brake_moving = True
                 seq = self._write(self._drive, frame, p.BRK_SW, arg=0x02)
                 self._brake_release_seq = seq
@@ -562,6 +646,7 @@ class Ugv01Controls:
         with self._lock:
             if direction != "stop":
                 self._check_open("steer")
+                self._check_armed("steer")
                 at = self._steer_angle_at
                 if at is None or self._now() - at > self._feedback_max_age:
                     raise Refused("steer refused: no fresh steering reading")
@@ -578,6 +663,7 @@ class Ugv01Controls:
             raise ValueError("steer_to needs a finite angle")
         with self._lock:
             self._check_open("steer_to")
+            self._check_armed("steer_to")
             if self._steer_sense is None:
                 raise Refused("steer_to refused: steering sense not known, set it from the bench")
             if self._steer_limits is None:
@@ -637,9 +723,19 @@ class Ugv01Controls:
 
     def read_status(self) -> None:
         """Ask the drive board for its switch states (0x16). The reply
-        lands in snapshot()["drive"]["status_raw"]. A read, not a move."""
+        lands in snapshot()["drive"]["status_raw"]. A read, not a move,
+        and on 4.1.6 not a keepalive either."""
         with self._lock:
             self._write(self._drive, p.status(), p.STATUS)
+
+    def poll_feedback(self) -> None:
+        """Both angle reads (0x04, 0x03). What tick() sends at poll_hz; a
+        bench that wants to prove a poller alone keeps nothing alive calls
+        this without tick() and without heartbeat()."""
+        with self._lock:
+            if self._drive.connected:
+                self._write(self._drive, p.read_steer(), p.READ_STEER)
+                self._write(self._drive, p.read_brake(), p.READ_BRAKE)
 
     # ----------------------------------------------------------- supervision
 
@@ -665,13 +761,29 @@ class Ugv01Controls:
                 if seqs[0] is not None:
                     self._duty_last_seq = seqs[0]
                 use_brake = (self._brake_on_stop if brake is None else brake) and not self._board_tripped
+                # the brake apply is a move: only on a board this host has
+                # armed, and only once per stop episode. The first stop's
+                # deadline stands; a stop after it halts the brake where it is
+                began = self._stop_brake_apply_at
+                if self._armed_reason is not None or began is not None:
+                    use_brake = False
                 if use_brake:
                     self._brake_applied = True
                     self._brake_moving = True
+                    self._stop_brake_apply_at = self._now()
                     seqs.append(self._write(self._drive, p.brake("apply"), p.BRK_SW, arg=0x01))
+                elif (began is not None and self._brake_moving and brake is not False
+                      and not self._board_tripped and self._armed_reason is None
+                      and self._now() - began <= self._brake_stroke_max):
+                    # a stop inside the first stop's window (the bridge sends
+                    # one per held estop frame): the running stroke keeps its
+                    # deadline, neither re-applied nor halted (Codex, 15 Oct)
+                    pass
                 else:
                     # the brake stroke is not characterised: halt the actuator
-                    # where it is rather than drive it to an unknown end
+                    # where it is rather than drive it to an unknown end.
+                    # began stays as it was: nulling it here let the next
+                    # stop of the episode re-apply (the failing test of 15 Oct)
                     self._brake_moving = False
                     seqs.append(self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00))
                 seqs.append(self._write(self._drive, p.steer("stop"), p.STR_SW, arg=0x00))
@@ -694,6 +806,12 @@ class Ugv01Controls:
             self._stop_seqs = set()
             self._stop_acked_seqs = set()
             self._stop_incomplete = False
+            self._stop_brake_apply_at = None
+            if self._brake_moving:
+                # the stop's brake apply does not outlive the latch it came
+                # with: halt it here, the human decides what comes next
+                self._brake_moving = False
+                self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00)
             self._accel_alive = False
             seq = self._write(self._accel, p.ACCEL_ZERO, p.ACCEL_DUTY_CMD, arg=0)
             if seq is not None:
@@ -736,8 +854,21 @@ class Ugv01Controls:
                 hb = self._last_heartbeat
                 if hb is None or now - hb > self._hb_timeout:
                     self.safe_stop()
-            # 3. accelerator liveness, and the keepalive AC 1.3 needs while
-            #    the throttle is on: a probe at least every accel_probe_s
+            # 2b. the drive module's keepalive (4.1.6): only while an actuator
+            #     is commanded on, only from a live command path, or for the
+            #     controls' own stop brake apply, bounded by the stroke time
+            if self._drive_keepalive_due(now):
+                last_ka = self._last_drive_keepalive_at
+                if last_ka is None or now - last_ka >= self._drive_keepalive_s:
+                    self._last_drive_keepalive_at = now
+                    self._write(self._drive, p.keepalive(), p.KEEPALIVE)
+            else:
+                self._last_drive_keepalive_at = None
+            # 3. accelerator liveness, and the keepalive the board needs while
+            #    the throttle is on: at least every accel_probe_s. On AC 1.4 the
+            #    keepalive is 0x04 and the read-back is a poll; at rest the
+            #    liveness probe is the poll, so a dead command path with a
+            #    live tick thread keeps nothing on
             if self._accel.connected:
                 last = self._accel.last_reply_at or 0.0
                 probe = self._last_accel_probe_at or 0.0
@@ -745,18 +876,49 @@ class Ugv01Controls:
                     self._duty_commanded > 0 or (not self._accel.pending and now - last > self._accel_probe_s))
                 if due:
                     self._last_accel_probe_at = now
-                    if self._accel_read_back:
+                    if self._accel_keepalive and self._duty_commanded > 0:
+                        self._write(self._accel, p.accel_keepalive(), p.ACCEL_KEEPALIVE_CMD)
+                    elif self._accel_read_back:
                         self._write(self._accel, p.accel_read(), p.ACCEL_READ_CMD)
                     else:
                         self._write(self._accel, p.accel_info(), p.ACCEL_INFO_CMD)
-            # 4. drive polls
+            # 4. drive polls: reads, never a keepalive
             if self._poll_period is not None and self._drive.connected:
                 if self._last_poll_at is None or now - self._last_poll_at >= self._poll_period:
                     self._last_poll_at = now
-                    self._write(self._drive, p.read_steer(), p.READ_STEER)
-                    self._write(self._drive, p.read_brake(), p.READ_BRAKE)
+                    self.poll_feedback()
             # 5. steering loop
             self._steer_loop(now)
+
+    def _drive_keepalive_due(self, now: float) -> bool:
+        """Whether a 0x15 may leave the host now. Never to a board that is
+        not armed (older firmware answers it with an error), never at
+        rest, and never from a command path the heartbeat says is dead.
+        The one exception is the brake apply safe_stop itself sent: that
+        move is the controls' own, and on 4.1.6 it would be cut short at
+        800 ms without a keepalive, leaving the brake part way. It is kept
+        alive for brake_stroke_max_s at most from the first stop of the
+        episode, then halted where it is; later stops and clear_faults()
+        never restart it."""
+        if self._armed_reason is not None or not self._drive.connected:
+            return False
+        moving = (self._steer_moving != "stop" or self._steer_target is not None
+                  or self._brake_moving)
+        if not moving:
+            return False
+        hb = self._last_heartbeat
+        live = (hb is not None and now - hb <= self._hb_timeout
+                and not self._safe_stopped and not self._faults)
+        if live:
+            return True
+        began = self._stop_brake_apply_at
+        if (self._safe_stopped and self._brake_moving and began is not None
+                and self._steer_moving == "stop" and self._steer_target is None):
+            if now - began <= self._brake_stroke_max:
+                return True
+            self._brake_moving = False              # began stays set: no second apply this episode
+            self._write(self._drive, p.brake("stop"), p.BRK_SW, arg=0x00)
+        return False
 
     def _steer_loop(self, now: float) -> None:
         target = self._steer_target
@@ -801,6 +963,7 @@ class Ugv01Controls:
                     "answering": self._drive.answering,
                     "last_reply_age_s": age(self._drive.last_reply_at),
                     "status_raw": self._status_raw,
+                    "trips": self._drive_trips,
                 },
                 "accel": {
                     "firmware": self._accel.firmware,
@@ -828,6 +991,7 @@ class Ugv01Controls:
                     "applied": self._brake_applied,
                 },
                 "commanded": dict(self._commanded),
+                "armed": {"ok": self._armed_reason is None, "reason": self._armed_reason},
                 "safe_stopped": self._safe_stopped,
                 "faults": list(self._faults),
                 "stop": {"requested": self._stop_requested, "acked": bool(stop_acked)},

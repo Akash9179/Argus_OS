@@ -20,7 +20,10 @@ after "go", stopped by the tool after its duration (default 300 ms for
 steering and brake, 1000 ms for throttle), and only then does the tool
 ask what the human saw. Typing `safe` at ANY prompt sends the stop at
 once, before anything else happens. The host heartbeat is fed by this
-tool's own tick thread; the human at the ignition key is the watchdog.
+command thread, and only while a pulse it sent is running (Codex, 15
+Oct: a tick thread that fed the heartbeat itself kept a stalled command
+thread's move alive); the tick thread only ticks. The human at the
+ignition key is the watchdog.
 
 Commands:
   snap                               the controls snapshot
@@ -102,9 +105,20 @@ class Bench:
             after["stop"]["requested"], after["stop"]["acked"]))
 
     def ticker(self) -> None:
+        # ticks only: the heartbeat comes from the command thread, so a
+        # command thread that stalls stops feeding it and the controls stop
         while not self.stop.is_set():
-            self.c.heartbeat()      # the human is the watchdog on the bench
             self.c.tick()
+            time.sleep(0.05)
+
+    def pulse(self, seconds: float, until=None) -> None:
+        """Feed the heartbeat from this thread for `seconds`, or until
+        `until()` is true. Nothing else keeps a move alive."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not self.stop.is_set():
+            if until is not None and until():
+                return
+            self.c.heartbeat()
             time.sleep(0.05)
 
     def run(self, line: str) -> None:
@@ -131,15 +145,24 @@ class Bench:
             print("not sent"); self.log.event("declined", command=line); return
         err = None
         try:
+            self.c.heartbeat()
             plan["do"]()
         except (Refused, ValueError) as e:
             err = str(e)
             print("REFUSED: %s" % err)
         self.log.event("sent", command=line, refused=err)
         if err is None and plan.get("after"):
-            time.sleep(plan["ms"] / 1000.0)
+            self.pulse(plan["ms"] / 1000.0)
             plan["after"]()
             self.log.event("pulse_ended", command=line, ms=plan["ms"])
+        elif err is None and plan.get("until"):
+            # closed loop: this thread waits, feeding the heartbeat, until
+            # the controls report the target reached or dropped, or the
+            # ceiling passes; past the ceiling the stop is sent here
+            self.pulse(plan["ceiling_s"], until=plan["until"])
+            if not plan["until"]():
+                self.safe("%s ran past %.0f s" % (line, plan["ceiling_s"]))
+            self.log.event("pulse_ended", command=line, ms=None)
         time.sleep(0.3)
         after = self.c.snapshot()
         print("steer %s deg  brake %s deg  duty acked %s  faults %s" % (
@@ -184,7 +207,8 @@ class Bench:
             if not math.isfinite(deg):
                 raise ValueError("angle must be a number")
             return {"say": "closed-loop steer to %.1f deg; it keeps moving until there, or `safe`" % deg,
-                    "do": lambda: c.steer_to(deg)}
+                    "do": lambda: c.steer_to(deg), "ceiling_s": 10.0,
+                    "until": lambda: c.snapshot()["steer"]["target_deg"] is None}
         if op == "gear":
             return {"say": "gear %s" % rest[0], "do": lambda: c.gear(rest[0])}
         if op == "speed":

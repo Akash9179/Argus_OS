@@ -36,3 +36,33 @@ The zip itself, `ugv01_firmware_watchdog_2026-10-14.zip`, has SHA-256
 `8ef8429262ba59f618d1f67d016b5c3eeef89ce4094b2291b13bb93f35a6072f`;
 its `esp32_watchdog_src/` is identical to `esp32_drive_4.1.5_src/src/`
 (checked file for file on 15 Oct).
+
+## 15 Oct 2026, the founder's Mac (Apple Silicon), the watchdog-authority images
+
+Tools, user-local under `~/argus-tools` as `build.sh` expects: PlatformIO
+Core 6.2.0 in a venv (platform espressif32 7.1.3, the same pin), and the
+Homebrew arduino-cli 1.5.1 with `arduino:avr` 1.8.8 symlinked in. The
+three ESP32 images built; `build.sh` then stopped at the first Nano image
+with `avr-g++: bad CPU type in executable`: Arduino's AVR toolchain is
+x86 only and this Mac has no Rosetta (PlatformIO's atmelavr toolchain is
+x86 only as well). So the Nano images are not built here; the AC 1.4
+logic is proven by its laptop test and the sketch glue is AC 1.3's with
+new comments. Log: `bench-logs/2026-10-15/build-sh-mac.log`.
+
+| image | source | SHA-256 (this Mac, this build) |
+|---|---|---|
+| drive module 4.1.4 | `vendor-2026-10-13/esp32_drive_4.1.4_src` | `50ce2ee7f4577a07b0d02a8c970a1c00a320f20637a5af8a4d6df55b26598b71` |
+| drive module 4.1.5 | `esp32_drive_4.1.5_src/src` | `b73263dc861275a8e5203e8ea5f358045a69aa8fbc43e6b933b2a2f5c6488c69` |
+| drive module 4.1.6 | `esp32_drive_4.1.6_src/src` | `b2a61ba335680c676932f814c7d1300dfe25ea7589e66b69bfdfb5d8ae367495` |
+| throttle Nano AC 1.4 | `nano_throttle_AC0104/` | not built here (x86 toolchain) |
+
+4.1.6 is 707520 bytes, 13.4 percent of RAM, the same footprint as 4.1.5
+within a few hundred bytes. ESP32 hashes identify a build, not a tree
+(see above); the 4.1.6 tree is identified by
+`git log -1 -- bodies/ugv-01/firmware/esp32_drive_4.1.6_src`, and the
+patch `esp32_drive_watchdog/esp32_4.1.6_watchdog.patch` reproduces it
+from the vendor tree exactly (checked 15 Oct).
+
+Nothing was flashed. The flash session rebuilds on the Jetson with
+`build.sh` (all six images there, about a minute after the first time)
+and records the hashes it flashes in that day's bench record.

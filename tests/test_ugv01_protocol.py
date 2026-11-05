@@ -147,3 +147,31 @@ def test_accel_replies():
 def test_decode_line_is_text_when_printable_else_hex():
     assert p.decode_line(b"0x04;OK;0601\r\n") == "0x04;OK;0601"
     assert p.decode_line(b"\xff\x00\n") == "hex: ff 00"
+
+
+# ------------------------------------- watchdog authority (4.1.6 and AC 1.4)
+
+def test_the_keepalive_frames_are_the_explicit_opcodes():
+    assert p.KEEPALIVE == 0x15 and p.keepalive() == b"0x15\n"
+    assert p.ACCEL_KEEPALIVE_CMD == 0x04 and p.accel_keepalive() == b"0x04\n"
+    assert p.KEEPALIVE in p.ALL_COMMANDS
+
+
+def test_status_field_reads_one_named_field_of_a_status_reply():
+    raw = "A=00,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=01"
+    assert p.status_field(raw, "WI") == 0
+    assert p.status_field(raw, "WD") == 1
+    assert p.status_field(raw, "GR") == 1
+    assert p.status_field(raw, "XX") is None
+    assert p.status_field("D0N1", "WI") is None          # 4.1.3's undocumented shape
+    assert p.status_field("", "WI") is None
+    assert p.status_field(None, "WI") is None
+    assert p.status_field("WI=zz", "WI") is None
+
+
+def test_version_tuple_orders_firmware_versions():
+    assert p.version_tuple("4.1.6") == (4, 1, 6)
+    assert p.version_tuple("1.4") == (1, 4)
+    assert p.version_tuple("4.1.10") > p.version_tuple("4.1.6")
+    assert p.version_tuple(None) is None
+    assert p.version_tuple("4.1.x") is None

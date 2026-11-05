@@ -37,11 +37,12 @@ HORN = 0x0B
 BRK_LIM = 0x0F
 STR_LIM = 0x10
 STR_CTR = 0x14
+KEEPALIVE = 0x15            # 4.1.6: the explicit watchdog refresh; answers the trip count
 STATUS = 0x16
 
 ALL_COMMANDS = frozenset({
     INFO, READ_BRAKE, READ_STEER, STR_SW, BRK_SW, SPEED, GEAR, LIGHT, IND,
-    HORN, BRK_LIM, STR_LIM, STR_CTR, STATUS,
+    HORN, BRK_LIM, STR_LIM, STR_CTR, KEEPALIVE, STATUS,
 })
 
 _STEER = {"stop": 0x00, "left": 0x01, "right": 0x02}
@@ -110,6 +111,15 @@ def centre_steer() -> bytes:
     return _frame(STR_CTR)
 
 
+def keepalive() -> bytes:
+    """4.1.6 only: the one frame, besides a motion command, that refreshes
+    the drive module's silence watchdog. Polls (angles, STATUS, INFO)
+    answer but refresh nothing. Reply: '0x15;OK;<trip count hex>'. Older
+    firmware answers ERR;UNKNOWN_COMMAND, so the controls send it only to
+    a board they have armed."""
+    return _frame(KEEPALIVE)
+
+
 # ------------------------------------------------------- vehicle controls
 
 def gear(g: str) -> bytes:
@@ -142,13 +152,21 @@ def horn() -> bytes:
 
 ACCEL_INFO_CMD = 0x01
 ACCEL_DUTY_CMD = 0x02
-ACCEL_READ_CMD = 0x03       # AC 1.3: read-back of duty and timeout count
+ACCEL_READ_CMD = 0x03       # AC 1.3: read-back of duty and timeout count (a poll from 1.4)
+ACCEL_KEEPALIVE_CMD = 0x04  # AC 1.4: the explicit watchdog refresh, same reply data as the read-back
 
 
 def accel_read() -> bytes:
-    """AC 1.3 only: '0x03;OK;<duty hex>;<timeouts hex>'. AC 1.2 answers
-    ERR;UNKNOWN_COMMAND, which the controls treat as 'not supported'."""
+    """AC 1.3 and later: '0x03;OK;<duty hex>;<timeouts hex>'. AC 1.2 answers
+    ERR;UNKNOWN_COMMAND, which the controls treat as 'not supported'. On
+    AC 1.4 this is a poll: it does not refresh the board's watchdog."""
     return _frame(ACCEL_READ_CMD)
+
+
+def accel_keepalive() -> bytes:
+    """AC 1.4 only: '0x04;OK;<duty hex>;<timeouts hex>'. With the duty
+    frame, the only line that refreshes the throttle board's watchdog."""
+    return _frame(ACCEL_KEEPALIVE_CMD)
 
 
 def accel_info() -> bytes:
@@ -221,6 +239,32 @@ def accel_version(data: str) -> str | None:
     if len(data) != 6 or data[:2].upper() != "AC" or not data[2:].isdigit():
         return None
     return "%d.%d" % (int(data[2:4]), int(data[4:6]))
+
+
+def version_tuple(version: str | None) -> tuple[int, ...] | None:
+    """'4.1.6' -> (4, 1, 6), '1.4' -> (1, 4); None when it is not a version."""
+    if not version:
+        return None
+    try:
+        return tuple(int(x) for x in version.split("."))
+    except ValueError:
+        return None
+
+
+def status_field(status_raw: str | None, name: str) -> int | None:
+    """One field of a 4.1.5-or-later STATUS reply, 'A=00,ST=00,...,WI=00,
+    CT=00,WD=00', as an int; None when the field is absent or unreadable
+    (4.1.3 answered an undocumented 'D0N1')."""
+    if not status_raw:
+        return None
+    for part in status_raw.split(","):
+        key, sep, value = part.strip().partition("=")
+        if sep and key == name:
+            try:
+                return int(value, 16)
+            except ValueError:
+                return None
+    return None
 
 
 def _hex_word(text: str) -> int | None:

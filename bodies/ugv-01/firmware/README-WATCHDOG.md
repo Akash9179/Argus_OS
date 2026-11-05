@@ -1,4 +1,4 @@
-# The silence watchdogs for ugv-01's two boards (14 Oct 2026)
+# The silence watchdogs for ugv-01's two boards (14 Oct 2026; authority narrowed 15 Oct)
 
 Why: on 13 Oct, with the throttle at 20 percent and the computer silent
 for 15 s, the wheels kept turning (BENCH-RESULTS-2026-10-13.md, Phase E).
@@ -12,14 +12,84 @@ Two things worth knowing before the test. First, the boards take their
 power from the Jetson's USB, so pulling the cable or powering the
 Jetson off stops the throttle by cutting power (Gulshan, 14 Oct). The
 watchdog covers the other case, the one measured on 13 Oct: Jetson on,
-cable in, program silent. Second, on the drive module any accepted
-command refreshes the silence timer, including angle polls, so a host
-that keeps polling while its command logic is stuck would keep a
-steering move alive; the ARGUS controls' own heartbeat rule covers
-that case on the host side. The drive module's `allOff()` does not
+cable in, program silent. Second, on the drive module 4.1.5 any
+accepted command refreshes the silence timer, including angle polls, so
+a host that keeps polling while its command logic is stuck would keep a
+steering move alive; 4.1.6 and AC 1.4 close that (the authority section
+below), and the ARGUS controls' own heartbeat rule covers it on the host
+side. The drive module's `allOff()` does not
 touch its own throttle output (pin 4), which the 13 Oct inventory
 believes is unwired since throttle moved to the Nano; confirm on the
 wiring photos before relying on it.
+
+## Watchdog authority (15 Oct 2026): drive module 4.1.6, throttle board AC 1.4
+
+On the vehicle on 15 Oct both watchdogs tripped on true silence. They
+could not trip on a half-dead host: in 4.1.5 and AC 1.3 any accepted
+line refreshes the timer, so a host whose command logic has died but
+whose poller lives (angle polls, STATUS, the read-back) keeps a move
+alive for as long as it polls. Codex Astra called that a blocker on the
+plan's review; this change removes it on both boards.
+
+- **Drive module 4.1.6** (`esp32_drive_4.1.6_src/`, patch
+  `esp32_drive_watchdog/esp32_4.1.6_watchdog.patch`): only the OK reply
+  of a motion command (`0x05`, `0x06`, `0x12`, `0x13`, `0x14`) or the new
+  **`0x15` keepalive** refreshes the silence watchdog. INFO, the angle
+  reads, STATUS and the limit reads answer as before and refresh
+  nothing. `0x15` takes no argument and answers `0x15;OK;<trip count>`,
+  the same number STATUS reports as `WD`; while tripped it still
+  answers, and only an explicit stop clears the trip. `0x02` (this
+  module's own PWM, believed unwired) is outside the watchdog and does
+  not refresh it. `0x01` answers `040106`. Timeouts, the feedback rule,
+  the refusals while latched and the parser are 4.1.5's, unchanged.
+- **Throttle board AC 1.4** (`nano_throttle_AC0104/`): only a duty frame
+  (`0x02;<hex>`) or the new **`0x04` keepalive** refreshes the watchdog.
+  `0x01` and the `0x03` read-back are polls. `0x04` answers
+  `0x04;OK;<duty>;<timeouts>`, the read-back's data, so a host can keep
+  the throttle alive and check what the board holds in one frame. The
+  keepalive does not clear the latch; `0x02;00` does. `0x01` answers
+  `AC0104`. Tested on a laptop:
+  `cd nano_throttle_AC0104/test && clang++ -std=c++17 -I.. test_throttle_logic.cpp -o /tmp/tl14 && /tmp/tl14`.
+- **Host (the ARGUS controls)**: motion is armed only when the drive
+  module answers 4.1.6 or later, the throttle board AC 1.4 or later, and
+  STATUS says `WI=00`. Older boards start, identify and answer reads so
+  the bench can look at them; every move (steer, brake apply or release,
+  throttle above zero, steer_to) is refused with the reason, and no
+  keepalive is sent to a board that does not know the opcode. Wi-Fi
+  coming on later in a session is a fault. While an actuator is
+  commanded on the controls send `0x15` at least every 250 ms, but only
+  while their own heartbeat (fed by the command path above) is live;
+  when the heartbeat dies the controls stop first and the keepalive
+  stops with it. The one exception is the brake apply the stop itself
+  sends when `brake_on_stop` is set: that move is kept alive for at most
+  `brake_stroke_max_s` (2.0 s; the stroke measured 1.3 s on 15 Oct), then
+  halted where it is. With the throttle on, the keepalive to the Nano is
+  `0x04`; at rest the liveness probe is the `0x03` poll, so a dead command
+  path with a live tick thread keeps nothing on. A rising trip count in
+  STATUS or in the keepalive reply that no WD line announced is a fault.
+- **Simulator and runner**: `bench-logs/2026-10-14/simboards.py` has
+  `Drive416` and `Nano14` (default; `--fw old` gives 4.1.5 and AC 1.3),
+  unit-tested in `tests/test_ugv01_simboards.py`. The runner gained
+  `poll_only_silence:DIR:MS`: steering moves, then the host polls angles
+  and STATUS every 50 ms with no heartbeat, no tick and no keepalive,
+  and the board must print `WD;TIMEOUT` on its own. The firmware's
+  nominal timeout is 800 ms; the runner's acceptance bound is 1000 ms
+  from the OK to the WD line as the host sees them (its loop and the
+  serial path add latency), and it fails on any `0x15` the host sent
+  in the window. On the simulator the line comes 807 ms after the OK
+  with 43 polls in between, and the host faults exactly once. This is a
+  host-observed bound, not a measured physical stop; the trace on the
+  relay coils is the proof. The same sequence against `--fw old`
+  is refused at the first move: `not armed: drive module firmware 4.1.5
+  is older than 4.1.6`.
+- **Not done**: nothing flashed, nothing on the vehicle. Flashing waits
+  for a session with a person at the jeep; the done-criterion from the
+  plan is that a host whose command thread is killed while its poller
+  runs produces a trip within the deadline on the bench, by the trace.
+  The team's own ROS 2 stack cannot drive the jeep through 4.1.6 or AC
+  1.4 without sending motion or keepalive frames inside 800 ms (founder
+  decision 4 in the plan). The firmware does not apply the brake on a
+  trip (founder decision 5, open).
 
 ## Throttle board (Arduino Nano), firmware AC 1.2 to AC 1.3
 
@@ -92,17 +162,22 @@ What changes:
 ## How ARGUS uses them
 
 The ARGUS controls send a keepalive at least every 250 ms while the
-throttle is on or an actuator moves (the read-back `0x03` on AC 1.3,
-INFO on older boards), treat `0x02;ERR;TIMEOUT`, `0x00;WD;TIMEOUT` and
-`0x00;WD;NO_SIGNAL` as faults, stop without re-energising the brake when
-a board reports its own trip, and clear the throttle latch with an
-explicit zero. A rising timeout count or a duty the board holds that
-differs from what was acknowledged is also a fault.
+throttle is on or an actuator moves (`0x04` and `0x15` on AC 1.4 and
+4.1.6, the only versions they arm; see the authority section above),
+treat `0x02;ERR;TIMEOUT`, `0x00;WD;TIMEOUT` and `0x00;WD;NO_SIGNAL` as
+faults, stop without re-energising the brake when a board reports its
+own trip, and clear the throttle latch with an explicit zero. A rising
+timeout count or a duty the board holds that differs from what was
+acknowledged is also a fault.
 
 - Feedback, refined after review: a reading is trusted only while it
   answers and moves plausibly; a jump of more than 30 degrees between
-  two 50 ms samples counts as no signal, so one valid-looking sample
-  after a dropout does not restore trust.
+  two 50 ms samples counts as no signal for that loop. Known gap
+  (Codex Astra, 15 Oct 2026, kept in 4.1.6 unchanged): the jump drops
+  the last good sample, so the very next valid-looking sample is
+  trusted again, cached or fresh. One plausible sample after a dropout
+  restores trust; only a dropout longer than WD_NO_SIGNAL_MS trips. The
+  host's single-miss rule is the stricter one and stays.
 - Command admission is strict: an opcode must be one byte with nothing
   glued to it (`0x105 01` is refused, not read as `0x05 01`), an argument
   must be one byte with nothing after it (`0x05 00junk` is refused and

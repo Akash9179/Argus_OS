@@ -47,8 +47,8 @@ def test_start_opens_the_boards_and_reports_identity(rig):
     driver.start()
     info = driver.info()
     assert info.kind == "locomotion" and info.name == "ugv01_locomotion"
-    assert info.settings["drive_firmware"] == "4.1.3"
-    assert info.settings["accel_firmware"] == "1.2"
+    assert info.settings["drive_firmware"] == "4.1.6"
+    assert info.settings["accel_firmware"] == "1.4"
     assert info.settings["calibrated"] == "no"
     assert info.settings["goto"] == "unsupported" and info.settings["pose"] == "unsupported"
     assert driver.health().healthy is True

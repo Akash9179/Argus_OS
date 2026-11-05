@@ -33,6 +33,28 @@ from .contract import Command, Telemetry
 from .vehicle import VehicleAdapter
 from pilot.hal.drivers.ugv01.controls import Refused
 
+# Operator wording for the arming check (law 5: plain sentences, data not
+# logic). The engineer-grade reason stays in the controls snapshot for the
+# bench and the session log.
+ARMED_WORDS = {
+    "ok": "ready to drive: both boards run the software that stops on their own",
+    "firmware": "cannot drive: a board needs the required safety software update",
+    "wifi": "cannot drive: the steering and brake controller's radio is on",
+    "unknown": "cannot drive: the boards have not been checked yet",
+}
+
+
+def _armed_words(armed: dict) -> str:
+    if armed.get("ok"):
+        return ARMED_WORDS["ok"]
+    reason = (armed.get("reason") or "").lower()
+    if "wi-fi" in reason or "wi field" in reason:
+        return ARMED_WORDS["wifi"]
+    if "firmware" in reason:
+        return ARMED_WORDS["firmware"]
+    return ARMED_WORDS["unknown"]
+
+
 STEER_DEADBAND = 0.3
 _GEAR_TO_BOARD = {"F": "D", "N": "N", "R": "R"}
 _GEAR_FROM_BOARD = {"D": "F", "N": "N", "R": "R"}
@@ -143,6 +165,7 @@ class Ugv01Vehicle(VehicleAdapter):
             return {"name": name, "ok": bool(ok), "detail": detail}
         d, a = s["drive"], s["accel"]
         steer, brake = s["steer"], s["brake"]
+        armed = s.get("armed") or {}
         return [
             check("drive_board", d["connected"] and d["answering"] and d["firmware"],
                   "steering and brake controller answering, software %s" % d["firmware"]
@@ -156,6 +179,7 @@ class Ugv01Vehicle(VehicleAdapter):
             check("brake_feedback", brake["angle_deg"] is not None,
                   "brake reads %s degrees" % brake["angle_deg"]),
             check("faults", not s["faults"], "; ".join(s["faults"]) or "no faults"),
+            check("armed", armed.get("ok", False), _armed_words(armed)),
             check("stop_on_link_loss", False,
                   "not proven: the vehicle has not shown it stops when the link is lost"),
         ]

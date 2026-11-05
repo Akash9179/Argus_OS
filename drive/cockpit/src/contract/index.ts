@@ -75,6 +75,8 @@ export interface PreflightState {
   ran: boolean
   pass: boolean
   checks: PreflightCheck[]
+  /** Checks the bridge let arming through while they fail (the bench waiver). */
+  waived?: string[]
 }
 
 export const noPreflight = (): PreflightState => ({ ran: false, pass: false, checks: [] })

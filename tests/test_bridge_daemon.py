@@ -1117,3 +1117,140 @@ def test_a_frame_that_may_not_drive_still_carries_the_brake():
     import inspect
     src = inspect.getsource(BridgeDaemon._handle)
     assert "brake=cmd.brake" in src
+
+
+# ------------------------------------------- bench waiver, 5 Nov 2026: joystick on the jack
+
+class _UnprovenStopVehicle(MockVehicle):
+    """A vehicle whose self-test fails only the link-loss check, as ugv-01's does."""
+    def __init__(self, other_ok=True):
+        super().__init__()
+        self._other_ok = other_ok
+
+    def self_test(self):
+        return [
+            {"name": "drive_board", "ok": self._other_ok, "detail": "4.1.6"},
+            {"name": "stop_on_link_loss", "ok": False, "detail": "not proven"},
+        ]
+
+
+class _Sess:
+    session = "test"
+
+
+def _preflight(vehicle, tmp_path, waive=()):
+    d = BridgeDaemon(vehicle, operators=two_operators(), host="127.0.0.1", port=0,
+                     log_path=tmp_path / "sessions.jsonl", waive=waive)
+    d._run_preflight(_Sess())
+    return d
+
+
+def test_without_a_waiver_an_unproven_link_loss_check_blocks_arming(tmp_path):
+    d = _preflight(_UnprovenStopVehicle(), tmp_path)
+    assert d.preflight["pass"] is False
+    assert d.preflight.get("waived", []) == []
+
+
+def test_the_bench_waiver_lets_only_that_check_through_and_keeps_it_visible(tmp_path):
+    d = _preflight(_UnprovenStopVehicle(), tmp_path, waive=("stop_on_link_loss",))
+    assert d.preflight["pass"] is True
+    assert d.preflight["waived"] == ["stop_on_link_loss"]
+    row = [c for c in d.preflight["checks"] if c["name"] == "stop_on_link_loss"][0]
+    assert row["ok"] is False and row["waived"] is True
+    assert "Not proven" in row["label"] and "waived" in row["label"]
+    ev = [e for e in read_events(d.log.path) if e["event"] == "preflight"][-1]
+    assert ev["pass"] is True and ev["waived"] == ["stop_on_link_loss"]
+    assert ev["failed"] == ["stop_on_link_loss"]
+
+
+def test_the_waiver_never_covers_any_other_failing_check(tmp_path):
+    d = _preflight(_UnprovenStopVehicle(other_ok=False), tmp_path, waive=("stop_on_link_loss",))
+    assert d.preflight["pass"] is False
+
+
+def test_only_the_link_loss_check_can_be_waived(tmp_path):
+    with pytest.raises(ValueError):
+        _preflight(_UnprovenStopVehicle(), tmp_path, waive=("drive_board",))
+
+
+# ------------------------------------------- Codex Astra on the waiver, 5 Nov 2026
+
+class _TogglingVehicle(MockVehicle):
+    """Self-test verdicts the test can change after preflight; counts stops."""
+    def __init__(self):
+        super().__init__()
+        self.board_ok = True
+        self.stops = 0
+
+    def self_test(self):
+        return [
+            {"name": "drive_board", "ok": self.board_ok, "detail": "4.1.6"},
+            {"name": "stop_on_link_loss", "ok": False, "detail": "not proven"},
+        ]
+
+    def safe_stop(self):
+        self.stops += 1
+        super().safe_stop()
+
+
+def _direct(vehicle, tmp_path, timeout_s=0.7):
+    """A daemon driven frame by frame, no sockets, no tick thread."""
+    from bridge.daemon import _Client
+    from bridge.identity import Operator
+    d = BridgeDaemon(vehicle, operators=two_operators(), host="127.0.0.1", port=0,
+                     watchdog_timeout_s=timeout_s, log_path=tmp_path / "s.jsonl",
+                     waive=("stop_on_link_loss",))
+    c = _Client(None, ("test", 0), Operator("op-1", "Op"))
+    d._driver = c
+    return d, c
+
+
+def _arm(d, c):
+    d._handle(c, drive_frame(arm=False))          # ignition on: preflight runs
+    d._handle(c, drive_frame(arm=True))           # the press
+    return d.watchdog.state
+
+
+def test_a_check_that_fails_after_preflight_blocks_the_next_arm(tmp_path):
+    """Codex blocker 1: readiness was the verdict cached at ignition-on."""
+    v = _TogglingVehicle()
+    d, c = _direct(v, tmp_path)
+    d._handle(c, drive_frame(arm=False))
+    assert d.preflight["pass"] is True
+    v.board_ok = False
+    d._handle(c, drive_frame(arm=True))
+    assert d.watchdog.state != "DRIVING"
+    assert d.preflight["pass"] is False
+
+
+def test_readiness_withdrawn_while_driving_stops_the_vehicle(tmp_path):
+    v = _TogglingVehicle()
+    d, c = _direct(v, tmp_path)
+    assert _arm(d, c) == "DRIVING"
+    v.board_ok = False
+    d._handle(c, drive_frame(arm=True, throttle=0.2))
+    assert d.watchdog.state != "DRIVING"
+    assert v.stops >= 1
+
+
+def test_a_late_frame_that_latches_calls_the_vehicle_stop(tmp_path):
+    """Codex blocker 2: a stall detected on a late command frame latched
+    without safe_stop when it beat the tick thread to it."""
+    v = _TogglingVehicle()
+    d, c = _direct(v, tmp_path, timeout_s=0.1)
+    assert _arm(d, c) == "DRIVING"
+    time.sleep(0.2)                                # late, and no tick ran
+    d._handle(c, drive_frame(arm=True, throttle=0.2))
+    assert d.watchdog.state == "LATCHED"
+    assert v.stops == 1
+
+
+def test_the_waiver_is_logged_when_the_daemon_starts(tmp_path):
+    """Codex should-fix 5: the record must not depend on the command line."""
+    d, _ = _direct(_TogglingVehicle(), tmp_path)
+    d.start()
+    try:
+        ev = [e for e in read_events(d.log.path) if e["event"] == "bench_waiver"]
+        assert ev and ev[0]["waived"] == ["stop_on_link_loss"]
+    finally:
+        d.stop()

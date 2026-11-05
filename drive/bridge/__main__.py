@@ -59,6 +59,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-duty", type=_duty, default=20,
                     help="ugv01: throttle cap in percent (default 20, walking pace on the "
                          "jack; the hardware limit is 90). Raise it only on purpose.")
+    ap.add_argument("--bench-on-jack", action="store_true",
+                    help="ugv01 only: let the vehicle arm while 'stop on link loss' is "
+                         "unproven. For joystick control with the drive wheels on a jack "
+                         "and a person at the key; never on the ground. Logged.")
     ap.add_argument("--watchdog-ms", type=int, default=700)
     ap.add_argument("--operators", default=os.environ.get(
         "ARGUS_OPERATORS", "var/bridge_operators.json"),
@@ -83,9 +87,16 @@ def controls_kwargs(args: argparse.Namespace) -> dict:
     return {"steer_sense": args.steer_sense, "max_duty": args.max_duty}
 
 
+def waived_checks(args: argparse.Namespace) -> tuple[str, ...]:
+    """The preflight checks this run may arm through (the bench waiver)."""
+    return ("stop_on_link_loss",) if args.bench_on_jack else ()
+
+
 def main() -> int:
     ap = build_parser()
     args = ap.parse_args()
+    if args.bench_on_jack and args.vehicle != "ugv01":
+        ap.error("--bench-on-jack is for the real vehicle on a jack (--vehicle ugv01)")
 
     if os.environ.get("ARGUS_PASSWORD"):
         # Said out loud rather than silently ignored: someone following an
@@ -124,8 +135,13 @@ def main() -> int:
     daemon = BridgeDaemon(
         vehicle, operators, host=args.host, port=args.port,
         watchdog_timeout_s=args.watchdog_ms / 1000.0, log_path=args.log,
-        name=args.name,
+        name=args.name, waive=waived_checks(args),
     )
+    if args.bench_on_jack:
+        print("BENCH WAIVER: the vehicle may arm while 'stop on link loss' is unproven. "
+              "Drive wheels on the jack, a person at the key. Never on the ground.",
+              file=sys.stderr)
+        daemon.log.event("throttle_cap", max_duty=args.max_duty)
     daemon.start()
     reporter = None
     if args.report:

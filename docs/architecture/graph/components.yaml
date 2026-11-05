@@ -260,10 +260,11 @@ components:
     role: Vehicle-side WebSocket daemon; auth, watchdog state machine, VehicleAdapter (mock, and the ugv01 shim over edge.hal.ugv01), optional LINK reporter
     status: software_verified
     disposition: refactor
-    tests: [tests/test_bridge_daemon.py, tests/test_ugv01_bridge_adapter.py, tests/test_contract_brake.py]
+    tests: [tests/test_bridge_daemon.py, tests/test_ugv01_bridge_adapter.py, tests/test_contract_brake.py, tests/test_bridge_cli.py]
     known_gaps:
       - Own JSON wire contract and own vehicle abstraction, parallel to the HAL
-      - The ugv01 adapter's self-test keeps stop_on_link_loss false, so the daemon cannot arm on the real vehicle until the section 6 gate is proven (13 Oct 2026)
+      - The ugv01 adapter's self-test keeps stop_on_link_loss false, so the daemon cannot arm on the real vehicle until the section 6 gate is proven (13 Oct 2026). Since 5 Nov 2026 the founder's bench waiver (--bench-on-jack, ugv01 only) lets that one check fail and still arm, for joystick control with the drive wheels on a jack; every other check still blocks, the row stays failed and marked waived, the daemon logs the waiver at start. Not for the ground
+      - Controls faults and command refusals reach the session log only through the self-test turning false; refusals stay in the adapter's last_refusal and telemetry carries no fault list or stop acknowledgement (Codex Astra, 5 Nov 2026, should-fix, open)
       - Telemetry the boards cannot supply (speed, battery, heading, temperature) is sent as zero because the contract has no unknown; the cockpit must learn an unknown before this drives a real HUD
     notes: Convergence direction (ADR-0009) makes its VehicleAdapter a shim over the HAL locomotion driver so exactly one process owns the hardware. Do not build the real MCU adapter twice. 18 Aug 2026, the software half of ADR-0009 point 4 landed, per-operator tokens (drive/bridge/identity.py) and an append-only session log (drive/bridge/session_log.py) from which a session is reconstructed in CI; the old relay (argus_relay.py) still runs on the shared password and retires at convergence.
 

@@ -60,7 +60,7 @@ describe('a lost link', () => {
     // Only what this cockpit can stand behind: it sends no arm until the operator presses ARM.
     expect(
       screen.getByText(
-        'Bench mock stops itself after 700 ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.',
+        'Bench mock is told to stop after 700 ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.',
       ),
     ).toBeTruthy()
     expect(screen.queryByText(/stays stopped/)).toBeNull()
@@ -78,7 +78,7 @@ describe('a lost link', () => {
     link.current = { ...lost(facts), status: 'open', session: facts }
     useVehicleStore.getState().setRemote(true)
     render(<CockpitScreen />)
-    expect(screen.getByText(/Bench mock stops itself after 700 ms/)).toBeTruthy()
+    expect(screen.getByText(/Bench mock is told to stop after 700 ms/)).toBeTruthy()
     expect(screen.queryByText(/Last reported/)).toBeNull()
     expect(screen.queryByText('LINK LOST')).toBeNull()
   })
@@ -181,5 +181,26 @@ describe('sign-out from C2', () => {
     act(() => parentSignsOut())
     expect(getDriveKey()).toBeNull()
     expect(link.password).toBeNull()
+  })
+})
+
+describe('a bench waiver', () => {
+  it('never shows a waived self-test as a plain pass', () => {
+    link.current = { ...lost(facts), status: 'open', session: facts }
+    const st = useVehicleStore.getState()
+    st.setRemote(true)
+    st.applyPreflight({
+      ran: true,
+      pass: true,
+      waived: ['stop_on_link_loss'],
+      checks: [
+        { name: 'drive_board', ok: true, label: 'Steering and brake controller answers' },
+        { name: 'stop_on_link_loss', ok: false, label: 'Not proven to stop when the link is lost (waived for the bench: vehicle on the jack)' },
+      ],
+    } as never)
+    render(<CockpitScreen />)
+    const pill = screen.getByText('1 of 2 passed, 1 waived for the bench')
+    expect(pill.className).toContain('is-act')
+    expect(screen.getByText(/Bench waiver: arming is allowed with the drive wheels on a jack/)).toBeTruthy()
   })
 })

@@ -59,6 +59,8 @@ const say = {
   local: 'Local simulation',
   beforeYouDrive: 'Before you drive',
   passed: (ok: number, n: number) => `${ok} of ${n} passed`,
+  passedWaived: (ok: number, n: number, w: number) => `${ok} of ${n} passed, ${w} waived for the bench`,
+  waiverLine: 'Bench waiver: arming is allowed with the drive wheels on a jack. Not for driving on the ground.',
   notRun: 'Not run yet',
   notRunLine: 'Runs every time ignition comes on. Turn the ignition on to run it.',
   selfTestLine: 'Runs every time ignition comes on. Arming is refused until all pass.',
@@ -75,7 +77,7 @@ const say = {
   recOff: 'Off',
   ifLinkDrops: 'If the link drops',
   linkDropLine: (name: string, ms: number) =>
-    `${name} stops itself after ${ms} ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.`,
+    `${name} is told to stop after ${ms} ms of silence. When the link returns, this cockpit sends no arm until you press ARM again.`,
   linkDropUnknown: 'The vehicle has not said what it does on link loss. Nothing is assumed.',
   lastReported: (t: string) => `Last reported at ${t}.`,
   frontCamera: 'Front camera',
@@ -345,12 +347,17 @@ function SelfTestCard({ preflight, remote }: { preflight: PreflightState; remote
   const ok = preflight.checks.filter((c) => c.ok).length
   const n = preflight.checks.length
   const ran = remote && preflight.ran
+  const waived = preflight.waived?.length ?? 0
+  const clean = preflight.pass && waived === 0
   return (
     <div className="card pad">
       <div className="row">
         <span className="h">{say.beforeYouDrive}</span>
-        <span className={`pill right is-${!ran ? 'off' : preflight.pass ? 'ok' : 'act'}`}>{ran ? say.passed(ok, n) : say.notRun}</span>
+        <span className={`pill right is-${!ran ? 'off' : clean ? 'ok' : 'act'}`}>
+          {!ran ? say.notRun : waived ? say.passedWaived(ok, n, waived) : say.passed(ok, n)}
+        </span>
       </div>
+      {ran && waived > 0 && <div className="chk"><span>{say.waiverLine}</span></div>}
       {ran &&
         preflight.checks.map((check) => (
           <div key={check.name} className="chk">

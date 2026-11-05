@@ -72,7 +72,15 @@ class BridgeDaemon:
         auth_max_failures: int = 5,
         auth_window_s: float = 60.0,
         name: str | None = None,
+        waive: tuple[str, ...] = (),
     ) -> None:
+        bad = set(waive) - self.WAIVABLE
+        if bad:
+            raise ValueError("only %s can be waived, not %s" % (sorted(self.WAIVABLE), sorted(bad)))
+        # Bench waiver (5 Nov 2026, founder's decision at the jeep, vehicle on
+        # the jack): these checks may fail and still let the vehicle arm. They
+        # stay in the preflight as failed, marked waived, and the log says so.
+        self.waive = tuple(waive)
         if len(operators) == 0:
             raise ValueError(
                 "at least one operator token is required; see the operators file"
@@ -110,6 +118,8 @@ class BridgeDaemon:
     def start(self) -> None:
         self._server = socket.create_server((self.host, self.port))
         self.log.event("daemon_start", vehicle=type(self.vehicle).__name__)
+        if self.waive:
+            self.log.event("bench_waiver", waived=list(self.waive))
         threading.Thread(target=self._accept_loop, daemon=True).start()
         threading.Thread(target=self._tick_loop, daemon=True).start()
 
@@ -253,8 +263,10 @@ class BridgeDaemon:
         self._ignition_was_on = cmd.ignition
         # the green light gates arming; nothing arms on a failed or absent
         # self-test. The watchdog takes the edge on the raw arm bit, so the
-        # green light arriving under a held arm is not a press.
-        ready = self.preflight["pass"]
+        # green light arriving under a held arm is not a press. The verdict
+        # is taken fresh on every frame (Codex, 5 Nov 2026): one cached at
+        # ignition-on let a check that failed later through to the next arm.
+        ready = self._ready_now(client)
         effective_arm = cmd.arm and ready
         with self._wd_lock:
             before = self.watchdog.state
@@ -264,10 +276,23 @@ class BridgeDaemon:
                 # A stall is safety-relevant in every state, latch or not:
                 # the frames that follow it are a drain and cannot arm.
                 self.log.event("stall", session=client.session, state=before)
+            withdrawn = before == "DRIVING" and not ready
             if self.watchdog.state == "DRIVING" and not effective_arm:
                 self.watchdog.disarm()
                 may_drive = False
+            latched_here = (before != "LATCHED" and self.watchdog.state == "LATCHED"
+                            and not cmd.estop)
             self._log_transition(client, before, self.watchdog.state, cmd.estop, stalled)
+            if withdrawn:
+                self.log.event("readiness_withdrawn", session=client.session,
+                               failed=[c["name"] for c in self.preflight["checks"] if not c["ok"]])
+        if latched_here or withdrawn:
+            # A latch found on a command frame stops the vehicle here, exactly
+            # as the tick thread's would (Codex, 5 Nov 2026: a late frame that
+            # beat the tick to the stall latched with no stop at all). The
+            # frame itself is not applied.
+            self.vehicle.safe_stop()
+            return
         if not may_drive:
             # state controls (ignition, lights, gear) still apply; motion does not
             cmd = Command(
@@ -346,17 +371,48 @@ class BridgeDaemon:
                 self._broadcast_telemetry()
             time.sleep(dt)
 
+    def _ready_now(self, client: _Client) -> bool:
+        """The self-test verdict as of this frame. Nothing is ready before a
+        preflight has run since ignition-on. A verdict that changed is
+        published and logged like a fresh preflight."""
+        if not self.preflight.get("ran"):
+            return False
+        checks = self.vehicle.self_test()
+        waived = [c["name"] for c in checks if not c["ok"] and c["name"] in self.waive]
+        ok = all(c["ok"] or c["name"] in waived for c in checks)
+        if ok != self.preflight["pass"]:
+            self.preflight = {
+                "ran": True,
+                "pass": ok,
+                "checks": [self._check_in_words(c, c["name"] in waived) for c in checks],
+                "waived": waived,
+            }
+            self.log.event(
+                "preflight", session=client.session, **{"pass": ok},
+                failed=[c["name"] for c in checks if not c["ok"]], waived=waived,
+                changed=True,
+            )
+            self._broadcast_preflight()
+        return ok
+
+    # The only check a bench waiver may cover: everything else on the list
+    # is about the vehicle answering and reading true, and is never waived.
+    WAIVABLE = frozenset({"stop_on_link_loss"})
+
     def _run_preflight(self, client: _Client) -> None:
         checks = self.vehicle.self_test()
+        waived = [c["name"] for c in checks if not c["ok"] and c["name"] in self.waive]
         self.preflight = {
             "ran": True,
-            "pass": all(c["ok"] for c in checks),
-            "checks": [self._check_in_words(c) for c in checks],
+            "pass": all(c["ok"] or c["name"] in waived for c in checks),
+            "checks": [self._check_in_words(c, c["name"] in waived) for c in checks],
+            "waived": waived,
         }
         self.log.event(
             "preflight", session=client.session,
             **{"pass": self.preflight["pass"]},
             failed=[c["name"] for c in checks if not c["ok"]],
+            waived=waived,
         )
         self._broadcast_preflight()
 
@@ -380,11 +436,16 @@ class BridgeDaemon:
         "stop_on_link_loss": ("Stops when the link is lost", "Not proven to stop when the link is lost"),
     }
 
-    def _check_in_words(self, check: dict) -> dict:
+    WAIVED_WORDS = "waived for the bench: vehicle on the jack"
+
+    def _check_in_words(self, check: dict, waived: bool = False) -> dict:
         ok_words, bad_words = self.CHECK_WORDS.get(
             check["name"], (check["name"].replace("_", " ").capitalize(),) * 2
         )
-        return {**check, "label": ok_words if check["ok"] else bad_words}
+        label = ok_words if check["ok"] else bad_words
+        if waived:
+            return {**check, "label": "%s (%s)" % (label, self.WAIVED_WORDS), "waived": True}
+        return {**check, "label": label}
 
     def _broadcast_preflight(self) -> None:
         msg = {"t": "preflight", **self.preflight}

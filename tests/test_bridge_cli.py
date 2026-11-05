@@ -29,3 +29,10 @@ def test_steer_sense_reaches_the_controls():
     args = build_parser().parse_args(["--steer-sense", "left_increases"])
     assert controls_kwargs(args)["steer_sense"] == "left_increases"
 
+
+
+def test_the_bench_waiver_is_off_unless_asked_for():
+    from bridge.__main__ import waived_checks
+    assert waived_checks(build_parser().parse_args([])) == ()
+    args = build_parser().parse_args(["--vehicle", "ugv01", "--bench-on-jack"])
+    assert waived_checks(args) == ("stop_on_link_loss",)

@@ -66,3 +66,34 @@ from the vendor tree exactly (checked 15 Oct).
 Nothing was flashed. The flash session rebuilds on the Jetson with
 `build.sh` (all six images there, about a minute after the first time)
 and records the hashes it flashes in that day's bench record.
+
+## 5 Nov 2026, Jetson (tessy), rebuild from `aa53341`, and the first flash of the authority images
+
+All six images rebuilt by `build.sh` on the Jetson in about a minute
+(tools already installed). Log: `bench-logs/2026-11-05/build-sh.log`.
+
+| image | SHA-256 |
+|---|---|
+| drive module 4.1.4 | `98490929d45efe424d7114400f3378a57e52f1eff9c6ef938c032dc5264a8f1f` |
+| drive module 4.1.5 | `1932f70856717914eb2010f7c642c9795fd48f7cd5936225a5bc87cdd51804f9` |
+| drive module 4.1.6 | `ca77e4735ad2e09139998e3eb7d79e2ab1e3323ba019e197dcb92991a1125963` |
+| throttle Nano AC 1.2 | `78f465a178b4afd398ef935813f66ed21de680dbe88390a047df5b7d737f32dc` |
+| throttle Nano AC 1.3 | `da0f82b24e10afd0fb9d2f5865e842e64fdfbdd03c95e62642330a83cf668fe5` |
+| throttle Nano AC 1.4 | `d010c49b0457ee35cc57c288add1be4dde9767206f3b816bfdd3c7311e0a285f` |
+
+The Nano hex files for AC 1.2 and AC 1.3 match 15 Oct byte for byte.
+The ESP32 images differ from every earlier build, as expected (see
+above: an ESP32 hash identifies a build, not a tree). AC 1.4 was built
+for the first time here; the Mac cannot build AVR images.
+
+**Flashed, 5 Nov 2026, founder at the jeep pasting each command:**
+- Drive module 4.1.6, image `ca77e473...`, over `/dev/ttyUSB0` (CH340)
+  at 460800 baud. The first attempt stopped at 17 percent with "chip
+  stopped responding": the team's ROS node `serial_control/cmd` held
+  both ports throughout. The team's stack was stopped and the second
+  attempt wrote all four regions with every hash verified.
+- Throttle Nano AC 1.4, image `d010c49b...`, over `/dev/ttyUSB1` (FTDI)
+  with `--fqbn arduino:avr:nano` (new bootloader; the old-bootloader
+  variant was not needed).
+- Identity read straight after: drive `040106`, accelerator AC 1.4,
+  STATUS `WI=00,WD=00` (`bench-logs/2026-11-05/identity.jsonl`).

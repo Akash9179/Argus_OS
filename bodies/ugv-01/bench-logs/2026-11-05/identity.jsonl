@@ -1,0 +1,85 @@
+{"ts": 1793876563.8183792, "kind": "started", "args": {"drive": "/dev/ttyUSB0", "accel": "/dev/ttyUSB1", "log": "bodies/ugv-01/bench-logs/2026-11-05/identity.jsonl", "max_duty": 30, "steer_sense": "left_increases", "brake_on_stop": false, "max_angle_step": 30.0, "steps": ["snap", "status", "readback"]}}
+{"ts": 1793876564.3323026, "kind": "tx", "link": "drive", "frame": "0x01"}
+{"ts": 1793876564.3368816, "kind": "rx", "link": "drive", "line": "0x01;OK;040106"}
+{"ts": 1793876564.343875, "kind": "tx", "link": "drive", "frame": "0x16"}
+{"ts": 1793876564.3530145, "kind": "rx", "link": "drive", "line": "0x16;OK;A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00"}
+{"ts": 1793876564.3553243, "kind": "tx", "link": "drive", "frame": "0x10"}
+{"ts": 1793876564.359898, "kind": "rx", "link": "drive", "line": "0x10;OK;029E097E"}
+{"ts": 1793876564.3667521, "kind": "tx", "link": "drive", "frame": "0x0F"}
+{"ts": 1793876564.371353, "kind": "rx", "link": "drive", "line": "0x0F;OK;02BC06A4"}
+{"ts": 1793876564.3782034, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876564.382215, "kind": "rx", "link": "drive", "line": "0x04;OK;064C"}
+{"ts": 1793876564.389685, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876564.393885, "kind": "rx", "link": "drive", "line": "0x03;OK;06D0"}
+{"ts": 1793876566.9144504, "kind": "tx", "link": "accel", "frame": "0x02;00"}
+{"ts": 1793876566.9164512, "kind": "rx", "link": "accel", "line": "0x02;OK;00"}
+{"ts": 1793876566.9263198, "kind": "tx", "link": "accel", "frame": "0x01"}
+{"ts": 1793876566.9283986, "kind": "rx", "link": "accel", "line": "0x01;OK;AC0104"}
+{"ts": 1793876566.9384718, "kind": "open", "snapshot": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 2.544, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": null, "timeouts": null, "read_back": true, "last_reply_age_s": 0.01}, "steer": {"angle_deg": 161.2, "angle_age_s": 2.556, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.4, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876566.9405794, "kind": "step", "step": "snap", "before": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 2.547, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": null, "timeouts": null, "read_back": true, "last_reply_age_s": 0.012}, "steer": {"angle_deg": 161.2, "angle_age_s": 2.558, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.4, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876567.141336, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876567.1416163, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876567.1469328, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876567.1472034, "kind": "rx", "link": "drive", "line": "0x03;OK;06DB"}
+{"ts": 1793876567.1920035, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876567.1941583, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876567.3427517, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876567.3430474, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876567.3482218, "kind": "rx", "link": "drive", "line": "0x04;OK;064C"}
+{"ts": 1793876567.3484857, "kind": "rx", "link": "drive", "line": "0x03;OK;06D4"}
+{"ts": 1793876567.4937236, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876567.4957764, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876567.5425096, "kind": "after", "step": "snap", "refused": null, "expected_faults": null, "after": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 0.194, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.046}, "steer": {"angle_deg": 161.2, "angle_age_s": 0.194, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.8, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876567.5445101, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876567.5447237, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876567.5449321, "kind": "step", "step": "status", "before": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 0.196, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.049}, "steer": {"angle_deg": 161.2, "angle_age_s": 0.197, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.8, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876567.5452418, "kind": "tx", "link": "drive", "frame": "0x16"}
+{"ts": 1793876567.5489526, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876567.5491986, "kind": "rx", "link": "drive", "line": "0x03;OK;06CE"}
+{"ts": 1793876567.5566075, "kind": "rx", "link": "drive", "line": "0x16;OK;A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00"}
+{"ts": 1793876567.7455902, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876567.7458534, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876567.7511723, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876567.7514207, "kind": "rx", "link": "drive", "line": "0x03;OK;06D5"}
+{"ts": 1793876567.7962096, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876567.798312, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876567.946985, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876567.9472437, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876567.9525554, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876567.9527872, "kind": "rx", "link": "drive", "line": "0x03;OK;06CA"}
+{"ts": 1793876568.0979831, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876568.100023, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876568.1485214, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876568.1487849, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876568.154147, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876568.1543927, "kind": "rx", "link": "drive", "line": "0x03;OK;06D2"}
+{"ts": 1793876568.2163548, "kind": "after", "step": "status", "refused": null, "expected_faults": null, "after": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 0.062, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.116}, "steer": {"angle_deg": 161.0, "angle_age_s": 0.062, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.6, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876568.216667, "kind": "step", "step": "readback", "before": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 0.062, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.117}, "steer": {"angle_deg": 161.0, "angle_age_s": 0.062, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.6, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876568.2168925, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876568.2188942, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876568.3496418, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876568.3499157, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876568.355176, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876568.3553889, "kind": "rx", "link": "drive", "line": "0x03;OK;06DB"}
+{"ts": 1793876568.5006742, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876568.502748, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876568.551207, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876568.5514536, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876568.5568097, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876568.5570369, "kind": "rx", "link": "drive", "line": "0x03;OK;06D4"}
+{"ts": 1793876568.752359, "kind": "tx", "link": "drive", "frame": "0x04"}
+{"ts": 1793876568.752629, "kind": "tx", "link": "drive", "frame": "0x03"}
+{"ts": 1793876568.757844, "kind": "rx", "link": "drive", "line": "0x04;OK;064A"}
+{"ts": 1793876568.7580702, "kind": "rx", "link": "drive", "line": "0x03;OK;06D4"}
+{"ts": 1793876568.8030536, "kind": "tx", "link": "accel", "frame": "0x03"}
+{"ts": 1793876568.8051198, "kind": "rx", "link": "accel", "line": "0x03;OK;00;00"}
+{"ts": 1793876568.8176684, "kind": "after", "step": "readback", "refused": null, "expected_faults": null, "after": {"drive": {"firmware": "4.1.6", "connected": true, "answering": true, "last_reply_age_s": 0.059, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": true, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.012}, "steer": {"angle_deg": 161.0, "angle_age_s": 0.06, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.8, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": false, "faults": [], "stop": {"requested": false, "acked": false}}}
+{"ts": 1793876568.8182552, "kind": "tx", "link": "accel", "frame": "0x02;00"}
+{"ts": 1793876568.8184597, "kind": "tx", "link": "drive", "frame": "0x06 00"}
+{"ts": 1793876568.8186176, "kind": "tx", "link": "drive", "frame": "0x05 00"}
+{"ts": 1793876568.8187945, "kind": "tx", "link": "accel", "frame": "0x02;00"}
+{"ts": 1793876568.8204212, "kind": "rx", "link": "accel", "line": "0x02;OK;00"}
+{"ts": 1793876568.821712, "kind": "rx", "link": "accel", "line": "0x02;OK;00"}
+{"ts": 1793876568.8243833, "kind": "rx", "link": "drive", "line": "0x06;OK;00"}
+{"ts": 1793876568.8245308, "kind": "rx", "link": "drive", "line": "0x05;OK;00"}
+{"ts": 1793876568.8340404, "kind": "closed", "snapshot": {"drive": {"firmware": "4.1.6", "connected": false, "answering": true, "last_reply_age_s": 0.009, "status_raw": "A=14,ST=00,BR=00,SP=02,GR=01,LI=00,IN=00,HO=00,WI=00,CT=00,WD=00", "trips": 0}, "accel": {"firmware": "1.4", "connected": false, "answering": true, "alive": true, "duty_commanded": 0, "duty_acked": 0, "duty_read": 0, "timeouts": 0, "read_back": true, "last_reply_age_s": 0.012}, "steer": {"angle_deg": 161.0, "angle_age_s": 0.076, "limits_deg": [67.0, 243.0], "target_deg": null, "moving": "stop", "sense": "left_increases"}, "brake": {"angle_deg": 174.8, "limits_deg": [70.0, 170.0], "applied": true}, "commanded": {"gear": null, "light": null, "indicator": null, "speed_mode": null}, "armed": {"ok": true, "reason": null}, "safe_stopped": true, "faults": [], "stop": {"requested": true, "acked": true}}, "failed": null}

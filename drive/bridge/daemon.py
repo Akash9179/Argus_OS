@@ -75,6 +75,7 @@ class BridgeDaemon:
         auth_window_s: float = 60.0,
         name: str | None = None,
         waive: tuple[str, ...] = (),
+        bench_notes: dict | None = None,
     ) -> None:
         bad = set(waive) - self.WAIVABLE
         if bad:
@@ -83,6 +84,7 @@ class BridgeDaemon:
         # the jack): these checks may fail and still let the vehicle arm. They
         # stay in the preflight as failed, marked waived, and the log says so.
         self.waive = tuple(waive)
+        self.bench_notes = dict(bench_notes or {})
         if len(operators) == 0:
             raise ValueError(
                 "at least one operator token is required; see the operators file"
@@ -121,7 +123,7 @@ class BridgeDaemon:
         self._server = socket.create_server((self.host, self.port))
         self.log.event("daemon_start", vehicle=type(self.vehicle).__name__)
         if self.waive:
-            self.log.event("bench_waiver", waived=list(self.waive))
+            self.log.event("bench_waiver", waived=list(self.waive), **self.bench_notes)
         threading.Thread(target=self._accept_loop, daemon=True).start()
         threading.Thread(target=self._tick_loop, daemon=True).start()
 
@@ -273,6 +275,9 @@ class BridgeDaemon:
         effective_arm = cmd.arm and ready
         with self._wd_lock:
             before = self.watchdog.state
+            if cmd.estop:
+                # every STOP leaves a line, even one that lands on a latch
+                self.log.event("estop_received", session=client.session, state=before)
             may_drive = self.watchdog.command(cmd.arm, cmd.estop, cmd.throttle, ready=ready)
             stalled = self.watchdog.stalled
             if stalled:
@@ -461,6 +466,7 @@ class BridgeDaemon:
         "brake_feedback": ("Brake position is being read", "Brake position is not being read"),
         "faults": ("No faults", "A fault is latched"),
         "stop_on_link_loss": ("Stops when the link is lost", "Not proven to stop when the link is lost"),
+        "brake_absent": ("Brake not used: bench, wheels on the jack", "Brake not used: bench, wheels on the jack"),
     }
 
     WAIVED_WORDS = "waived for the bench: vehicle on the jack"

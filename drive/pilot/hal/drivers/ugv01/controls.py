@@ -123,6 +123,7 @@ class Ugv01Controls:
         steer_sense: str | None = None,
         steer_deadband_deg: float = 1.0,
         brake_on_stop: bool = True,
+        brake_absent: bool = False,
         on_line=None,
         on_tx=None,
     ) -> None:
@@ -151,6 +152,10 @@ class Ugv01Controls:
         self._steer_sense = steer_sense
         self._deadband = steer_deadband_deg
         self._brake_on_stop = brake_on_stop
+        # Bench only (founder, 5 Nov 2026: "the brake is not working"): no
+        # 0x06 frame from any path, and throttle skips the two brake gates.
+        # Stops are duty zero plus the key. Never on the ground.
+        self._brake_absent = brake_absent
         self._on_line_hook = on_line
         self._on_tx_hook = on_tx
 
@@ -278,6 +283,8 @@ class Ugv01Controls:
             with self._lock:
                 ok = have()
             if not ok:
+                if self._brake_absent and cmd in (p.READ_BRAKE, p.BRK_LIM):
+                    continue        # bench, brake absent: its reading is information only
                 raise LinkError("drive board did not answer %s on %s" % (what, _name(d)))
 
     def _open_accel(self) -> None:
@@ -464,6 +471,8 @@ class Ugv01Controls:
                 self._brake_release_seq = None
                 self._fault("brake release answered %s" % (r.data or "ERR"))
                 return
+            if r.cmd == p.READ_BRAKE and self._brake_absent:
+                return      # bench, brake absent: a failed brake reading is not a fault
             if r.cmd in (p.READ_STEER, p.READ_BRAKE):
                 # Seen on the vehicle on 13 Oct: 0x04;ERR;NO_SIGNAL after a
                 # horn pulse. Feedback that fails is a fault, not a skip.
@@ -501,6 +510,11 @@ class Ugv01Controls:
                 return      # faulted; the last good reading stays
             else:
                 self._steer_angle, self._steer_angle_at = a, self._now()
+        elif r.cmd == p.READ_BRAKE and self._brake_absent:
+            # bench, brake absent: kept for the snapshot, never judged
+            a = p.angle_deg(r.data)
+            if a is not None:
+                self._brake_angle, self._brake_angle_at = a, self._now()
         elif r.cmd == p.READ_BRAKE:
             a = p.angle_deg(r.data)
             if a is None:
@@ -634,7 +648,7 @@ class Ugv01Controls:
                     raise Refused("throttle refused: drive link down, brake unreachable")
                 if not self._accel_alive:
                     raise Refused("throttle refused: accel board has not acknowledged duty zero")
-                if self._brake_applied:
+                if self._brake_applied and not self._brake_absent:
                     raise Refused("throttle refused: brake applied or not known released")
                 # The board acknowledges a release as the actuator starts; the
                 # stroke takes about 1.3 s (Codex, 5 Nov 2026). Throttle waits
@@ -645,7 +659,7 @@ class Ugv01Controls:
                     raise Refused("throttle refused: gear not confirmed in D or R (board says %s)"
                                   % (self._gear_acked or "unknown"))
                 ang, at, lim = self._brake_angle, self._brake_angle_at, self._brake_limits
-                if (ang is None or at is None or not lim
+                if not self._brake_absent and (ang is None or at is None or not lim
                         or self._now() - at > self._feedback_max_age
                         or ang > lim[0] + self.BRAKE_RELEASED_MARGIN_DEG):
                     raise Refused("throttle refused: brake not yet at its released end (reads %s deg)"
@@ -659,6 +673,8 @@ class Ugv01Controls:
     def brake(self, action: str) -> None:
         frame = p.brake(action)
         with self._lock:
+            if self._brake_absent:
+                return          # bench, brake absent: nothing is sent
             if action == "apply":
                 self._check_armed("brake apply")
                 # throttle off before the brake moves, and locked even if
@@ -809,7 +825,9 @@ class Ugv01Controls:
                 began = self._stop_brake_apply_at
                 if self._armed_reason is not None or began is not None:
                     use_brake = False
-                if use_brake:
+                if self._brake_absent:
+                    pass        # bench, brake absent: no brake frame at all
+                elif use_brake:
                     self._brake_applied = True
                     self._brake_moving = True
                     self._stop_brake_apply_at = self._now()
@@ -1086,6 +1104,7 @@ class Ugv01Controls:
                 },
                 "commanded": dict(self._commanded),
                 "gear_acked": self._gear_acked,
+                "brake_absent": self._brake_absent,
                 "armed": {"ok": self._armed_reason is None, "reason": self._armed_reason},
                 "safe_stopped": self._safe_stopped,
                 "faults": list(self._faults),

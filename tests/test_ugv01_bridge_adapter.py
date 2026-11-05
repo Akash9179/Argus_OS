@@ -267,3 +267,11 @@ def test_refusals_are_kept_per_kind_and_cleared_on_success():
     v.apply(cmd(throttle=0.6, steer=1.0))
     assert v.refusals == {}
 
+
+
+def test_a_brake_absent_bench_says_so_in_the_self_test_without_blocking(rig):
+    v, fc = rig
+    fc.snap["brake_absent"] = True
+    rows = {c["name"]: c for c in v.self_test()}
+    assert rows["brake_absent"]["ok"] is True
+    assert "duty zero and the key" in rows["brake_absent"]["detail"]

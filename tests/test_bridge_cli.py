@@ -57,3 +57,13 @@ def test_a_snapshot_request_reads_status_through_the_bridge_and_logs_the_control
     log_snapshot(c, log, wait_s=0)
     assert c.reads == 1
     assert log.events == [("snapshot", {"drive": {"status_raw": "GR=01,BR=00"}, "brake": {"angle_deg": 174.0}})]
+
+
+def test_brake_absent_needs_the_jack_waiver_and_reaches_the_controls():
+    from bridge.__main__ import check_bench_flags
+    args = build_parser().parse_args(["--vehicle", "ugv01", "--bench-on-jack", "--bench-brake-absent"])
+    assert controls_kwargs(args)["brake_absent"] is True
+    assert check_bench_flags(args) is None
+    alone = build_parser().parse_args(["--vehicle", "ugv01", "--bench-brake-absent"])
+    assert "bench-on-jack" in check_bench_flags(alone)
+    assert controls_kwargs(build_parser().parse_args([]))["brake_absent"] is False

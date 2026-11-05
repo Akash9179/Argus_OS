@@ -765,7 +765,7 @@ def test_a_session_can_be_reconstructed_from_its_log(daemon, tmp_path):
     story = [e["event"] for e in mine]
     assert story == [
         "session_open", "ignition", "preflight", "armed",
-        "latched", "rearmed", "latched", "session_close",
+        "estop_received", "latched", "rearmed", "latched", "session_close",
     ]
     opened = mine[0]
     assert opened["operator_id"] == "op-akash"
@@ -1396,3 +1396,17 @@ def test_gear_and_brake_confirmations_are_logged_when_they_change(tmp_path):
     assert ev[-1]["gear"] == "D" and ev[-1]["brake_released"] is True
     assert len([e for e in ev if e["gear"] == "D"]) == 1
 
+
+
+def test_an_estop_that_lands_on_a_latched_vehicle_is_still_logged(tmp_path):
+    """5 Nov 2026 on the jack: the browser went quiet (a hidden Chrome window
+    slows its timers), the bridge latched on silence, and the STOP pressed
+    after it left no trace. Every estop received is logged."""
+    v = _RefusingVehicle()
+    d, c = _direct(v, tmp_path, timeout_s=0.1)
+    _arm(d, c)
+    time.sleep(0.2)
+    d._handle(c, drive_frame(arm=True))                 # late: latched on the stall
+    d._handle(c, drive_frame(arm=False, estop=True))    # then STOP
+    ev = [e for e in read_events(d.log.path) if e["event"] == "estop_received"]
+    assert len(ev) == 1 and ev[0]["state"] == "LATCHED"

@@ -201,13 +201,17 @@ class Ugv01Vehicle(VehicleAdapter):
             check("steer_feedback", steer["angle_deg"] is not None and steer["limits_deg"],
                   "steering reads %s degrees, travel %s to %s" % (
                       steer["angle_deg"], *(steer["limits_deg"] or ("?", "?")))),
-            check("brake_feedback", brake["angle_deg"] is not None,
-                  "brake reads %s degrees" % brake["angle_deg"]),
+            check("brake_feedback", brake["angle_deg"] is not None or bool(s.get("brake_absent")),
+                  ("brake not used on this bench; it reads %s degrees" % brake["angle_deg"])
+                  if s.get("brake_absent") else "brake reads %s degrees" % brake["angle_deg"]),
             check("faults", not s["faults"], "; ".join(s["faults"]) or "no faults"),
             check("armed", armed.get("ok", False), _armed_words(armed)),
             check("stop_on_link_loss", False,
                   "not proven: the vehicle has not shown it stops when the link is lost"),
-        ]
+        ] + ([check("brake_absent", True,
+                    "brake not used: bench with the drive wheels on a jack; "
+                    "stops are duty zero and the key")]
+             if s.get("brake_absent") else [])
 
     def read(self) -> Telemetry:
         s = self._c.snapshot()

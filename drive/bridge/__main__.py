@@ -63,6 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="ugv01 only: let the vehicle arm while 'stop on link loss' is "
                          "unproven. For joystick control with the drive wheels on a jack "
                          "and a person at the key; never on the ground. Logged.")
+    ap.add_argument("--bench-brake-absent", action="store_true",
+                    help="ugv01, with --bench-on-jack only: the brake is out of use. No "
+                         "brake frame is ever sent and throttle skips the brake gates; "
+                         "stops are duty zero and the key. Logged. Never on the ground.")
     ap.add_argument("--watchdog-ms", type=int, default=700)
     ap.add_argument("--operators", default=os.environ.get(
         "ARGUS_OPERATORS", "var/bridge_operators.json"),
@@ -84,7 +88,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def controls_kwargs(args: argparse.Namespace) -> dict:
     """What the real vehicle's controls are built with, beyond the ports."""
-    return {"steer_sense": args.steer_sense, "max_duty": args.max_duty}
+    return {"steer_sense": args.steer_sense, "max_duty": args.max_duty,
+            "brake_absent": bool(args.bench_brake_absent)}
+
+
+def check_bench_flags(args: argparse.Namespace) -> str | None:
+    """Why the bench flags may not run together, or None."""
+    if args.bench_on_jack and args.vehicle != "ugv01":
+        return "--bench-on-jack is for the real vehicle on a jack (--vehicle ugv01)"
+    if args.bench_brake_absent and not (args.bench_on_jack and args.vehicle == "ugv01"):
+        return "--bench-brake-absent only runs with --vehicle ugv01 --bench-on-jack"
+    return None
 
 
 def log_snapshot(controls, log, wait_s: float = 0.3) -> None:
@@ -108,8 +122,9 @@ def waived_checks(args: argparse.Namespace) -> tuple[str, ...]:
 def main() -> int:
     ap = build_parser()
     args = ap.parse_args()
-    if args.bench_on_jack and args.vehicle != "ugv01":
-        ap.error("--bench-on-jack is for the real vehicle on a jack (--vehicle ugv01)")
+    why = check_bench_flags(args)
+    if why:
+        ap.error(why)
 
     if os.environ.get("ARGUS_PASSWORD"):
         # Said out loud rather than silently ignored: someone following an
@@ -149,12 +164,16 @@ def main() -> int:
         vehicle, operators, host=args.host, port=args.port,
         watchdog_timeout_s=args.watchdog_ms / 1000.0, log_path=args.log,
         name=args.name, waive=waived_checks(args),
+        bench_notes={"brake_absent": True} if args.bench_brake_absent else None,
     )
     if args.bench_on_jack:
         print("BENCH WAIVER: the vehicle may arm while 'stop on link loss' is unproven. "
               "Drive wheels on the jack, a person at the key. Never on the ground.",
               file=sys.stderr)
         daemon.log.event("throttle_cap", max_duty=args.max_duty)
+        if args.bench_brake_absent:
+            print("BRAKE ABSENT: no brake frame will be sent; stops are duty zero and the key.",
+                  file=sys.stderr)
     daemon.start()
     reporter = None
     if args.report:

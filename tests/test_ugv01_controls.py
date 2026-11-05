@@ -1513,3 +1513,53 @@ def test_an_apply_that_arrives_is_halted_quietly():
     assert p.brake("stop") in drive.writes
     assert c.snapshot()["faults"] == []
     c.close()
+
+
+# ------------------------------------------- bench brake absent, proposal 5 Nov 2026 (not deployed)
+
+def test_with_the_brake_absent_no_brake_frame_ever_goes_out():
+    """Founder, 5 Nov 2026: 'the brake is not working, don't test that'.
+    For the jack only, the controls can run with the brake absent: no 0x06
+    frame from any path, stops are duty zero plus the key."""
+    state = {"deg": 174.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True)
+    c.start(); read_feedback_now(c)
+    c.brake("release"); c.brake("apply"); c.brake("stop")
+    c.heartbeat(); c.steer("left")
+    c.safe_stop()
+    assert not [w for w in drive.writes if w.startswith(b"0x06")], drive.writes
+    c.close()
+    assert not [w for w in drive.writes if w.startswith(b"0x06")]
+
+
+def test_with_the_brake_absent_throttle_skips_only_the_brake_gates():
+    state = {"deg": 174.0}
+    c, drive, accel, clock = _rig(_brake_at(state), accel_board, brake_absent=True)
+    c.start(); read_feedback_now(c)
+    c.heartbeat(); c.set_throttle(20)
+    assert accel.writes[-1] == p.accel_duty(20)
+    assert c.snapshot()["brake_absent"] is True
+    c.close()
+
+
+def test_with_the_brake_absent_the_gear_gate_still_holds():
+    c, drive, accel, clock = _rig(_board_with(gear_answer=b"0x08;ERR;BUSY\n"), accel_board, brake_absent=True)
+    c.start(); read_feedback_now(c)
+    c.gear("N")
+    assert wait_until(lambda: c.snapshot()["gear_acked"] is None)
+    with pytest.raises(Refused, match="gear"):
+        c.set_throttle(20)
+    c.close()
+
+
+def test_with_the_brake_absent_a_brake_reading_failure_is_not_a_fault():
+    def answer(frame: bytes) -> list[bytes]:
+        text = frame.decode().strip()
+        if int(text.split()[0], 16) == p.READ_BRAKE:
+            return [b"0x03;ERR;NO_SIGNAL\n"]
+        return drive_board(frame)
+    c, drive, accel, clock = _rig(answer, accel_board, brake_absent=True)
+    c.start()
+    c.poll_feedback(); wait_until(lambda: False, tries=20)
+    assert c.snapshot()["faults"] == []
+    c.close()
